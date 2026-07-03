@@ -46,3 +46,19 @@ and current design:
 Compiled against 241, and we deliberately use only long-stable platform APIs
 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevision`, `FileChooserDescriptorFactory`,
 `ToolbarDecorator`, PSI) so the plugin also loads in Android Studio without AS-specific dependencies.
+
+## Plugin Verifier warnings (accepted, non-blocking)
+The bundled verifier (IntelliJ Platform Gradle Plugin 2.17.0) reports **no** API-usage problems in our
+code. The stricter Marketplace verifier (1.405) flags a small, constant set across all IDE versions —
+all reviewed and **intentionally accepted**:
+- **Internal API — Kotlin PSI** (`KtFile`, `KtClass`, `KtNamedFunction` and their members in
+  `match/CurrentScreen.kt`). This is the sanctioned, unavoidable way to traverse Kotlin PSI; the K2
+  note above applies. Do not chase these away.
+- **Experimental API — `ByteBackedContentRevision`** (`compare/GitImageSource.kt`). Cleanest path to
+  raw committed bytes; a non-experimental fallback (`ContentRevision.getContent()`) is already in place.
+- **Deprecated API — none.** The old `com.intellij.util.Alarm` debounce was replaced by a plain
+  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`.
+
+To reproduce the Marketplace numbers locally, pin the verifier CLI in `build.gradle.kts`
+(`intellijPlatform { pluginVerifier { cliVersion = "1.405" } }`) before running the `Verify Plugin`
+workflow.
