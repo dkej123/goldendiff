@@ -59,6 +59,6 @@ all reviewed and **intentionally accepted**:
 - **Deprecated API — none.** The old `com.intellij.util.Alarm` debounce was replaced by a plain
   `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`.
 
-To reproduce the Marketplace numbers locally, pin the verifier CLI in `build.gradle.kts`
-(`intellijPlatform { pluginVerifier { cliVersion = "1.405" } }`) before running the `Verify Plugin`
-workflow.
+The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
+so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
+moves to newer verifier versions.
