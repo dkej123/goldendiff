@@ -28,6 +28,11 @@ dependencies {
         bundledPlugin("Git4Idea")
 
         testFramework(TestFrameworkType.Platform)
+
+        // Pin the Plugin Verifier CLI to the version JetBrains Marketplace ran, so the `Verify Plugin`
+        // workflow reproduces the same deprecated/internal/experimental API report. Bump as Marketplace
+        // moves forward (latest is higher); see docs/gotchas.md.
+        pluginVerifier("1.405")
     }
 }
 
