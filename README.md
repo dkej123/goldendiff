@@ -1,5 +1,9 @@
 # Screenshot Compare
 
+[![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/32653-screenshot-compare.svg?label=Marketplace)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
+[![Downloads](https://img.shields.io/jetbrains/plugin/d/32653-screenshot-compare.svg)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
+[![Rating](https://img.shields.io/jetbrains/plugin/r/rating/32653-screenshot-compare.svg)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare/reviews)
+
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
 the editor. Open the tool window for the screen you're working on and it lists the matching goldens,
 then compares the **committed (git HEAD)** version against your **working copy** or generated test
@@ -30,6 +34,11 @@ That covers **Roborazzi, Paparazzi, Compose Preview Screenshot Testing, Shot**, 
 the plugin at the golden directory.
 
 ## Install
+**From JetBrains Marketplace (recommended):**
+- In the IDE: **Settings → Plugins → Marketplace**, search for **Screenshot Compare**, click **Install**.
+- Or from the web: [plugins.jetbrains.com/plugin/32653-screenshot-compare](https://plugins.jetbrains.com/plugin/32653-screenshot-compare).
+
+**From a local zip:**
 1. Build the plugin (see below) or grab `build/distributions/screenshot-compare-<ver>.zip`.
 2. **Settings → Plugins → ⚙ → Install Plugin from Disk…** → select the zip.
 3. Restart Android Studio.

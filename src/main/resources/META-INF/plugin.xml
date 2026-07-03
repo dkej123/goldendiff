@@ -4,9 +4,30 @@
     <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
 
     <description><![CDATA[
-      Shows screenshot-test goldens for the screen/class you are currently editing and lets you
-      compare the committed (git HEAD) golden with the working-copy or generated-test-output version
-      in three modes: side-by-side (2-up), swipe and onion skin.
+      <p><b>Screenshot Compare</b> helps Android and Kotlin developers review screenshot-test changes
+      directly in Android Studio or IntelliJ-based IDEs, without leaving the editor.</p>
+
+      <p>Open the tool window for the screen you are editing and it lists the matching screenshot
+      goldens, then compares the committed <b>git HEAD</b> version against your <b>working copy</b> or
+      generated test output &mdash; in three modes: side-by-side (2-up), swipe, and onion skin.</p>
+
+      <p>It is tool-agnostic and works with PNG outputs from <b>Roborazzi, Paparazzi, Compose Preview
+      Screenshot Testing, Shot</b>, and similar screenshot-test tools &mdash; just point it at the
+      golden directory.</p>
+
+      <ul>
+        <li>Match screenshot goldens by screen, preview, test, class, or file name.</li>
+        <li>Compare Git HEAD with working-copy goldens.</li>
+        <li>Compare Git HEAD with generated test output such as <code>_actual.png</code> files.</li>
+        <li>Configure golden directories, generated-output directories, and the generated-file regex
+        per project.</li>
+        <li>Review changes in side-by-side, swipe, and onion-skin modes.</li>
+        <li>Zoom (Fit / 50&ndash;400%) and scroll large screenshots.</li>
+        <li>When a golden is identical to the selected source, the comparison is skipped and a single
+        preview is shown.</li>
+      </ul>
+
+      <p>Works with IntelliJ Platform 2024.1+ (build 241+) through build 254.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

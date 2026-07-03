@@ -1,4 +1,10 @@
-# Marketplace Preparation
+# Marketplace
+
+**Published:** https://plugins.jetbrains.com/plugin/32653-screenshot-compare (plugin ID `32653`).
+
+The initial manual upload is done. New versions are shipped through the automated
+`Publish Plugin` workflow — see [Automated Publishing](#automated-publishing) and the
+[Release Checklist](#release-checklist) below.
 
 JetBrains Marketplace: https://plugins.jetbrains.com
 
@@ -33,23 +39,23 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
 - Testing
 - Git
 
-## Initial Manual Upload
-The first Marketplace publication must be uploaded manually.
+## Initial Manual Upload (done)
+The first Marketplace publication was uploaded manually as `screenshot-compare-0.1.0.zip`.
+Kept here for reference / recreating the listing:
 
 1. Build the plugin:
    ```bash
    ./gradlew buildPlugin
    ```
-2. Upload:
-   ```text
-   build/distributions/screenshot-compare-0.1.0.zip
-   ```
+2. Upload `build/distributions/screenshot-compare-<ver>.zip`.
 3. Fill the Marketplace page using the descriptions above.
 4. Add screenshots or a short GIF showing:
    - tool window with matching goldens,
    - side-by-side comparison,
    - swipe mode,
    - generated test-output source.
+
+Screenshots/GIF are still worth adding to the listing if not present yet.
 
 ## Automated Publishing
 After the first manual upload, the `Publish Plugin` GitHub Actions workflow can publish new versions
