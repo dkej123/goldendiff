@@ -22,7 +22,7 @@ comparison source, the comparison is skipped and you just get a single preview l
   regex is used only to find the generated counterpart for the selected golden in Test output mode.
 - Offers side-by-side, swipe, and onion-skin comparison modes.
 - Keeps screenshot directories project-local.
-- Supports IntelliJ Platform 2024.1+ through 2025.3.
+- Supports IntelliJ Platform 2024.1+ through build 254.
 
 ## Works with any screenshot tool
 It only needs PNG goldens committed to git, whose file names contain the class / preview / test name.
@@ -35,7 +35,7 @@ the plugin at the golden directory.
 3. Restart Android Studio.
 
 Compatible with JetBrains IDEs based on IntelliJ Platform **2024.1+ (build 241+)**, including Android
-Studio versions on those platform builds, up to the declared `253.*` range.
+Studio versions on those platform builds, up to the declared `254.*` range.
 
 ## Use
 1. Open the **Screenshot Compare** tool window (right edge).

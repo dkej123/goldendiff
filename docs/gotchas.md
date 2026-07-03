@@ -4,7 +4,7 @@ Read this before changing the build or the refresh logic.
 
 ## Platform compatibility
 - The plugin is compiled against **IntelliJ Platform 2024.1 / build 241** and declares compatibility
-  through **253.\***. Keep code on stable APIs available in 241 if you want the broad range to stay true.
+  through **254.\***. Keep code on stable APIs available in 241 if you want the broad range to stay true.
 - Do not re-add Android Studio specific APIs. The plugin should remain installable in IntelliJ IDEA and
   Android Studio as long as Kotlin and Git4Idea bundled plugins are present.
 - On build 253+, `ideaIC` no longer exists; if you retarget back to 2025.3, use `intellijIdea("2025.3")`.
