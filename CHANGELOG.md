@@ -1,0 +1,17 @@
+# Changelog
+
+## [0.1.0] - 2026-07-03
+
+Initial public preview.
+
+### Added
+- Tool window that lists screenshot-test goldens matching the current Kotlin screen, preview, or test file.
+- Git HEAD vs working-copy comparison for selected golden screenshots.
+- Git HEAD vs generated test-output comparison with configurable output directories.
+- Configurable generated-file regex, defaulting to `_actual.png` outputs.
+- Side-by-side, swipe, and onion-skin comparison modes.
+- Fit and fixed zoom levels with scroll support.
+- Project-level settings for golden and generated-output directories.
+- Compatibility range for IntelliJ Platform 2024.1+ through 2025.3.
+
+[0.1.0]: https://github.com/dkej123/android_studio_screenshot_compare_plugin/releases/tag/v0.1.0

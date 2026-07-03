@@ -38,10 +38,22 @@ intellijPlatform {
     buildSearchableOptions = false
 
     pluginConfiguration {
+        changeNotes = """
+            <ul>
+              <li>Initial public preview.</li>
+              <li>Compare screenshot goldens from Git HEAD with working-copy or generated test-output images.</li>
+              <li>Review changes in side-by-side, swipe, and onion-skin modes.</li>
+            </ul>
+        """.trimIndent()
+
         ideaVersion {
             sinceBuild = "241"
             untilBuild = "253.*"
         }
+    }
+
+    publishing {
+        token = providers.gradleProperty("intellijPlatformPublishingToken")
     }
 }
 
