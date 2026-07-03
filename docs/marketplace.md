@@ -58,8 +58,9 @@ Kept here for reference / recreating the listing:
 Screenshots/GIF are still worth adding to the listing if not present yet.
 
 ## Automated Publishing
-After the first manual upload, the `Publish Plugin` GitHub Actions workflow can publish new versions
-to JetBrains Marketplace.
+Pushing a `v*` tag now triggers **both** workflows: `Release` (GitHub Release with the built zip) and
+`Publish Plugin` (upload to JetBrains Marketplace). `Publish Plugin` can also still be run manually via
+**Actions → Publish Plugin → Run workflow**.
 
 Required repository secret:
 
@@ -80,5 +81,5 @@ The token is generated from the JetBrains Marketplace profile page under **My To
   git tag v<version>
   git push origin v<version>
   ```
-- Confirm the GitHub Release workflow attaches the ZIP.
-- For Marketplace updates after first manual upload, run the `Publish Plugin` workflow.
+- Pushing the tag triggers both the `Release` and `Publish Plugin` workflows automatically.
+- Confirm the GitHub Release attaches the ZIP and that `Publish Plugin` succeeded.
