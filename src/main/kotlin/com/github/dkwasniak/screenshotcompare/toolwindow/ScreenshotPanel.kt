@@ -21,7 +21,6 @@ import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.Alarm
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
@@ -34,6 +33,7 @@ import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
+import javax.swing.Timer
 
 class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
@@ -71,7 +71,8 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
         }
     }
 
-    private val refreshAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
+    // Debounces list refreshes from editor/caret changes; fires once on the EDT after DEBOUNCE_MS.
+    private val refreshTimer = Timer(DEBOUNCE_MS) { refresh() }.apply { isRepeats = false }
 
     // Names the list was last built from — used to avoid rebuilding when only the caret moves.
     private var lastNames: List<String>? = null
@@ -174,8 +175,7 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
 
     private fun scheduleRefresh(force: Boolean = false) {
         if (force) pendingForce = true
-        refreshAlarm.cancelAllRequests()
-        refreshAlarm.addRequest({ refresh() }, DEBOUNCE_MS)
+        refreshTimer.restart()
     }
 
     private fun refresh() {
@@ -299,6 +299,7 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
 
     override fun dispose() {
         // messageBus connection and caret listener are tied to this Disposable and cleaned up here.
+        refreshTimer.stop()
     }
 
     companion object {

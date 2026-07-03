@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- Replace the deprecated `Alarm`-based refresh debounce with a plain Swing `Timer`, removing the only
+  deprecated-API usage flagged by the Marketplace verifier.
+
 ## [1.0.0] - 2026-07-03
 
 First stable release.
