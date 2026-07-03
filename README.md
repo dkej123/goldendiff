@@ -46,3 +46,6 @@ platform (~2 GB) and is slow; later builds take seconds.
 Deeper docs live in [`docs/`](docs/): [architecture](docs/architecture.md),
 [build & run](docs/build-and-run.md), [features](docs/features.md), [gotchas](docs/gotchas.md),
 [roadmap](docs/roadmap.md). Agent entry points: `CLAUDE.md` / `AGENTS.md`.
+
+## License
+MIT. See [LICENSE](LICENSE).
