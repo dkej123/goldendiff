@@ -17,7 +17,9 @@ comparison source, the comparison is skipped and you just get a single preview l
 - Finds screenshot goldens that match the current Kotlin screen, preview, test, class, or file.
 - Compares Git HEAD with the working-copy golden.
 - Compares Git HEAD with generated verification output such as `_actual.png` files.
-- Supports configurable generated-output directories and filename regex.
+- Supports configurable generated-output directories and filename regex. Golden matching and
+  generated-output matching are separate steps: the list is built from golden filenames, then the
+  regex is used only to find the generated counterpart for the selected golden in Test output mode.
 - Offers side-by-side, swipe, and onion-skin comparison modes.
 - Keeps screenshot directories project-local.
 - Supports IntelliJ Platform 2024.1+ through 2025.3.
@@ -42,6 +44,10 @@ Studio versions on those platform builds, up to the declared `253.*` range.
 3. Optional: configure generated test-output directories and their filename regex.
 4. Open a screen/test file → pick a golden from the list → choose Working copy or Test output →
    switch modes / zoom.
+
+The generated-file regex does not decide which goldens appear in the list. It filters and maps files
+from the generated-output directories after a golden is selected. The default `^(.+)_actual\.png$`
+matches `Foo_actual.png` and maps it to the selected golden `Foo.png`.
 
 ## Build from source
 ```bash

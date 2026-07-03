@@ -23,6 +23,11 @@ revision). The "Compare" switch chooses the right side:
   `^(.+)_actual\.png$`, so `_actual` files are selected and `_compare` files are ignored. The first
   capture group is treated as the golden base name (`Foo_actual.png` → `Foo.png`).
 
+The generated-file regex is not part of the current-file → golden-list matching. The list always comes
+from golden filenames matched against names extracted from the current Kotlin file. The regex is used
+only after the user selects a golden and chooses **Test output**, to find that golden's generated
+counterpart.
+
 - **Bytes equal** (no change vs HEAD) → single preview, status "No changes vs HEAD — <file>"; the mode
   toggle is hidden.
 - **Differ** → the three modes are shown.

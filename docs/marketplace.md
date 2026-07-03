@@ -19,6 +19,8 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
 - Compare Git HEAD with working-copy goldens.
 - Compare Git HEAD with generated test output such as `_actual.png` files.
 - Configure golden directories, generated-output directories, and generated-file regex per project.
+  Golden-list matching uses golden filenames; the generated-file regex is used only to map generated
+  output files to an already selected golden in Test output mode.
 - Review changes in side-by-side, swipe, and onion-skin modes.
 - Zoom and scroll large screenshots.
 - Works with IntelliJ Platform 2024.1+ through 2025.3.
