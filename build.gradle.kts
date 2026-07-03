@@ -40,9 +40,10 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>Initial public preview.</li>
+              <li>First stable release.</li>
               <li>Compare screenshot goldens from Git HEAD with working-copy or generated test-output images.</li>
-              <li>Review changes in side-by-side, swipe, and onion-skin modes.</li>
+              <li>Side-by-side, swipe, and onion-skin comparison modes with zoom.</li>
+              <li>Configurable golden and generated-output directories per project.</li>
             </ul>
         """.trimIndent()
 
