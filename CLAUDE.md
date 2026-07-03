@@ -9,7 +9,7 @@ output directories.
 
 ## Fast facts
 - Plugin id / package: `com.github.dkwasniak.screenshotcompare`. Display name: **Screenshot Compare**.
-- Target platform: **IntelliJ Platform 2024.1+ (build 241+)**, declared through `253.*`.
+- Target platform: **IntelliJ Platform 2024.1+ (build 241+)**, declared through `254.*`.
 - Toolchain: **JDK 21**, **Gradle 9.6.1**, Kotlin **2.2.20**, IntelliJ Platform Gradle Plugin **2.17.0**.
 
 ## Common commands
