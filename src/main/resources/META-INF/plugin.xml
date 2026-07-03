@@ -1,0 +1,35 @@
+<idea-plugin>
+    <id>com.github.dkwasniak.screenshotcompare</id>
+    <name>Screenshot Compare</name>
+    <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
+
+    <description><![CDATA[
+      Shows screenshot-test goldens for the screen/class you are currently editing and lets you
+      compare the committed (git HEAD) golden with the working-copy or generated-test-output version
+      in three modes: side-by-side (2-up), swipe and onion skin.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>org.jetbrains.kotlin</depends>
+    <depends>Git4Idea</depends>
+
+    <!-- We only traverse Kotlin PSI (no Analysis API / resolve), so we support the K2 mode that
+         recent Android Studio versions use by default. -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" />
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Screenshot Compare"
+                    anchor="right"
+                    icon="/icons/screenshotCompareToolWindow.svg"
+                    factoryClass="com.github.dkwasniak.screenshotcompare.toolwindow.ScreenshotToolWindowFactory"/>
+
+        <projectConfigurable
+            parentId="tools"
+            instance="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
+            id="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
+            displayName="Screenshot Compare"/>
+    </extensions>
+</idea-plugin>

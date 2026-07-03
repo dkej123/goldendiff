@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# IntelliJ IDEA / Android Studio
+.idea/
+*.iml
+out/
+
+# Gradle
+.gradle/
+build/
+
+# IntelliJ Platform Gradle Plugin
+.intellijPlatform/
+
+# Kotlin
+.kotlin/
+
+# Logs
+*.log
+
+# Local secrets / environment
+.env
+.env.*
+local.properties
+
+# Plugin signing secrets
+*.pem
+*.crt
+*.key
+*.p12
+*.jks
