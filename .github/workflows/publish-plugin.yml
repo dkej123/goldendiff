@@ -1,6 +1,9 @@
 name: Publish Plugin
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
