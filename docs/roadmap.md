@@ -22,8 +22,8 @@ Status: working MVP. Below is what's intentionally missing and where to extend.
 - [x] Plugin + tool-window icons.
 - [x] Tests: unit-test `GoldenFinder`, `ImagePainting`, `GeneratedImageSource`, `PixelDiff` (pure
       logic). `CurrentScreen` / `GitImageSource` still need a platform (`BasePlatformTestCase`) harness.
-- [x] Publish to JetBrains Marketplace — live at
-      [plugin 32653](https://plugins.jetbrains.com/plugin/32653-screenshot-compare).
+- [x] Publish to JetBrains Marketplace (re-listed as **Golden Diff** under a new plugin ID; first
+      upload of the new listing is manual).
 - [ ] Optional `androidStudio(...)` target for in-AS `runIde`.
 
 ## Next release — 0.2.0 (in progress on main, unreleased)

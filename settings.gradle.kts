@@ -1,1 +1,1 @@
-rootProject.name = "screenshot-compare"
+rootProject.name = "golden-diff"

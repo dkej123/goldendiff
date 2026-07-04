@@ -1,8 +1,8 @@
 # Golden Diff
 
-[![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/32653-screenshot-compare.svg?label=Marketplace)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
-[![Downloads](https://img.shields.io/jetbrains/plugin/d/32653-screenshot-compare.svg)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
-[![Rating](https://img.shields.io/jetbrains/plugin/r/rating/32653-screenshot-compare.svg)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare/reviews)
+<!-- Marketplace badges/link go here after the first upload creates the new listing (new plugin ID).
+     Template: https://img.shields.io/jetbrains/plugin/v/<ID>-golden-diff.svg -->
+_JetBrains Marketplace listing: added after the first publish._
 
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
 the editor. Open the tool window for the screen you're working on and it lists the matching goldens,
@@ -37,10 +37,10 @@ the plugin at the golden directory.
 ## Install
 **From JetBrains Marketplace (recommended):**
 - In the IDE: **Settings → Plugins → Marketplace**, search for **Golden Diff**, click **Install**.
-- Or from the web: [plugins.jetbrains.com/plugin/32653-screenshot-compare](https://plugins.jetbrains.com/plugin/32653-screenshot-compare).
+- Or from the web: link added once the new listing is published.
 
 **From a local zip:**
-1. Build the plugin (see below) or grab `build/distributions/screenshot-compare-<ver>.zip`.
+1. Build the plugin (see below) or grab `build/distributions/golden-diff-<ver>.zip`.
 2. **Settings → Plugins → ⚙ → Install Plugin from Disk…** → select the zip.
 3. Restart Android Studio.
 
@@ -61,7 +61,7 @@ matches `Foo_actual.png` and maps it to the selected golden `Foo.png`.
 
 ## Build from source
 ```bash
-./gradlew buildPlugin   # -> build/distributions/screenshot-compare-<ver>.zip
+./gradlew buildPlugin   # -> build/distributions/golden-diff-<ver>.zip
 ./gradlew runIde        # sandbox IDE for quick testing
 ```
 Requires JDK 21 (the Gradle wrapper handles Gradle 9.6.1). The first build downloads the IntelliJ
@@ -72,8 +72,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 To create a GitHub release:
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 JetBrains Marketplace preparation notes live in [docs/marketplace.md](docs/marketplace.md).

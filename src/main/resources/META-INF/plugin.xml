@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.github.dkwasniak.screenshotcompare</id>
+    <id>com.github.dkwasniak.goldendiff</id>
     <name>Golden Diff</name>
     <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
 
@@ -46,12 +46,12 @@
         <toolWindow id="Golden Diff"
                     anchor="right"
                     icon="/icons/screenshotCompareToolWindow.svg"
-                    factoryClass="com.github.dkwasniak.screenshotcompare.toolwindow.ScreenshotToolWindowFactory"/>
+                    factoryClass="com.github.dkwasniak.goldendiff.toolwindow.ScreenshotToolWindowFactory"/>
 
         <projectConfigurable
             parentId="tools"
-            instance="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
-            id="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
+            instance="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
+            id="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
             displayName="Golden Diff"/>
     </extensions>
 </idea-plugin>

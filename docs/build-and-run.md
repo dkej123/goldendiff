@@ -12,7 +12,7 @@ form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241";
 
 ## Commands
 ```bash
-./gradlew buildPlugin      # assembles build/distributions/screenshot-compare-<ver>.zip
+./gradlew buildPlugin      # assembles build/distributions/golden-diff-<ver>.zip
 ./gradlew verifyPlugin     # plugin structure verifier
 ./gradlew runIde           # launches a sandbox IntelliJ IDEA (NOT Android Studio)
 ```

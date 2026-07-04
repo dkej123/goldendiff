@@ -48,10 +48,10 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>New pixel-diff compare mode: a heatmap highlighting exactly which pixels changed,
-                  with a percent-changed readout.</li>
-              <li>Configurable excluded golden suffixes in settings (default _compare, _actual).</li>
-              <li>Fix: emit Java 17 bytecode so the plugin loads on IntelliJ 2024.1–2024.3.</li>
+              <li>Initial release of Golden Diff.</li>
+              <li>Compare screenshot goldens from Git HEAD with working-copy or generated test output.</li>
+              <li>Four modes: side-by-side, swipe, onion skin, and a pixel-diff heatmap.</li>
+              <li>Configurable golden/generated directories, generated-file regex, and excluded suffixes.</li>
             </ul>
         """.trimIndent()
 

@@ -8,14 +8,15 @@ Paparazzi, Compose Preview Screenshot, Shot…) — the user points it at golden
 output directories.
 
 ## Fast facts
-- Plugin id / package: `com.github.dkwasniak.screenshotcompare` (unchanged). Display name: **Golden Diff**
-  (was "Screenshot Compare"; Marketplace URL slug stays `32653-screenshot-compare`).
+- Plugin id / package: `com.github.dkwasniak.goldendiff`. Display name: **Golden Diff**. Distribution
+  zip: `golden-diff-<ver>.zip`. (Was "Screenshot Compare" / `…screenshotcompare` — re-listed as a new
+  Marketplace plugin under the new ID; new numeric ID assigned on first upload.)
 - Target platform: **IntelliJ Platform 2024.1+ (build 241+)**, declared through `254.*`.
 - Toolchain: **JDK 21**, **Gradle 9.6.1**, Kotlin **2.2.20**, IntelliJ Platform Gradle Plugin **2.17.0**.
 
 ## Common commands
 ```bash
-./gradlew buildPlugin   # builds build/distributions/screenshot-compare-<ver>.zip
+./gradlew buildPlugin   # builds build/distributions/golden-diff-<ver>.zip
 ./gradlew runIde        # sandbox IDE (IntelliJ, NOT Android Studio) for quick testing
 ```
 Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → the built zip → restart.

@@ -3,7 +3,7 @@
 Plain IntelliJ Platform plugin. No Java sources, no GUI forms — Kotlin + Swing only.
 
 ## Package layout
-`src/main/kotlin/com/github/dkwasniak/screenshotcompare/`
+`src/main/kotlin/com/github/dkwasniak/goldendiff/`
 
 - **`toolwindow/`** — UI entry point and the list side.
   - `ScreenshotToolWindowFactory` — registers the right-anchored tool window (`plugin.xml`).

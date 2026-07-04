@@ -1,10 +1,9 @@
 # Marketplace
 
-**Published:** https://plugins.jetbrains.com/plugin/32653-screenshot-compare (plugin ID `32653`).
-
-The initial manual upload is done. New versions are shipped through the automated
-`Publish Plugin` workflow — see [Automated Publishing](#automated-publishing) and the
-[Release Checklist](#release-checklist) below.
+Plugin ID: `com.github.dkwasniak.goldendiff`. Re-listed as **Golden Diff** under a new plugin ID
+(the earlier "Screenshot Compare" listing is retired). **The first upload of the new listing is
+manual** — see [Initial Manual Upload](#initial-manual-upload). After that, the automated
+`Publish Plugin` workflow ships new versions; record the assigned URL / numeric ID here once live.
 
 JetBrains Marketplace: https://plugins.jetbrains.com
 
@@ -39,15 +38,15 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
 - Testing
 - Git
 
-## Initial Manual Upload (done)
-The first Marketplace publication was uploaded manually as `screenshot-compare-0.1.0.zip`.
-Kept here for reference / recreating the listing:
+## Initial Manual Upload
+The first publication of the new plugin ID must be uploaded manually (JetBrains requires it for a new
+plugin), then the token-based workflow can take over:
 
 1. Build the plugin:
    ```bash
    ./gradlew buildPlugin
    ```
-2. Upload `build/distributions/screenshot-compare-<ver>.zip`.
+2. Upload `build/distributions/golden-diff-<ver>.zip`.
 3. Fill the Marketplace page using the descriptions above.
 4. Add screenshots or a short GIF showing:
    - tool window with matching goldens,
