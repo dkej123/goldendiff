@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>com.github.dkwasniak.screenshotcompare</id>
-    <name>Screenshot Compare</name>
+    <name>Golden Diff</name>
     <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
 
     <description><![CDATA[
-      <p><b>Screenshot Compare</b> helps Android and Kotlin developers review screenshot-test changes
+      <p><b>Golden Diff</b> helps Android and Kotlin developers review screenshot-test changes
       directly in Android Studio or IntelliJ-based IDEs, without leaving the editor.</p>
 
       <p>Open the tool window for the screen you are editing and it lists the matching screenshot
@@ -43,7 +43,7 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="Screenshot Compare"
+        <toolWindow id="Golden Diff"
                     anchor="right"
                     icon="/icons/screenshotCompareToolWindow.svg"
                     factoryClass="com.github.dkwasniak.screenshotcompare.toolwindow.ScreenshotToolWindowFactory"/>
@@ -52,6 +52,6 @@
             parentId="tools"
             instance="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
             id="com.github.dkwasniak.screenshotcompare.settings.ScreenshotConfigurable"
-            displayName="Screenshot Compare"/>
+            displayName="Golden Diff"/>
     </extensions>
 </idea-plugin>

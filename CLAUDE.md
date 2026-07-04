@@ -1,5 +1,5 @@
 <!-- AGENTS.md is a symlink to this file — keep the content tool-neutral (Claude Code, Codex, …). -->
-# Screenshot Compare — agent guide
+# Golden Diff — agent guide
 
 Android Studio / IntelliJ plugin (Kotlin). In a tool window it lists screenshot-test goldens for the
 screen/class you are editing and compares the **git HEAD** version with the **working copy** or
@@ -8,7 +8,8 @@ Paparazzi, Compose Preview Screenshot, Shot…) — the user points it at golden
 output directories.
 
 ## Fast facts
-- Plugin id / package: `com.github.dkwasniak.screenshotcompare`. Display name: **Screenshot Compare**.
+- Plugin id / package: `com.github.dkwasniak.screenshotcompare` (unchanged). Display name: **Golden Diff**
+  (was "Screenshot Compare"; Marketplace URL slug stays `32653-screenshot-compare`).
 - Target platform: **IntelliJ Platform 2024.1+ (build 241+)**, declared through `254.*`.
 - Toolchain: **JDK 21**, **Gradle 9.6.1**, Kotlin **2.2.20**, IntelliJ Platform Gradle Plugin **2.17.0**.
 

@@ -12,7 +12,7 @@ JetBrains Marketplace: https://plugins.jetbrains.com
 Compare screenshot-test goldens from Android Studio or IntelliJ without leaving the editor.
 
 ## Long Description
-Screenshot Compare helps Android and Kotlin developers review screenshot-test changes directly in
+Golden Diff helps Android and Kotlin developers review screenshot-test changes directly in
 Android Studio or IntelliJ-based IDEs.
 
 The plugin finds committed screenshot goldens related to the Kotlin file you are editing and compares

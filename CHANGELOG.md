@@ -1,11 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- Rename the plugin to **Golden Diff** (display name, tool window, and settings entry). The plugin ID
+  (`com.github.dkwasniak.screenshotcompare`) and Marketplace URL are unchanged.
+
 ## [1.1.0] - 2026-07-04
 
 ### Added
 - Pixel-diff compare mode: a heatmap that dims unchanged pixels and highlights changed ones, with a
   "% pixels changed" readout.
-- Configurable excluded golden suffixes (Settings → Tools → Screenshot Compare). Defaults to
+- Configurable excluded golden suffixes (Settings → Tools → Golden Diff). Defaults to
   `_compare, _actual`; previously hard-coded.
 
 ### Changed

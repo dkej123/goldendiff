@@ -1,4 +1,4 @@
-# Screenshot Compare
+# Golden Diff
 
 [![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/32653-screenshot-compare.svg?label=Marketplace)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
 [![Downloads](https://img.shields.io/jetbrains/plugin/d/32653-screenshot-compare.svg)](https://plugins.jetbrains.com/plugin/32653-screenshot-compare)
@@ -36,7 +36,7 @@ the plugin at the golden directory.
 
 ## Install
 **From JetBrains Marketplace (recommended):**
-- In the IDE: **Settings → Plugins → Marketplace**, search for **Screenshot Compare**, click **Install**.
+- In the IDE: **Settings → Plugins → Marketplace**, search for **Golden Diff**, click **Install**.
 - Or from the web: [plugins.jetbrains.com/plugin/32653-screenshot-compare](https://plugins.jetbrains.com/plugin/32653-screenshot-compare).
 
 **From a local zip:**
@@ -48,9 +48,9 @@ Compatible with JetBrains IDEs based on IntelliJ Platform **2024.1+ (build 241+)
 Studio versions on those platform builds, up to the declared `254.*` range.
 
 ## Use
-1. Open the **Screenshot Compare** tool window (right edge).
+1. Open the **Golden Diff** tool window (right edge).
 2. First run: click **Choose screenshots directory** and pick your golden folder
-   (later: Settings → Tools → Screenshot Compare, or the **Directories…** button). Multiple folders OK.
+   (later: Settings → Tools → Golden Diff, or the **Directories…** button). Multiple folders OK.
 3. Optional: configure generated test-output directories and their filename regex.
 4. Open a screen/test file → pick a golden from the list → choose Working copy or Test output →
    switch modes / zoom.

@@ -26,7 +26,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     private val generatedRegexField = JTextField()
     private val excludedSuffixesField = JTextField()
 
-    override fun getDisplayName(): String = "Screenshot Compare"
+    override fun getDisplayName(): String = "Golden Diff"
 
     override fun createComponent(): JComponent {
         val panel = JPanel().apply {

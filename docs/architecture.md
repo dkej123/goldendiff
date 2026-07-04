@@ -31,7 +31,7 @@ Plain IntelliJ Platform plugin. No Java sources, no GUI forms — Kotlin + Swing
   - `ImagePainting` — shared helpers: `fitRect`, `renderRect(zoom,…)`, checkerboard, hi-quality draw.
 - **`settings/`** — configuration.
   - `ScreenshotSettings` — project-level `PersistentStateComponent`, holds the list of golden dirs.
-  - `ScreenshotConfigurable` — Settings → Tools → Screenshot Compare (edit the dir list).
+  - `ScreenshotConfigurable` — Settings → Tools → Golden Diff (edit the dir list).
 
 ## Data flow
 1. Editor selection changes → `ScreenshotPanel.scheduleRefresh()` (debounced ~300 ms).

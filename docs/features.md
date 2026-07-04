@@ -1,7 +1,7 @@
 # Features & behavior
 
 ## Tool window
-Right-anchored, id "Screenshot Compare". Left: header + golden list. Right: the comparison viewer.
+Right-anchored, id "Golden Diff". Left: header + golden list. Right: the comparison viewer.
 
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
@@ -50,7 +50,7 @@ counterpart.
 ## Settings / directories
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level
 `PersistentStateComponent`). First run: a "Choose screenshots directory" button in the header for
-goldens. Later: Settings → Tools → Screenshot Compare, or the "Directories…" button. Multiple
+goldens. Later: Settings → Tools → Golden Diff, or the "Directories…" button. Multiple
 directories are supported for both lists. The generated-output regex and the excluded golden suffixes
 (comma-separated; default `_compare, _actual`) are stored in the same project settings.
 
