@@ -45,7 +45,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Golden Diff"
                     anchor="right"
-                    icon="/icons/screenshotCompareToolWindow.svg"
+                    icon="/icons/goldenDiffToolWindow.svg"
                     factoryClass="com.github.dkwasniak.goldendiff.toolwindow.ScreenshotToolWindowFactory"/>
 
         <projectConfigurable
