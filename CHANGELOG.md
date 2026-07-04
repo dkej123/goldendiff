@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - 2026-07-04
 
 ### Added
 - Pixel-diff compare mode: a heatmap that dims unchanged pixels and highlights changed ones, with a
@@ -45,6 +45,7 @@ Initial public preview.
 - Project-level settings for golden and generated-output directories.
 - Compatibility range for IntelliJ Platform 2024.1+ through build `253.*`.
 
+[1.1.0]: https://github.com/dkej123/android_studio_screenshot_compare_plugin/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dkej123/android_studio_screenshot_compare_plugin/releases/tag/v1.0.0
 [0.1.1]: https://github.com/dkej123/android_studio_screenshot_compare_plugin/releases/tag/v0.1.1
 [0.1.0]: https://github.com/dkej123/android_studio_screenshot_compare_plugin/releases/tag/v0.1.0

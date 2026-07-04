@@ -48,10 +48,10 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>First stable release.</li>
-              <li>Compare screenshot goldens from Git HEAD with working-copy or generated test-output images.</li>
-              <li>Side-by-side, swipe, and onion-skin comparison modes with zoom.</li>
-              <li>Configurable golden and generated-output directories per project.</li>
+              <li>New pixel-diff compare mode: a heatmap highlighting exactly which pixels changed,
+                  with a percent-changed readout.</li>
+              <li>Configurable excluded golden suffixes in settings (default _compare, _actual).</li>
+              <li>Fix: emit Java 17 bytecode so the plugin loads on IntelliJ 2024.1–2024.3.</li>
             </ul>
         """.trimIndent()
 
