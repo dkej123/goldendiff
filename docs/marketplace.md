@@ -1,11 +1,11 @@
 # Marketplace
 
-Plugin ID: `com.github.dkwasniak.goldendiff`. Re-listed as **Golden Diff** under a new plugin ID
-(the earlier "Screenshot Compare" listing is retired). **The first upload of the new listing is
-manual** — see [Initial Manual Upload](#initial-manual-upload). After that, the automated
-`Publish Plugin` workflow ships new versions; record the assigned URL / numeric ID here once live.
+**Published:** https://plugins.jetbrains.com/plugin/32662-golden-diff (numeric ID `32662`, plugin ID
+`com.github.dkwasniak.goldendiff`).
 
-JetBrains Marketplace: https://plugins.jetbrains.com
+Re-listed as **Golden Diff** under a new plugin ID (the earlier "Screenshot Compare" listing is
+retired). The initial 1.0.0 was uploaded manually. New versions now ship through the automated
+`Publish Plugin` workflow — see [Automated Publishing](#automated-publishing).
 
 ## Short Description
 Compare screenshot-test goldens from Android Studio or IntelliJ without leaving the editor.

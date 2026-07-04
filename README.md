@@ -1,8 +1,8 @@
 # Golden Diff
 
-<!-- Marketplace badges/link go here after the first upload creates the new listing (new plugin ID).
-     Template: https://img.shields.io/jetbrains/plugin/v/<ID>-golden-diff.svg -->
-_JetBrains Marketplace listing: added after the first publish._
+[![JetBrains Marketplace](https://img.shields.io/jetbrains/plugin/v/32662-golden-diff.svg?label=Marketplace)](https://plugins.jetbrains.com/plugin/32662-golden-diff)
+[![Downloads](https://img.shields.io/jetbrains/plugin/d/32662-golden-diff.svg)](https://plugins.jetbrains.com/plugin/32662-golden-diff)
+[![Rating](https://img.shields.io/jetbrains/plugin/r/rating/32662-golden-diff.svg)](https://plugins.jetbrains.com/plugin/32662-golden-diff/reviews)
 
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
 the editor. Open the tool window for the screen you're working on and it lists the matching goldens,
@@ -37,7 +37,7 @@ the plugin at the golden directory.
 ## Install
 **From JetBrains Marketplace (recommended):**
 - In the IDE: **Settings → Plugins → Marketplace**, search for **Golden Diff**, click **Install**.
-- Or from the web: link added once the new listing is published.
+- Or from the web: [plugins.jetbrains.com/plugin/32662-golden-diff](https://plugins.jetbrains.com/plugin/32662-golden-diff).
 
 **From a local zip:**
 1. Build the plugin (see below) or grab `build/distributions/golden-diff-<ver>.zip`.
