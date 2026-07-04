@@ -34,6 +34,9 @@ dependencies {
         // moves forward (latest is higher); see docs/gotchas.md.
         pluginVerifier("1.405")
     }
+
+    // Plain JUnit 4 for the pure-logic unit tests (no IDE fixture needed).
+    testImplementation("junit:junit:4.13.2")
 }
 
 intellijPlatform {
@@ -65,6 +68,16 @@ intellijPlatform {
 
 kotlin {
     jvmToolchain(21)
+}
+
+// Build with JDK 21, but emit Java 17 bytecode: IntelliJ 2024.1–2024.3 (our sinceBuild = 241) run on
+// JBR 17, so bytecode 21 would fail to load there with UnsupportedClassVersionError. Set per-task so it
+// wins over the target the toolchain otherwise derives.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
 }
 
 tasks {

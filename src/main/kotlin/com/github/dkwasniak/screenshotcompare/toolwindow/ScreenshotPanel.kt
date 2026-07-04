@@ -208,7 +208,7 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
         lastNames = screen.names
         statusLabel.text = "Searching…"
         AppExecutorUtil.getAppExecutorService().execute {
-            val files = GoldenFinder.find(roots, screen)
+            val files = GoldenFinder.find(roots, screen, settings.excludedSuffixes)
             ApplicationManager.getApplication().invokeLater {
                 populate(files, screen.caretName)
             }
@@ -254,6 +254,7 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
                     goldenRoots = settings.paths.map(::File),
                     generatedRoots = settings.generatedPaths.map(::File),
                     generatedFileRegex = settings.generatedFileRegex,
+                    excludedSuffixes = settings.excludedSuffixes,
                 )
             }
             val workingBytes = workingFile?.let(GitImageSource::workingBytes)

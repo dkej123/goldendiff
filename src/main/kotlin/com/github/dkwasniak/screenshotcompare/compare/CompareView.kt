@@ -20,6 +20,7 @@ class CompareView : JPanel(BorderLayout()) {
     private val twoUp = TwoUpPanel()
     private val swipe = SwipePanel()
     private val onion = OnionSkinPanel()
+    private val diff = DiffPanel()
     private val single = SingleImagePanel()
 
     private val modeBar: JPanel
@@ -32,6 +33,7 @@ class CompareView : JPanel(BorderLayout()) {
         cards.add(twoUp, MODE_TWO_UP)
         cards.add(swipe, MODE_SWIPE)
         cards.add(onion, MODE_ONION)
+        cards.add(diff, MODE_DIFF)
         cards.add(single, MODE_SINGLE)
 
         modeBar = buildModeBar()
@@ -53,6 +55,7 @@ class CompareView : JPanel(BorderLayout()) {
         twoUp.setImages(old, new)
         swipe.setImages(old, new)
         onion.setImages(old, new)
+        diff.setImages(old, new)
         twoUp.setLabels(oldLabel, newLabel)
         swipe.setLabels(oldLabel, newLabel)
         onion.setLabels(oldLabel, newLabel)
@@ -74,6 +77,7 @@ class CompareView : JPanel(BorderLayout()) {
         twoUp.setZoom(zoom)
         swipe.setZoom(zoom)
         onion.setZoom(zoom)
+        diff.setZoom(zoom)
         single.setZoom(zoom)
     }
 
@@ -111,6 +115,7 @@ class CompareView : JPanel(BorderLayout()) {
         button("Side by side", MODE_TWO_UP)
         button("Swipe", MODE_SWIPE)
         button("Onion skin", MODE_ONION)
+        button("Diff", MODE_DIFF)
         return bar
     }
 
@@ -118,6 +123,7 @@ class CompareView : JPanel(BorderLayout()) {
         private const val MODE_TWO_UP = "twoup"
         private const val MODE_SWIPE = "swipe"
         private const val MODE_ONION = "onion"
+        private const val MODE_DIFF = "diff"
         private const val MODE_SINGLE = "single"
 
         private val ZOOM_OPTIONS = linkedMapOf(

@@ -8,7 +8,8 @@ Right-anchored, id "Screenshot Compare". Left: header + golden list. Right: the 
 - `CurrentScreen` builds a caret-independent `names` set: declared class names + preview/test/composable
   function names (`@Composable`/`@Preview`/`@Test` or `test*`) + the file base name.
 - `GoldenFinder.find` lists PNGs in the configured dirs whose name contains any candidate name,
-  excluding `_compare` / `_actual` artifacts. Results are sorted with the caret-function match first.
+  excluding files that end with a configured suffix (default `_compare` / `_actual`; editable in
+  settings, empty = exclude nothing). Results are sorted with the caret-function match first.
 - The list is rebuilt only when the name set actually changes. Clicking around the same file keeps the
   list and the user's manual selection intact. `caretName` is used only for the *initial* selection
   when a file is first shown.
@@ -34,12 +35,15 @@ counterpart.
 - New file (not in HEAD), missing working copy, missing generated output or missing generated-output
   configuration → single preview with an explanatory status.
 
-## Three modes (+ zoom)
+## Four modes (+ zoom)
 - **Side by side** — HEAD | selected comparison source, each fit into its half, labeled.
 - **Swipe** — both drawn in the same rect; drag the vertical divider to reveal HEAD on the left and
   the selected comparison source on the right, with labels over the image.
 - **Onion skin** — selected comparison source overlaid on HEAD; a slider blends opacity and the view
   labels the base/overlay roles.
+- **Diff** — pixel heatmap (`PixelDiff` → `DiffPanel`): unchanged pixels dimmed to grayscale context,
+  changed pixels highlighted in magenta (opacity scales with the per-pixel change), plus a
+  "% pixels changed" readout. Areas present in only one image count as changed.
 - **Zoom** combo (always visible): `Fit / 50% / 75% / 100% / 150% / 200% / 400%`. Applies to all modes
   and the single view; zoomed-in content scrolls. Zoom level persists across files and modes.
 
@@ -47,8 +51,8 @@ counterpart.
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level
 `PersistentStateComponent`). First run: a "Choose screenshots directory" button in the header for
 goldens. Later: Settings → Tools → Screenshot Compare, or the "Directories…" button. Multiple
-directories are supported for both lists. The generated-output regex is stored in the same project
-settings.
+directories are supported for both lists. The generated-output regex and the excluded golden suffixes
+(comma-separated; default `_compare, _actual`) are stored in the same project settings.
 
 ## Tool independence
 Nothing is Roborazzi-specific except the name and the `_compare`/`_actual` exclusion (harmless for

@@ -9,7 +9,8 @@
 
       <p>Open the tool window for the screen you are editing and it lists the matching screenshot
       goldens, then compares the committed <b>git HEAD</b> version against your <b>working copy</b> or
-      generated test output &mdash; in three modes: side-by-side (2-up), swipe, and onion skin.</p>
+      generated test output &mdash; in four modes: side-by-side (2-up), swipe, onion skin, and a
+      pixel-diff heatmap.</p>
 
       <p>It is tool-agnostic and works with PNG outputs from <b>Roborazzi, Paparazzi, Compose Preview
       Screenshot Testing, Shot</b>, and similar screenshot-test tools &mdash; just point it at the
@@ -21,7 +22,7 @@
         <li>Compare Git HEAD with generated test output such as <code>_actual.png</code> files.</li>
         <li>Configure golden directories, generated-output directories, and the generated-file regex
         per project.</li>
-        <li>Review changes in side-by-side, swipe, and onion-skin modes.</li>
+        <li>Review changes in side-by-side, swipe, onion-skin, and pixel-diff modes.</li>
         <li>Zoom (Fit / 50&ndash;400%) and scroll large screenshots.</li>
         <li>When a golden is identical to the selected source, the comparison is skipped and a single
         preview is shown.</li>

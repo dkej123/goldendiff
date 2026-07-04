@@ -26,6 +26,9 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         var generatedPaths: MutableList<String> = ArrayList()
         // Regex for selecting generated screenshots. First capture group maps to the golden basename.
         var generatedFileRegex: String = DEFAULT_GENERATED_FILE_REGEX
+        // File-name suffixes (before the extension) whose files are not goldens themselves and are
+        // excluded from the golden list, e.g. Roborazzi's `_compare` / `_actual` artifacts.
+        var excludedSuffixes: MutableList<String> = DEFAULT_EXCLUDED_SUFFIXES.toMutableList()
     }
 
     private var state = State()
@@ -54,6 +57,12 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
             state.generatedFileRegex = value.ifBlank { DEFAULT_GENERATED_FILE_REGEX }
         }
 
+    var excludedSuffixes: List<String>
+        get() = state.excludedSuffixes.toList()
+        set(value) {
+            state.excludedSuffixes = value.toMutableList()
+        }
+
     val isConfigured: Boolean
         get() = state.paths.isNotEmpty()
 
@@ -62,6 +71,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
 
     companion object {
         const val DEFAULT_GENERATED_FILE_REGEX = "^(.+)_actual\\.png$"
+        val DEFAULT_EXCLUDED_SUFFIXES = listOf("_compare", "_actual")
 
         fun getInstance(project: Project): ScreenshotSettings = project.service()
     }

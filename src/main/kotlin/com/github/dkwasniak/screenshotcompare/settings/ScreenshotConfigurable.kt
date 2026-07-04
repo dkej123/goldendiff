@@ -24,6 +24,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     private val generatedModel = DefaultListModel<String>()
     private val generatedList = JBList(generatedModel)
     private val generatedRegexField = JTextField()
+    private val excludedSuffixesField = JTextField()
 
     override fun getDisplayName(): String = "Screenshot Compare"
 
@@ -36,6 +37,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         panel.add(directorySection("Generated test output directories:", generatedList, generatedModel))
         panel.add(spacer())
         panel.add(regexSection())
+        panel.add(spacer())
+        panel.add(excludedSuffixesSection())
         reset()
         return panel
     }
@@ -80,6 +83,20 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             add(generatedRegexField, BorderLayout.CENTER)
         }
 
+    private fun excludedSuffixesSection(): JPanel =
+        JPanel(BorderLayout()).apply {
+            add(
+                JBLabel("Excluded golden suffixes (comma-separated):").apply {
+                    border = JBUI.Borders.emptyBottom(6)
+                },
+                BorderLayout.NORTH,
+            )
+            excludedSuffixesField.toolTipText =
+                "File-name suffixes (before the extension) excluded from the golden list, " +
+                "e.g. Roborazzi's _compare, _actual artifacts. Leave empty to exclude nothing."
+            add(excludedSuffixesField, BorderLayout.CENTER)
+        }
+
     private fun spacer(): JPanel =
         JPanel().apply {
             maximumSize = Dimension(1, JBUI.scale(12))
@@ -92,11 +109,15 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     private fun currentPaths(model: DefaultListModel<String>): List<String> =
         (0 until model.size()).map { model.getElementAt(it) }
 
+    private fun parseSuffixes(text: String): List<String> =
+        text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
     override fun isModified(): Boolean {
         val settings = ScreenshotSettings.getInstance(project)
         return currentPaths(goldenModel) != settings.paths ||
             currentPaths(generatedModel) != settings.generatedPaths ||
-            generatedRegexField.text != settings.generatedFileRegex
+            generatedRegexField.text != settings.generatedFileRegex ||
+            parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes
     }
 
     override fun apply() {
@@ -110,6 +131,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         settings.paths = currentPaths(goldenModel)
         settings.generatedPaths = currentPaths(generatedModel)
         settings.generatedFileRegex = regex
+        settings.excludedSuffixes = parseSuffixes(excludedSuffixesField.text)
     }
 
     override fun reset() {
@@ -119,5 +141,6 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         settings.paths.forEach { goldenModel.addElement(it) }
         settings.generatedPaths.forEach { generatedModel.addElement(it) }
         generatedRegexField.text = settings.generatedFileRegex
+        excludedSuffixesField.text = settings.excludedSuffixes.joinToString(", ")
     }
 }

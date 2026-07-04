@@ -7,11 +7,12 @@
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
 the editor. Open the tool window for the screen you're working on and it lists the matching goldens,
 then compares the **committed (git HEAD)** version against your **working copy** or generated test
-output in three ways:
+output in four ways:
 
 - **Side by side** — old and new next to each other.
 - **Swipe** — drag a divider to reveal old vs new in the same frame.
 - **Onion skin** — blend between them with an opacity slider.
+- **Diff** — pixel heatmap highlighting exactly what changed, with a "% pixels changed" readout.
 
 Plus a **zoom** control (Fit / 50–400%) with scrolling. When a golden is identical to the selected
 comparison source, the comparison is skipped and you just get a single preview labeled
@@ -24,7 +25,7 @@ comparison source, the comparison is skipped and you just get a single preview l
 - Supports configurable generated-output directories and filename regex. Golden matching and
   generated-output matching are separate steps: the list is built from golden filenames, then the
   regex is used only to find the generated counterpart for the selected golden in Test output mode.
-- Offers side-by-side, swipe, and onion-skin comparison modes.
+- Offers side-by-side, swipe, onion-skin, and pixel-diff comparison modes.
 - Keeps screenshot directories project-local.
 - Supports IntelliJ Platform 2024.1+ through build 254.
 

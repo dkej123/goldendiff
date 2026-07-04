@@ -8,19 +8,21 @@ import java.io.File
  */
 object GoldenFinder {
 
-    // Roborazzi artifacts that are not the golden itself.
-    private val EXCLUDED_SUFFIXES = listOf("_compare", "_actual")
-
-    fun find(roots: List<File>, screen: CurrentScreen.Screen): List<File> {
+    fun find(
+        roots: List<File>,
+        screen: CurrentScreen.Screen,
+        excludedSuffixes: List<String> = emptyList(),
+    ): List<File> {
         if (screen.names.isEmpty()) return emptyList()
         val lowerNames = screen.names.map { it.lowercase() }
+        val suffixes = excludedSuffixes.filter { it.isNotBlank() }
 
         val matches = LinkedHashSet<File>()
         for (root in roots) {
             if (!root.isDirectory) continue
             root.walkTopDown()
                 .filter { it.isFile && it.extension.equals("png", ignoreCase = true) }
-                .filter { file -> EXCLUDED_SUFFIXES.none { file.nameWithoutExtension.endsWith(it) } }
+                .filter { file -> suffixes.none { file.nameWithoutExtension.endsWith(it) } }
                 .filter { file ->
                     val name = file.name.lowercase()
                     lowerNames.any { name.contains(it) }

@@ -2,9 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- Pixel-diff compare mode: a heatmap that dims unchanged pixels and highlights changed ones, with a
+  "% pixels changed" readout.
+- Configurable excluded golden suffixes (Settings → Tools → Screenshot Compare). Defaults to
+  `_compare, _actual`; previously hard-coded.
+
 ### Changed
 - Replace the deprecated `Alarm`-based refresh debounce with a plain Swing `Timer`, removing the only
   deprecated-API usage flagged by the Marketplace verifier.
+
+### Fixed
+- Emit Java 17 bytecode instead of 21 so the plugin loads on IntelliJ 2024.1–2024.3 (JBR 17), matching
+  the declared `sinceBuild = 241`.
 
 ## [1.0.0] - 2026-07-03
 

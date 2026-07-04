@@ -3,7 +3,7 @@
 
 Android Studio / IntelliJ plugin (Kotlin). In a tool window it lists screenshot-test goldens for the
 screen/class you are editing and compares the **git HEAD** version with the **working copy** or
-generated test output in three modes: side-by-side, swipe, onion skin. Tool-agnostic (Roborazzi,
+generated test output in four modes: side-by-side, swipe, onion skin, pixel-diff. Tool-agnostic (Roborazzi,
 Paparazzi, Compose Preview Screenshot, Shot…) — the user points it at golden and optional generated
 output directories.
 

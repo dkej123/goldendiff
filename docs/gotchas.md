@@ -9,6 +9,11 @@ Read this before changing the build or the refresh logic.
   Android Studio as long as Kotlin and Git4Idea bundled plugins are present.
 - On build 253+, `ideaIC` no longer exists; if you retarget back to 2025.3, use `intellijIdea("2025.3")`.
 - **Gradle 9+ required** by IntelliJ Platform Gradle Plugin 2.17.0. Wrapper is pinned to 9.6.1.
+- **Bytecode target is Java 17, not 21.** We build with a JDK 21 toolchain but force `jvmTarget = 17`
+  (and `JavaCompile` `release = 17`) in `build.gradle.kts`. IntelliJ 2024.1–2024.3 run on JBR 17, so
+  bytecode 21 would fail to load there with `UnsupportedClassVersionError` despite `sinceBuild = 241`.
+  Do not remove the per-task `jvmTarget` override, and don't rely on the toolchain to set the target —
+  it derives 21. Both the Kotlin and Java targets must stay in sync or Gradle fails the build.
 
 ## K2 mode
 Recent Android Studio versions run Kotlin in **K2 mode** by default. A plugin using Kotlin PSI must declare
