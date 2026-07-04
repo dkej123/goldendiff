@@ -5,8 +5,10 @@ Right-anchored, id "Golden Diff". Left: header + golden list. Right: the compari
 
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
-- `CurrentScreen` builds a caret-independent `names` set: declared class names + preview/test/composable
-  function names (`@Composable`/`@Preview`/`@Test` or `test*`) + the file base name.
+- `CurrentScreen` builds a caret-independent `names` set: declared class names + the file base name +
+  functions annotated with annotations whose name contains `Preview` / `Previews` (excluding
+  `PreviewParameter`) or `@Test` / `test*`. Plain `@Composable` helpers are intentionally ignored
+  because small names such as `Stat` or `Content` create noisy false positives.
 - `GoldenFinder.find` lists PNGs in the configured dirs whose name contains any candidate name,
   excluding files that end with a configured suffix (default `_compare` / `_actual`; editable in
   settings, empty = exclude nothing). Results are sorted with the caret-function match first.

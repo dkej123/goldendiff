@@ -11,10 +11,10 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 
 /**
  * Extracts the names used to match screenshot golden files against the file the user is currently
- * editing. The [Screen.names] set is intentionally broad (class name, preview/test function names,
- * file base name) and, importantly, does NOT depend on the caret position, so it stays stable while
- * the user clicks around the file. [Screen.caretName] is separate and only used to preselect the
- * best-matching golden when the list is first built for a file.
+ * editing. The [Screen.names] set includes class names, preview/test function names, and the file
+ * base name. It does NOT depend on the caret position, so it stays stable while the user clicks
+ * around the file. [Screen.caretName] is separate and only used to preselect the best-matching golden
+ * when the list is first built for a file.
  */
 object CurrentScreen {
 
@@ -38,7 +38,9 @@ object CurrentScreen {
                 .mapNotNull { it.name }
                 .forEach(names::add)
 
-            // Preview / test / composable functions in the file.
+            // Preview / test functions in the file. Plain @Composable helpers and PreviewParameter
+            // arguments are intentionally ignored because small helper names create noisy false
+            // positives.
             PsiTreeUtil.findChildrenOfType(psiFile, KtNamedFunction::class.java)
                 .filter { isPreviewOrTest(it) }
                 .mapNotNull { it.name }
@@ -55,8 +57,11 @@ object CurrentScreen {
 
     private fun isPreviewOrTest(function: KtNamedFunction): Boolean {
         val annotated = function.annotationEntries.any { entry ->
-            val text = entry.text
-            text.contains("Composable") || text.contains("Preview") || text.contains("Test")
+            val annotationName = entry.shortName?.asString()
+                ?: entry.typeReference?.text?.substringAfterLast('.')
+                ?: return@any false
+            annotationName != "PreviewParameter" &&
+                (annotationName.contains("Preview") || annotationName.contains("Previews") || annotationName == "Test")
         }
         return annotated || function.name?.startsWith("test") == true
     }

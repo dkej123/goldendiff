@@ -38,6 +38,25 @@ class GoldenFinderTest {
     }
 
     @Test
+    fun `matches candidate followed by a camel-case suffix`() {
+        png("PlansScreenKt.PlansScreenStatesPreview.Dark.png")
+        png("Unrelated.png")
+
+        val result = GoldenFinder.find(listOf(root), screen("PlansScreen"))
+
+        assertEquals(listOf("PlansScreenKt.PlansScreenStatesPreview.Dark.png"), result.map { it.name })
+    }
+
+    @Test
+    fun `does not match candidate inside a larger word`() {
+        png("PlansScreenKt.PlansScreenStatesPreview.Dark.png")
+
+        val result = GoldenFinder.find(listOf(root), screen("Stat"))
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
     fun `only png files are considered`() {
         png("LoginScreen.png")
         File(root, "LoginScreen.txt").writeText("x")
@@ -75,9 +94,28 @@ class GoldenFinderTest {
         png("AScreen.png")
         png("ZScreen.png")
 
-        val result = GoldenFinder.find(listOf(root), screen("Screen", caret = "ZScreen"))
+        val result = GoldenFinder.find(listOf(root), screen("AScreen", "ZScreen", caret = "ZScreen"))
 
         assertEquals("ZScreen.png", result.first().name)
+    }
+
+    @Test
+    fun `generic candidates do not match unrelated screens`() {
+        png("PlansScreen.png")
+        png("ProfileScreen.png")
+
+        val result = GoldenFinder.find(listOf(root), screen("Screen", "State", "ProfileScreen"))
+
+        assertEquals(listOf("ProfileScreen.png"), result.map { it.name })
+    }
+
+    @Test
+    fun `only generic candidates yield no matches`() {
+        png("PlansScreen.png")
+
+        val result = GoldenFinder.find(listOf(root), screen("Screen", "State"))
+
+        assertTrue(result.isEmpty())
     }
 
     @Test

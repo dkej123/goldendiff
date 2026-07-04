@@ -1,6 +1,7 @@
 # Architecture
 
-Plain IntelliJ Platform plugin. No Java sources, no GUI forms — Kotlin + Swing only.
+Plain IntelliJ Platform plugin. Kotlin + Swing UI, with one tiny Java tool-window factory to keep
+Plugin Verifier happy. No GUI forms.
 
 ## Package layout
 `src/main/kotlin/com/github/dkwasniak/goldendiff/`

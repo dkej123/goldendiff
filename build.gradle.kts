@@ -40,7 +40,7 @@ dependencies {
 }
 
 intellijPlatform {
-    // We have no Java/GUI-form sources, so code instrumentation is unnecessary.
+    // We have no GUI-form sources, so code instrumentation is unnecessary.
     instrumentCode = false
     // No custom searchable settings to index — skip for faster builds.
     buildSearchableOptions = false
