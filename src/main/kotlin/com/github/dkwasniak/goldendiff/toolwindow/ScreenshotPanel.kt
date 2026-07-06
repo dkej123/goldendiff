@@ -17,6 +17,9 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBLabel
@@ -35,7 +38,10 @@ import javax.swing.JPanel
 import javax.swing.ListSelectionModel
 import javax.swing.Timer
 
-class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
+class ScreenshotPanel(
+    private val project: Project,
+    private val toolWindow: ToolWindow,
+) : JPanel(BorderLayout()), Disposable {
 
     private val settings = ScreenshotSettings.getInstance(project)
 
@@ -80,6 +86,8 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private var loadedFile: File? = null
     private var loadedSource = ComparisonSource.WORKING_COPY
     private var pendingForce = false
+    // Tracks tool-window visibility so we can refresh once it is reopened.
+    private var wasVisible = toolWindow.isVisible
 
     init {
         val listScrollPane = JBScrollPane(list).apply {
@@ -151,6 +159,17 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
                     scheduleRefresh()
             },
         )
+        // Catch up on file changes that happened while the tool window was hidden, once it reopens.
+        connection.subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun stateChanged(toolWindowManager: ToolWindowManager) {
+                    val visible = toolWindow.isVisible
+                    if (visible && !wasVisible) scheduleRefresh()
+                    wasVisible = visible
+                }
+            },
+        )
     }
 
     private fun onDirectoriesClicked() {
@@ -179,6 +198,10 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
     }
 
     private fun refresh() {
+        // Don't scan for goldens while the tool window is collapsed/hidden; a pending force is kept
+        // so it is honored once the window is reopened.
+        if (!toolWindow.isVisible) return
+
         val force = pendingForce
         pendingForce = false
 
@@ -186,17 +209,18 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
             statusLabel.text = "Choose a screenshots directory to begin."
             listModel.clear()
             lastNames = null
-            loadedFile = null
+            clearComparison()
             return
         }
         val roots = settings.paths.map(::File)
         if (force) loadedFile = null
 
-        val screen = CurrentScreen.compute(project)
+        val screen = CurrentScreen.compute(project, settings.annotatedFunctionRegex)
         if (screen == null || screen.names.isEmpty()) {
             statusLabel.text = "Open a Kotlin screen or test file."
             listModel.clear()
             lastNames = null
+            clearComparison()
             return
         }
 
@@ -208,7 +232,13 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
         lastNames = screen.names
         statusLabel.text = "Searching…"
         AppExecutorUtil.getAppExecutorService().execute {
-            val files = GoldenFinder.find(roots, screen, settings.excludedSuffixes)
+            val files = GoldenFinder.find(
+                roots,
+                screen,
+                settings.matchMode,
+                settings.excludedSuffixes,
+                settings.goldenFilePatterns,
+            )
             ApplicationManager.getApplication().invokeLater {
                 populate(files, screen.caretName)
             }
@@ -226,7 +256,7 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
             "${files.size} screenshot(s) found."
         }
         if (files.isEmpty()) {
-            loadedFile = null
+            clearComparison()
             return
         }
         // Prefer keeping whatever was already open; otherwise pick the caret match, else the first.
@@ -237,6 +267,14 @@ class ScreenshotPanel(private val project: Project) : JPanel(BorderLayout()), Di
         }
         list.selectedIndex = index
         list.ensureIndexIsVisible(index)
+    }
+
+    // Clears the comparison viewer and its cached selection so no stale preview lingers when the
+    // current file has no goldens.
+    private fun clearComparison() {
+        loadedFile = null
+        loadedSource = selectedSource()
+        compareView.showSingle(null, "")
     }
 
     private fun loadComparison(file: File) {

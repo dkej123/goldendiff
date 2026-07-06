@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.0] - 2026-07-06
+
+Reworked how goldens are matched to the file you are editing, plus quality-of-life fixes.
+
+### Added
+- Live **Preview** in Settings → Tools → Golden Diff: shows how many and which goldens match the file
+  currently open in the editor for the settings you are editing, updating as you type.
+
+### Changed
+- Golden matching is now split into two explicit, mutually exclusive modes (picked with a radio in
+  settings):
+  - **Match by annotated method** — a golden matches when its path contains the name of an annotated
+    (or `test*`) function. Covers the default naming of Roborazzi, Paparazzi, Compose Preview, Shot,
+    and swift-snapshot-testing without configuration.
+  - **Match by file/class regex** — your own regex over the golden path, with `{file_name}` and
+    `{class_name}` placeholders.
+- Matching now runs against each golden's path **relative to its directory**, so layouts that nest the
+  class or package as sub-directories also match.
+- **Breaking (config):** the old golden-pattern placeholders `{candidate}`, `{fileName}`, and
+  `{className}` are replaced by `{file_name}` and `{class_name}`; re-check your golden filename regex
+  after upgrading.
+
+### Fixed
+- The comparison preview no longer keeps showing the previous image when you switch to a file that has
+  no goldens.
+- Golden matching no longer runs while the tool window is collapsed or hidden; it refreshes when the
+  window is reopened.
+
 ## [1.0.0] - 2026-07-04
 
 Initial release of **Golden Diff**. Previously developed and published as "Screenshot Compare"; this is
@@ -17,4 +45,5 @@ a fresh Marketplace listing under a new plugin ID (`com.github.dkwasniak.goldend
 - Compatibility with IntelliJ Platform 2024.1+ through build `254.*`; Java 17 bytecode so it loads on
   2024.1–2024.3 (JBR 17).
 
+[1.1.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.0.0

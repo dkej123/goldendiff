@@ -12,7 +12,7 @@ public final class ScreenshotToolWindowFactory implements ToolWindowFactory, Dum
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
-        ScreenshotPanel panel = new ScreenshotPanel(project);
+        ScreenshotPanel panel = new ScreenshotPanel(project, toolWindow);
         Content content = ContentFactory.getInstance().createContent(panel, "", false);
         content.setDisposer(panel);
         toolWindow.getContentManager().addContent(content);

@@ -4,8 +4,9 @@ Status: working MVP. Below is what's intentionally missing and where to extend.
 
 ## Known limitations
 - **Image formats**: only what `ImageIO` decodes (PNG/JPG/GIF/BMP). SVG / WebP goldens won't render.
-- **Matching is name-based**: a golden must contain the class / preview / test name in its file name.
-  Unusual naming conventions can miss.
+- **Matching is name-based**: two modes (annotated-method, or file/class regex) matched against the
+  golden's relative path cover the common frameworks, but very unusual conventions can still miss
+  without project-specific configuration.
 - **No live update on edits**: the list refreshes on file switch, not while you type. Use **Refresh**
   after (re)recording goldens.
 - **Comparison is HEAD vs working copy only** — no picking an arbitrary branch/revision yet.
@@ -31,8 +32,9 @@ First post-Marketplace iteration. Done and sitting on `main`:
 
 1. ~~Pixel-diff highlight mode~~ — done (`PixelDiff` + `DiffPanel`, 4th compare mode).
 2. ~~Configurable exclusion suffixes~~ — done (`ScreenshotSettings.excludedSuffixes` + settings UI).
-3. ~~First unit tests~~ — done for the pure-logic classes (`GoldenFinder`, `ImagePainting`,
-   `GeneratedImageSource`, `PixelDiff`); `CurrentScreen` / `GitImageSource` still need a platform test.
+3. ~~First unit tests~~ — done for the pure-logic classes (`GoldenFinder`, `AnnotationNameMatcher`,
+   `ImagePainting`, `GeneratedImageSource`, `PixelDiff`); `CurrentScreen` / `GitImageSource` still need
+   a platform test.
 4. ~~Plugin + tool-window icons~~ — already shipped.
 
 Also fixed here: Java 17 bytecode target (was 21) so the plugin loads on 2024.1–2024.3.

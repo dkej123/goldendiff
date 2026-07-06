@@ -5,16 +5,30 @@ Right-anchored, id "Golden Diff". Left: header + golden list. Right: the compari
 
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
-- `CurrentScreen` builds a caret-independent `names` set: declared class names + the file base name +
-  functions annotated with annotations whose name contains `Preview` / `Previews` (excluding
-  `PreviewParameter`) or `@Test` / `test*`. Plain `@Composable` helpers are intentionally ignored
-  because small names such as `Stat` or `Content` create noisy false positives.
-- `GoldenFinder.find` lists PNGs in the configured dirs whose name contains any candidate name,
-  excluding files that end with a configured suffix (default `_compare` / `_actual`; editable in
-  settings, empty = exclude nothing). Results are sorted with the caret-function match first.
+- `CurrentScreen` builds caret-independent names: declared class names + the file base name +
+  functions annotated with annotations matched by the configured annotation regex (default
+  `.*Preview.*|Test`, excluding `PreviewParameter`) + `test*` functions. Plain `@Composable` helpers
+  are intentionally ignored because small names such as `Stat` or `Content` create noisy false
+  positives.
+- `GoldenFinder.find` lists PNGs in the configured dirs, using one of two mutually exclusive
+  `MatchMode`s (chosen with a radio in Settings). Matching is done against each golden's path
+  **relative to its root** (with `/` separators), so layouts that nest the class or package as
+  directories still match.
+  - **Match by annotated method** (default): a golden matches when its relative path *contains* the
+    name of an annotated / `test*` function as a whole word or camel-case segment. This covers the
+    default naming of every major framework (Roborazzi, Paparazzi, Compose Preview, Shot), where the
+    method name is always part of the golden filename.
+  - **Match by file/class regex**: the user's regex patterns (one per line) are matched anywhere in
+    the relative path. Patterns support `{file_name}` and `{class_name}` placeholders (values are
+    regex-escaped before substitution; `{class_name}` expands to an alternation of the file's class
+    names). Used when functions aren't annotated and matching keys off the file or class instead.
+  - Files ending with a configured suffix are excluded first (default `_compare` / `_actual`; editable
+    in settings, empty = exclude nothing). Results are sorted with the caret-function match first (in
+    annotated-method mode), then by name.
 - The list is rebuilt only when the name set actually changes. Clicking around the same file keeps the
   list and the user's manual selection intact. `caretName` is used only for the *initial* selection
   when a file is first shown.
+- See [matching.md](matching.md) for end-user configuration examples.
 
 ## Comparison source (git HEAD ↔ working copy / test output)
 For the selected golden, `GitImageSource` loads the committed version (VCS `DiffProvider` current
@@ -53,10 +67,11 @@ counterpart.
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level
 `PersistentStateComponent`). First run: a "Choose screenshots directory" button in the header for
 goldens. Later: Settings → Tools → Golden Diff, or the "Directories…" button. Multiple
-directories are supported for both lists. The generated-output regex and the excluded golden suffixes
-(comma-separated; default `_compare, _actual`) are stored in the same project settings.
+directories are supported for both lists. The generated-output regex, the golden matching mode, the
+annotated-function regex, the file/class golden regex, and excluded golden suffixes (comma-separated;
+default `_compare, _actual`) are stored in the same project settings.
 
 ## Tool independence
-Nothing is Roborazzi-specific except the name and the `_compare`/`_actual` exclusion (harmless for
-other tools). Works with Paparazzi, Compose Preview Screenshot Testing, Shot, etc. — as long as goldens
-are PNGs committed to git and the file name contains the class/preview/test name.
+Nothing is Roborazzi-specific except the default `_compare`/`_actual` exclusion (harmless for other
+tools). Works with Paparazzi, Compose Preview Screenshot Testing, Shot, etc. — as long as goldens are
+PNGs committed to git and can be matched by the configured annotation and filename patterns.

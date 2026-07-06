@@ -1,5 +1,7 @@
 package com.github.dkwasniak.goldendiff.settings
 
+import com.github.dkwasniak.goldendiff.match.MatchMode
+import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
@@ -26,6 +28,12 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         var generatedPaths: MutableList<String> = ArrayList()
         // Regex for selecting generated screenshots. First capture group maps to the golden basename.
         var generatedFileRegex: String = DEFAULT_GENERATED_FILE_REGEX
+        // Which matching mode is active. See MatchMode.
+        var matchMode: String = MatchingDefaults.DEFAULT_MATCH_MODE.name
+        // Regex applied to annotation names. Matching annotated functions become golden candidates.
+        var annotatedFunctionRegex: String = MatchingDefaults.ANNOTATION_NAME_REGEX
+        // Regex patterns for the file/class matching mode. Support {file_name} and {class_name}.
+        var goldenFilePatterns: MutableList<String> = MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS.toMutableList()
         // File-name suffixes (before the extension) whose files are not goldens themselves and are
         // excluded from the golden list, e.g. Roborazzi's `_compare` / `_actual` artifacts.
         var excludedSuffixes: MutableList<String> = DEFAULT_EXCLUDED_SUFFIXES.toMutableList()
@@ -61,6 +69,24 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         get() = state.excludedSuffixes.toList()
         set(value) {
             state.excludedSuffixes = value.toMutableList()
+        }
+
+    var matchMode: MatchMode
+        get() = MatchMode.fromName(state.matchMode)
+        set(value) {
+            state.matchMode = value.name
+        }
+
+    var annotatedFunctionRegex: String
+        get() = state.annotatedFunctionRegex.ifBlank { MatchingDefaults.ANNOTATION_NAME_REGEX }
+        set(value) {
+            state.annotatedFunctionRegex = value.ifBlank { MatchingDefaults.ANNOTATION_NAME_REGEX }
+        }
+
+    var goldenFilePatterns: List<String>
+        get() = state.goldenFilePatterns.ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS }.toList()
+        set(value) {
+            state.goldenFilePatterns = value.ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS }.toMutableList()
         }
 
     val isConfigured: Boolean

@@ -13,11 +13,15 @@ Plugin Verifier happy. No GUI forms.
     and the editor listener. Implements `Disposable`.
   - `GoldenCellRenderer` — thumbnail + filename cell renderer with an icon cache.
 - **`match/`** — figuring out what to show.
-  - `CurrentScreen` — reads the selected editor's `KtFile` via PSI and returns `Screen(names,
-    caretName)`. `names` = class names + preview/test function names + file base name; it is
+  - `CurrentScreen` — reads the selected editor's `KtFile` via PSI and returns typed candidates:
+    screenshot/test function names, class names, file base name, and `caretName`. The candidate set is
     **caret-independent** (stable per file). `caretName` is separate, used only for initial selection.
-  - `GoldenFinder` — scans configured dirs for `*.png`. `find(roots, screen)` matches file names
-    against `screen.names` (excludes `_compare` / `_actual`).
+  - `GoldenFinder` — scans configured dirs for `*.png`. `find(roots, screen, mode, …)` matches each
+    golden's path **relative to its root** using one of two `MatchMode`s: `ANNOTATED_METHOD` (path
+    contains an annotated/`test*` function name) or `FILE_CLASS_REGEX` (user regex with `{file_name}`
+    / `{class_name}`). Excludes `_compare` / `_actual` by default.
+  - `MatchMode` / `MatchingDefaults` / `AnnotationNameMatcher` — matching modes, default rules, and
+    pure matching helpers used by tests.
 - **`compare/`** — the viewer.
   - `GitImageSource` — loads HEAD bytes via VCS `DiffProvider` + `ByteBackedContentRevision`, and
     working-copy bytes from disk; `decode()` turns bytes into `BufferedImage`. Call off the EDT.
@@ -36,8 +40,9 @@ Plugin Verifier happy. No GUI forms.
 
 ## Data flow
 1. Editor selection changes → `ScreenshotPanel.scheduleRefresh()` (debounced ~300 ms).
-2. `refresh()` → `CurrentScreen.compute()` (read action) → `GoldenFinder.find()` on a pooled thread →
-   `populate()` on the EDT fills the list and picks an initial selection.
+2. `refresh()` → `CurrentScreen.compute()` (read action, using the configured annotation regex) →
+   `GoldenFinder.find()` (using configured golden filename patterns) on a pooled thread → `populate()`
+   on the EDT fills the list and picks an initial selection.
 3. List selection → `loadComparison(file)` on a pooled thread: HEAD bytes vs the selected source.
    Source defaults to the working-copy golden, or can be switched to test-generated output.
    - Bytes equal → `CompareView.showSingle(…, "No changes vs HEAD")`.

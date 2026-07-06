@@ -11,57 +11,72 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 
 /**
  * Extracts the names used to match screenshot golden files against the file the user is currently
- * editing. The [Screen.names] set includes class names, preview/test function names, and the file
- * base name. It does NOT depend on the caret position, so it stays stable while the user clicks
- * around the file. [Screen.caretName] is separate and only used to preselect the best-matching golden
- * when the list is first built for a file.
+ * editing. [Screen] carries preview/test function names, class names, and the file base name;
+ * [GoldenFinder] picks which of these to use depending on the active [MatchMode]. The [Screen.names]
+ * set does NOT depend on the caret position, so it stays stable while the user clicks around the
+ * file. [Screen.caretName] is separate and only used to preselect the best-matching golden when the
+ * list is first built for a file.
  */
 object CurrentScreen {
 
     data class Screen(
-        /** Candidate names to match against golden file names. Stable for a given file. */
-        val names: List<String>,
+        /** Function names selected from configured screenshot annotations and test naming. */
+        val functionNames: List<String>,
+        /** Class names declared in the current file. */
+        val classNames: List<String>,
+        /** Kotlin file name without extension. */
+        val fileName: String,
         /** Name of the function under the caret, used only for the initial selection. */
         val caretName: String?,
-    )
+    ) {
+        /** Stable candidate set used to decide whether the list needs to be rebuilt. */
+        val names: List<String> = (functionNames + classNames + fileName)
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
 
-    fun compute(project: Project): Screen? =
+    fun compute(
+        project: Project,
+        annotationNameRegex: String = MatchingDefaults.ANNOTATION_NAME_REGEX,
+    ): Screen? =
         ReadAction.compute<Screen?, RuntimeException> {
             val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return@compute null
             val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) as? KtFile
                 ?: return@compute null
 
-            val names = LinkedHashSet<String>()
+            val annotationPattern = runCatching { Regex(annotationNameRegex) }
+                .getOrElse { Regex(MatchingDefaults.ANNOTATION_NAME_REGEX) }
 
             // All classes declared in the file (the screen / test class).
-            PsiTreeUtil.findChildrenOfType(psiFile, KtClass::class.java)
+            val classNames = PsiTreeUtil.findChildrenOfType(psiFile, KtClass::class.java)
                 .mapNotNull { it.name }
-                .forEach(names::add)
+                .filter { it.isNotBlank() }
+                .distinct()
 
             // Preview / test functions in the file. Plain @Composable helpers and PreviewParameter
             // arguments are intentionally ignored because small helper names create noisy false
             // positives.
-            PsiTreeUtil.findChildrenOfType(psiFile, KtNamedFunction::class.java)
-                .filter { isPreviewOrTest(it) }
+            val functionNames = PsiTreeUtil.findChildrenOfType(psiFile, KtNamedFunction::class.java)
+                .filter { isScreenshotCandidate(it, annotationPattern) }
                 .mapNotNull { it.name }
-                .forEach(names::add)
+                .filter { it.isNotBlank() }
+                .distinct()
 
             // The file base name (e.g. LoginScreen.kt -> LoginScreen).
-            names.add(psiFile.name.substringBeforeLast('.'))
+            val fileName = psiFile.name.substringBeforeLast('.')
 
             // Caret function — separate, for initial selection only (not part of the match set).
             val caretName = psiFile.findElementAt(editor.caretModel.offset)?.let { enclosingFunction(it) }?.name
 
-            Screen(names.filter { it.isNotBlank() }, caretName)
+            Screen(functionNames, classNames, fileName, caretName)
         }
 
-    private fun isPreviewOrTest(function: KtNamedFunction): Boolean {
+    private fun isScreenshotCandidate(function: KtNamedFunction, annotationPattern: Regex): Boolean {
         val annotated = function.annotationEntries.any { entry ->
             val annotationName = entry.shortName?.asString()
                 ?: entry.typeReference?.text?.substringAfterLast('.')
                 ?: return@any false
-            annotationName != "PreviewParameter" &&
-                (annotationName.contains("Preview") || annotationName.contains("Previews") || annotationName == "Test")
+            AnnotationNameMatcher.matches(annotationName, annotationPattern.pattern)
         }
         return annotated || function.name?.startsWith("test") == true
     }
