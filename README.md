@@ -63,6 +63,14 @@ The generated-file regex does not decide which goldens appear in the list. It fi
 from the generated-output directories after a golden is selected. The default `^(.+)_actual\.png$`
 matches `Foo_actual.png` and maps it to the selected golden `Foo.png`.
 
+## Documentation
+Full end-user docs are published as a site at
+**[dkej123.github.io/goldendiff](https://dkej123.github.io/goldendiff/)** (source in [`docs/`](docs/)):
+[installation](docs/installation.md), [getting started](docs/getting-started.md),
+[matching goldens](docs/matching.md), [comparing screenshots](docs/comparing.md),
+[settings reference](docs/settings-reference.md), and
+[troubleshooting & FAQ](docs/troubleshooting.md).
+
 ## Build from source
 ```bash
 ./gradlew buildPlugin   # -> build/distributions/golden-diff-<ver>.zip
