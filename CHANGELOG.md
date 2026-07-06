@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2] - 2026-07-06
+
+### Changed
+- Golden list thumbnails now render from the full-resolution image at paint time instead of caching a
+  pre-scaled, sharpened bitmap. They stay crisp on HiDPI/Retina displays and the renderer uses less
+  memory.
+
 ## [1.1.1] - 2026-07-06
 
 ### Added
