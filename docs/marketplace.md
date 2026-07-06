@@ -28,7 +28,7 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
   output files to an already selected golden in Test output mode.
 - Review changes in side-by-side, swipe, and onion-skin modes.
 - Zoom and scroll large screenshots.
-- Works with IntelliJ Platform 2024.1+ through build 254.
+- Works with IntelliJ Platform 2024.1+ (no upper version bound).
 
 ## Suggested Tags
 - Android

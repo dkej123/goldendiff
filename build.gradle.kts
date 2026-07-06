@@ -48,6 +48,9 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
+              <li>Removed the fixed upper IDE-version bound, so the plugin installs on current and
+              future IntelliJ / Android Studio builds. It uses only long-stable platform,
+              Kotlin-PSI, and Git4Idea APIs.</li>
               <li>Golden list thumbnails now render from the full-resolution image at paint time
               instead of a cached pre-scaled bitmap, so they stay crisp on HiDPI/Retina displays and
               use less memory.</li>
@@ -56,7 +59,12 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "241"
-            untilBuild = "254.*"
+            // No upper bound. The plugin uses only long-stable platform + Kotlin-PSI + Git4Idea APIs
+            // (see docs/gotchas.md "Stable-APIs-only rule"), so it should load in current and future
+            // IDE builds without a re-release. Pinning untilBuild to a concrete future branch is also
+            // rejected by the Marketplace verifier while that version does not exist yet (e.g. "254.*"
+            // → "Version '2025.4' does not exist").
+            untilBuild = provider { null }
         }
     }
 

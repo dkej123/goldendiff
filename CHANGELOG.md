@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.3] - 2026-07-06
+
+### Fixed
+- Removed the fixed `until-build` upper bound (`254.*`). It pointed at a non-existent platform
+  (`2025.4`), which the Marketplace verifier flagged as a configuration defect and which kept the
+  plugin from showing as compatible/installable. The plugin now has an open-ended upper bound and
+  loads on current and future IntelliJ / Android Studio builds; it uses only long-stable platform,
+  Kotlin-PSI, and Git4Idea APIs.
+
 ## [1.1.2] - 2026-07-06
 
 ### Changed

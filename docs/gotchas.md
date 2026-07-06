@@ -3,8 +3,11 @@
 Read this before changing the build or the refresh logic.
 
 ## Platform compatibility
-- The plugin is compiled against **IntelliJ Platform 2024.1 / build 241** and declares compatibility
-  through **254.\***. Keep code on stable APIs available in 241 if you want the broad range to stay true.
+- The plugin is compiled against **IntelliJ Platform 2024.1 / build 241** and declares an
+  **open-ended `until-build`** (no upper bound, `untilBuild = provider { null }`). Keep code on stable
+  APIs available in 241 so the broad range stays true. Do **not** pin `untilBuild` to a concrete future
+  branch: the Marketplace verifier rejects a version that does not exist yet (e.g. `254.*` →
+  "Version '2025.4' does not exist").
 - Do not re-add Android Studio specific APIs. The plugin should remain installable in IntelliJ IDEA and
   Android Studio as long as Kotlin and Git4Idea bundled plugins are present.
 - On build 253+, `ideaIC` no longer exists; if you retarget back to 2025.3, use `intellijIdea("2025.3")`.

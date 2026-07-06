@@ -8,7 +8,8 @@
 - Platform dependency: **`intellijIdeaCommunity("2024.1")`**.
 
 Key `build.gradle.kts` bits: `instrumentCode = false` and `buildSearchableOptions = false` (no Java/
-form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241"; untilBuild = "254.*" }`.
+form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241"; untilBuild = provider { null } }`
+(open-ended upper bound — see gotchas).
 
 ## Commands
 ```bash

@@ -7,7 +7,7 @@ nav_order: 2
 
 ## Requirements
 
-- **An IntelliJ Platform IDE**, version **2024.1 or newer** (platform build **241** through **254.\***).
+- **An IntelliJ Platform IDE**, version **2024.1 or newer** (platform build **241+**, no upper bound).
   This includes recent **Android Studio** releases and JetBrains IDEs built on those platform versions.
 - **Git.** Golden Diff compares each golden against its committed (git HEAD) version, so your project
   must be a git repository and your goldens must be **committed PNG files**. The bundled **Git**
@@ -36,7 +36,7 @@ If you have a `golden-diff-<version>.zip` (for example a build you produced your
 
 ## Compatibility notes
 
-- Compatible with IntelliJ Platform **2024.1+ (build 241+)**, up to the declared `254.*` range,
+- Compatible with IntelliJ Platform **2024.1+ (build 241+)** with no declared upper bound,
   including Android Studio versions on those platform builds.
 - The plugin only traverses Kotlin PSI (no resolve/Analysis API), so it works in both the K1 and **K2**
   Kotlin modes that recent Android Studio versions use.
