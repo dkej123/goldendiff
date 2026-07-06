@@ -48,14 +48,9 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>Golden matching reworked into two explicit modes: match by annotated preview/test
-              method, or by a file/class regex with {file_name} and {class_name} placeholders.</li>
-              <li>Matching now runs against each golden's path, so layouts that nest the class or
-              package as directories match too.</li>
-              <li>Live preview in Settings shows how many and which goldens match the current file.</li>
-              <li>Fixes: the comparison preview now clears when a file has no goldens; matching no
-              longer runs while the tool window is collapsed.</li>
-              <li>Recommends Golden Diff in projects that use Roborazzi, Paparazzi, Shot, or Dropshots.</li>
+              <li>Golden list thumbnails now render from the full-resolution image at paint time
+              instead of a cached pre-scaled bitmap, so they stay crisp on HiDPI/Retina displays and
+              use less memory.</li>
             </ul>
         """.trimIndent()
 
