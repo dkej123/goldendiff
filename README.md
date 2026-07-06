@@ -71,17 +71,6 @@ matches `Foo_actual.png` and maps it to the selected golden `Foo.png`.
 Requires JDK 21 (the Gradle wrapper handles Gradle 9.6.1). The first build downloads the IntelliJ
 platform (~2 GB) and is slow; later builds take seconds.
 
-## Release
-See [CHANGELOG.md](CHANGELOG.md) for release notes.
-
-To create a GitHub release:
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-JetBrains Marketplace preparation notes live in [docs/marketplace.md](docs/marketplace.md).
-
 ## For Contributors
 Deeper docs live in [`docs/`](docs/): [architecture](docs/architecture.md),
 [build & run](docs/build-and-run.md), [features](docs/features.md), [gotchas](docs/gotchas.md),
