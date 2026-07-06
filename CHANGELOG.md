@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.4] - 2026-07-06
+
+### Changed
+- Replaced the deprecated `ReadAction.compute(ThrowableComputable)` call with the stable
+  `runReadAction { }` helper. The former is deprecated on IntelliJ Platform build 261+; now that the
+  plugin has an open-ended `until-build`, the Marketplace verifier checks it against 2026.x builds too.
+  No behavior change.
+
 ## [1.1.3] - 2026-07-06
 
 ### Fixed

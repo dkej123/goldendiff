@@ -1,6 +1,6 @@
 package com.github.dkwasniak.goldendiff.match
 
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
@@ -39,10 +39,10 @@ object CurrentScreen {
         project: Project,
         annotationNameRegex: String = MatchingDefaults.ANNOTATION_NAME_REGEX,
     ): Screen? =
-        ReadAction.compute<Screen?, RuntimeException> {
-            val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return@compute null
+        runReadAction<Screen?> {
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return@runReadAction null
             val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) as? KtFile
-                ?: return@compute null
+                ?: return@runReadAction null
 
             val annotationPattern = runCatching { Regex(annotationNameRegex) }
                 .getOrElse { Regex(MatchingDefaults.ANNOTATION_NAME_REGEX) }

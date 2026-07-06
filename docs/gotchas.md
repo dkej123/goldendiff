@@ -64,8 +64,12 @@ all reviewed and **intentionally accepted**:
   note above applies. Do not chase these away.
 - **Experimental API — `ByteBackedContentRevision`** (`compare/GitImageSource.kt`). Cleanest path to
   raw committed bytes; a non-experimental fallback (`ContentRevision.getContent()`) is already in place.
-- **Deprecated API — none.** The old `com.intellij.util.Alarm` debounce was replaced by a plain
-  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`.
+- **Deprecated API — none.** Two were replaced: the old `com.intellij.util.Alarm` debounce by a plain
+  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`; and
+  `ReadAction.compute(ThrowableComputable)` (deprecated on build 261+) by the Kotlin
+  `com.intellij.openapi.application.runReadAction { }` in `match/CurrentScreen.kt`. With the open-ended
+  `until-build`, the verifier now runs against 2026.x EAPs too, so prefer replacements that are stable
+  across 241…latest.
 
 The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
 so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
