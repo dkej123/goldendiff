@@ -1,4 +1,13 @@
-# Golden matching
+---
+title: Matching goldens
+nav_order: 4
+---
+
+# Matching goldens
+
+This page explains how Golden Diff decides which goldens belong to the file you are editing, and how to
+configure matching when the defaults don’t fit your project. For where each option lives, see the
+[settings reference](settings-reference.md); if the list stays empty, see [troubleshooting](troubleshooting.md).
 
 Golden Diff finds screenshots in two steps:
 

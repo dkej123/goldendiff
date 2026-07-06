@@ -1,0 +1,39 @@
+# GitHub Pages config for the Golden Diff user guide.
+# Built natively by GitHub Pages (no custom CI) using the just-the-docs theme via remote_theme.
+# Enable at: repo Settings -> Pages -> Build and deployment -> Deploy from a branch -> main / docs.
+
+title: Golden Diff
+description: Review screenshot-test goldens without leaving your IDE.
+remote_theme: just-the-docs/just-the-docs
+
+# Published at https://dkej123.github.io/goldendiff/
+url: https://dkej123.github.io
+baseurl: /goldendiff
+
+plugins:
+  - jekyll-remote-theme
+
+# just-the-docs options
+search_enabled: true
+heading_anchors: true
+color_scheme: light
+aux_links:
+  Golden Diff on GitHub:
+    - https://github.com/dkej123/goldendiff
+  JetBrains Marketplace:
+    - https://plugins.jetbrains.com/plugin/32662-golden-diff
+aux_links_new_tab: true
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Keep contributor-only docs and helper files out of the published site
+# (they stay in the repo and still render on github.com).
+exclude:
+  - README.md
+  - images/README.md
+  - architecture.md
+  - build-and-run.md
+  - features.md
+  - gotchas.md
+  - roadmap.md
+  - marketplace.md

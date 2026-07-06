@@ -28,7 +28,7 @@ Right-anchored, id "Golden Diff". Left: header + golden list. Right: the compari
 - The list is rebuilt only when the name set actually changes. Clicking around the same file keeps the
   list and the user's manual selection intact. `caretName` is used only for the *initial* selection
   when a file is first shown.
-- See [matching.md](matching.md) for end-user configuration examples.
+- See [the matching guide](matching.md) for end-user configuration examples.
 
 ## Comparison source (git HEAD ↔ working copy / test output)
 For the selected golden, `GitImageSource` loads the committed version (VCS `DiffProvider` current
