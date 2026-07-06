@@ -19,20 +19,23 @@ comparison source, the comparison is skipped and you just get a single preview l
 *"No changes vs HEAD"*.
 
 ## Features
-- Finds screenshot goldens that match the current Kotlin screen, preview, test, class, or file.
+- Matches goldens to the file you're editing in two modes: by **annotated preview/test method**, or by
+  a **file/class regex** (`{file_name}` / `{class_name}`). Matching runs against each golden's path, so
+  nested (package/class-as-directory) layouts work too.
+- **Live preview** in Settings shows how many and which goldens match the current file for your config.
 - Compares Git HEAD with the working-copy golden.
-- Compares Git HEAD with generated verification output such as `_actual.png` files.
-- Supports configurable generated-output directories and filename regex. Golden matching and
-  generated-output matching are separate steps: the list is built from golden filenames, then the
-  regex is used only to find the generated counterpart for the selected golden in Test output mode.
+- Compares Git HEAD with generated verification output such as `_actual.png` files. Golden matching and
+  generated-output matching are separate steps: the list is built from the golden directories, then the
+  generated-file regex is used only to find the generated counterpart for the selected golden in Test
+  output mode.
 - Offers side-by-side, swipe, onion-skin, and pixel-diff comparison modes.
 - Keeps screenshot directories project-local.
 - Supports IntelliJ Platform 2024.1+ through build 254.
 
 ## Works with any screenshot tool
-It only needs PNG goldens committed to git, whose file names contain the class / preview / test name.
-That covers **Roborazzi, Paparazzi, Compose Preview Screenshot Testing, Shot**, and similar — just point
-the plugin at the golden directory.
+It only needs PNG goldens committed to git, whose paths contain the method, class, or file name. That
+covers **Roborazzi, Paparazzi, Compose Preview Screenshot Testing, Shot, Dropshots**, and similar — just
+point the plugin at the golden directory.
 
 ## Install
 **From JetBrains Marketplace (recommended):**
@@ -51,7 +54,8 @@ Studio versions on those platform builds, up to the declared `254.*` range.
 1. Open the **Golden Diff** tool window (right edge).
 2. First run: click **Choose screenshots directory** and pick your golden folder
    (later: Settings → Tools → Golden Diff, or the **Directories…** button). Multiple folders OK.
-3. Optional: configure generated test-output directories and their filename regex.
+3. Optional: pick the matching mode (annotated method vs file/class regex) and check the live preview;
+   configure generated test-output directories and their filename regex.
 4. Open a screen/test file → pick a golden from the list → choose Working copy or Test output →
    switch modes / zoom.
 

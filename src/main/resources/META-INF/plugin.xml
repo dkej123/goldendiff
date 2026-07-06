@@ -13,15 +13,17 @@
       pixel-diff heatmap.</p>
 
       <p>It is tool-agnostic and works with PNG outputs from <b>Roborazzi, Paparazzi, Compose Preview
-      Screenshot Testing, Shot</b>, and similar screenshot-test tools &mdash; just point it at the
-      golden directory.</p>
+      Screenshot Testing, Shot, Dropshots</b>, and similar screenshot-test tools &mdash; just point it
+      at the golden directory.</p>
 
       <ul>
-        <li>Match screenshot goldens by screen, preview, test, class, or file name.</li>
+        <li>Match goldens to the file you are editing in two modes: by annotated preview/test method,
+        or by a file/class regex &mdash; matched against each golden's path, so nested layouts work too.</li>
+        <li>Live preview in Settings shows how many and which goldens match the current file.</li>
         <li>Compare Git HEAD with working-copy goldens.</li>
         <li>Compare Git HEAD with generated test output such as <code>_actual.png</code> files.</li>
-        <li>Configure golden directories, generated-output directories, and the generated-file regex
-        per project.</li>
+        <li>Configure golden and generated-output directories, the matching rule, and excluded golden
+        suffixes per project.</li>
         <li>Review changes in side-by-side, swipe, onion-skin, and pixel-diff modes.</li>
         <li>Zoom (Fit / 50&ndash;400%) and scroll large screenshots.</li>
         <li>When a golden is identical to the selected source, the comparison is skipped and a single
@@ -53,5 +55,11 @@
             instance="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
             id="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
             displayName="Golden Diff"/>
+
+        <!-- Recommend Golden Diff when the project uses a supported screenshot-test library. -->
+        <dependencySupport kind="java" coordinate="io.github.takahirom.roborazzi:roborazzi" displayName="Roborazzi"/>
+        <dependencySupport kind="java" coordinate="app.cash.paparazzi:paparazzi" displayName="Paparazzi"/>
+        <dependencySupport kind="java" coordinate="com.karumi:shot" displayName="Shot"/>
+        <dependencySupport kind="java" coordinate="com.dropbox.dropshots:dropshots" displayName="Dropshots"/>
     </extensions>
 </idea-plugin>

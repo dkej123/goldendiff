@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1] - 2026-07-06
+
+### Added
+- Declare `dependencySupport` for Roborazzi, Paparazzi, Shot, and Dropshots so IDEs can recommend
+  Golden Diff in projects that use those screenshot-test libraries (also populates the plugin's
+  "Plugin Features" on the Marketplace).
+
 ## [1.1.0] - 2026-07-06
 
 Reworked how goldens are matched to the file you are editing, plus quality-of-life fixes.
@@ -45,5 +52,6 @@ a fresh Marketplace listing under a new plugin ID (`com.github.dkwasniak.goldend
 - Compatibility with IntelliJ Platform 2024.1+ through build `254.*`; Java 17 bytecode so it loads on
   2024.1–2024.3 (JBR 17).
 
+[1.1.1]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.1
 [1.1.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.0.0

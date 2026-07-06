@@ -48,10 +48,14 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>Initial release of Golden Diff.</li>
-              <li>Compare screenshot goldens from Git HEAD with working-copy or generated test output.</li>
-              <li>Four modes: side-by-side, swipe, onion skin, and a pixel-diff heatmap.</li>
-              <li>Configurable golden/generated directories, generated-file regex, and excluded suffixes.</li>
+              <li>Golden matching reworked into two explicit modes: match by annotated preview/test
+              method, or by a file/class regex with {file_name} and {class_name} placeholders.</li>
+              <li>Matching now runs against each golden's path, so layouts that nest the class or
+              package as directories match too.</li>
+              <li>Live preview in Settings shows how many and which goldens match the current file.</li>
+              <li>Fixes: the comparison preview now clears when a file has no goldens; matching no
+              longer runs while the tool window is collapsed.</li>
+              <li>Recommends Golden Diff in projects that use Roborazzi, Paparazzi, Shot, or Dropshots.</li>
             </ul>
         """.trimIndent()
 
