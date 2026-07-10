@@ -53,8 +53,9 @@ spotting small shifts.
 ### Diff
 A pixel heatmap: unchanged pixels are dimmed to grayscale context, changed pixels are highlighted in
 **magenta** (the highlight strength scales with how much each pixel changed), and a **“% pixels
-changed”** readout summarizes the difference. Areas present in only one of the two images count as
-changed.
+changed”** readout summarizes the difference. When both images exist but have different dimensions,
+both are downscaled to the smaller shared size before diffing so size-only differences do not
+dominate the heatmap.
 
 ![Diff mode](images/compare-diff.png)
 <!-- TODO(screenshot): diff mode showing the magenta heatmap and the "% pixels changed" readout -->

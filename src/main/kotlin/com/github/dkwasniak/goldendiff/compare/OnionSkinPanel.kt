@@ -91,8 +91,11 @@ class OnionSkinPanel : JPanel(BorderLayout()) {
             val text = "$oldLabel base / $newLabel overlay ${(alpha * 100).toInt()}%"
             val metrics = g2.fontMetrics
             val x = rect.x + JBUI.scale(8)
+            val titleText = ImagePainting.ellipsize(text, metrics, rect.width - JBUI.scale(16))
             g2.color = JBColor.foreground()
-            g2.drawString(text, x, metrics.ascent + JBUI.scale(6))
+            if (titleText.isNotEmpty()) {
+                g2.drawString(titleText, x, metrics.ascent + JBUI.scale(6))
+            }
         }
     }
 }

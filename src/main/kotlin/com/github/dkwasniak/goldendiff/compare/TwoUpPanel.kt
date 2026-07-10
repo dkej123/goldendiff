@@ -64,12 +64,17 @@ class TwoUpPanel : JPanel(BorderLayout()) {
         }
 
         private fun drawSide(g2: Graphics2D, image: BufferedImage?, area: Rectangle, title: String) {
+            val inset = JBUI.scale(6)
+            val metrics = g2.fontMetrics
+            val titleText = ImagePainting.ellipsize(title, metrics, area.width - inset * 2)
             g2.color = foreground
-            g2.drawString(title, area.x + JBUI.scale(6), area.y + JBUI.scale(14))
+            if (titleText.isNotEmpty()) {
+                g2.drawString(titleText, area.x + inset, area.y + metrics.ascent + JBUI.scale(3))
+            }
             val imageArea = Rectangle(area.x, area.y + titleHeight, area.width, area.height - titleHeight)
             if (image == null) {
                 g2.color = JBColor.GRAY
-                g2.drawString("(none)", area.x + JBUI.scale(6), area.y + titleHeight + JBUI.scale(14))
+                g2.drawString("(none)", area.x + inset, area.y + titleHeight + JBUI.scale(14))
                 return
             }
             val rect = ImagePainting.renderRect(zoom, image.width, image.height, imageArea.width, imageArea.height)

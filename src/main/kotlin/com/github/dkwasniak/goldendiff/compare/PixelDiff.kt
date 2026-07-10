@@ -1,13 +1,16 @@
 package com.github.dkwasniak.goldendiff.compare
 
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 
 /**
  * Pure pixel-difference computation shared by the diff compare mode (and unit-tested in isolation).
  *
- * The result image is the union size of both inputs. Unchanged pixels are drawn as a dimmed grayscale
- * so they stay as visible context; changed pixels (including areas present in only one image) are
- * highlighted in magenta whose opacity grows with the magnitude of the change.
+ * When both images exist but differ in size, both are downscaled to the smaller shared dimensions
+ * before comparison so size-only differences do not flood the heatmap. When only one image exists,
+ * the result uses that image's dimensions. Unchanged pixels are drawn as a dimmed grayscale so they
+ * stay as visible context; changed pixels are highlighted in magenta whose opacity grows with the
+ * magnitude of the change.
  */
 object PixelDiff {
 
@@ -22,16 +25,19 @@ object PixelDiff {
 
     /** Returns null when there is nothing to compare (both images null / empty). */
     fun compute(old: BufferedImage?, new: BufferedImage?): Result? {
-        val width = maxOf(old?.width ?: 0, new?.width ?: 0)
-        val height = maxOf(old?.height ?: 0, new?.height ?: 0)
+        val width = if (old != null && new != null) minOf(old.width, new.width) else maxOf(old?.width ?: 0, new?.width ?: 0)
+        val height = if (old != null && new != null) minOf(old.height, new.height) else maxOf(old?.height ?: 0, new?.height ?: 0)
         if (width <= 0 || height <= 0) return null
+
+        val scaledOld = old?.scaledToIfNeeded(width, height)
+        val scaledNew = new?.scaledToIfNeeded(width, height)
 
         val out = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         var changed = 0
         for (y in 0 until height) {
             for (x in 0 until width) {
-                val o = pixelOrNull(old, x, y)
-                val n = pixelOrNull(new, x, y)
+                val o = scaledOld?.getRGB(x, y)
+                val n = scaledNew?.getRGB(x, y)
                 if (o != null && n != null && o == n) {
                     out.setRGB(x, y, dim(o))
                 } else {
@@ -43,8 +49,15 @@ object PixelDiff {
         return Result(out, changed, width * height)
     }
 
-    private fun pixelOrNull(image: BufferedImage?, x: Int, y: Int): Int? =
-        if (image != null && x < image.width && y < image.height) image.getRGB(x, y) else null
+    private fun BufferedImage.scaledToIfNeeded(w: Int, h: Int): BufferedImage {
+        if (width == w && height == h) return this
+        val out = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+        val g = out.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.drawImage(this, 0, 0, w, h, null)
+        g.dispose()
+        return out
+    }
 
     private fun dim(argb: Int): Int {
         val r = (argb shr 16) and 0xFF

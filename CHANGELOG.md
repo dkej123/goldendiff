@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0] - 2026-07-10
+
+### Added
+- Screenshot list status indicators: changed screenshots are marked with a subtle red accent, and
+  new screenshots are marked with a subtle green accent.
+- A compact legend explains the screenshot status indicators when changed or new screenshots are
+  present.
+- Thumbnail size controls in the tool window header. Reducing the thumbnail size turns the screenshot
+  list into a denser wrapped grid for scanning more screenshots at once.
+
+### Changed
+- Screenshots that differ from `git HEAD` are sorted to the top of the list, followed by new
+  screenshots, then unchanged screenshots.
+- Comparison labels are clipped gracefully in narrow tool windows instead of overlapping.
+- Pixel diff now downscales images with mismatched dimensions before comparison, so size-only
+  differences do not dominate the heatmap.
+
 ## [1.1.4] - 2026-07-06
 
 ### Changed

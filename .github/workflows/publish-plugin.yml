@@ -30,4 +30,4 @@ jobs:
       - name: Publish plugin
         env:
           ORG_GRADLE_PROJECT_intellijPlatformPublishingToken: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
-        run: ./gradlew publishPlugin --stacktrace
+        run: ./gradlew publishPlugin -PgoldenDiffVariant=public --stacktrace

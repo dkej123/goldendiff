@@ -4,6 +4,8 @@ import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
+import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSources
+import com.github.dkwasniak.goldendiff.variant.ExtraSettingsComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooser
@@ -55,6 +57,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     private val previewCountLabel = JBLabel()
     private val previewModel = DefaultListModel<String>()
     private val previewList = JBList(previewModel)
+    private val extraSettings: List<ExtraSettingsComponent> =
+        ExtraComparisonSources.all.mapNotNull { it.createSettingsComponent(project) }
     // Debounces live preview updates as the user edits regexes / directories.
     private val previewTimer = Timer(PREVIEW_DEBOUNCE_MS) { runPreview() }.apply { isRepeats = false }
 
@@ -81,6 +85,10 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         panel.add(spacer())
         panel.add(excludedSuffixesSection())
         panel.add(spacer())
+        extraSettings.forEach { settings ->
+            panel.add(settings.component)
+            panel.add(spacer())
+        }
         panel.add(previewSection())
         wirePreviewTriggers()
         reset()
@@ -370,7 +378,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             selectedMatchMode() != settings.matchMode ||
             annotationRegexField.text != settings.annotatedFunctionRegex ||
             parsePatterns(goldenPatternsArea.text) != settings.goldenFilePatterns ||
-            parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes
+            parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes ||
+            extraSettings.any { it.isModified() }
     }
 
     override fun apply() {
@@ -408,6 +417,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         settings.annotatedFunctionRegex = annotationRegex
         settings.goldenFilePatterns = goldenPatterns
         settings.excludedSuffixes = parseSuffixes(excludedSuffixesField.text)
+        extraSettings.forEach { it.apply() }
     }
 
     override fun reset() {
@@ -424,6 +434,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         annotationRegexField.text = settings.annotatedFunctionRegex
         goldenPatternsArea.text = settings.goldenFilePatterns.joinToString("\n")
         excludedSuffixesField.text = settings.excludedSuffixes.joinToString(", ")
+        extraSettings.forEach { it.reset() }
         updateMatchModeEnablement()
     }
 

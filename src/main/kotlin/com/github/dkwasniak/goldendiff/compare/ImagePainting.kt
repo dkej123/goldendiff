@@ -2,6 +2,7 @@ package com.github.dkwasniak.goldendiff.compare
 
 import com.intellij.ui.JBColor
 import java.awt.Color
+import java.awt.FontMetrics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
@@ -67,5 +68,17 @@ object ImagePainting {
     fun drawImage(g: Graphics2D, image: BufferedImage, rect: Rectangle) {
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
         g.drawImage(image, rect.x, rect.y, rect.width, rect.height, null)
+    }
+
+    fun ellipsize(text: String, metrics: FontMetrics, maxWidth: Int): String {
+        if (maxWidth <= 0) return ""
+        if (metrics.stringWidth(text) <= maxWidth) return text
+        val ellipsis = "..."
+        if (metrics.stringWidth(ellipsis) > maxWidth) return ""
+        var end = text.length
+        while (end > 0 && metrics.stringWidth(text.substring(0, end) + ellipsis) > maxWidth) {
+            end--
+        }
+        return text.substring(0, end) + ellipsis
     }
 }

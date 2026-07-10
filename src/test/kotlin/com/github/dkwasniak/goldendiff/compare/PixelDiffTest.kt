@@ -59,21 +59,31 @@ class PixelDiffTest {
     }
 
     @Test
-    fun `union size is used and extra area counts as changed`() {
+    fun `different sized images are downscaled to smaller shared size`() {
         val a = solid(1, 1, 0xFF000000.toInt())
         val b = solid(3, 1, 0xFF000000.toInt())
 
         val result = PixelDiff.compute(a, b)!!
 
-        assertEquals(3, result.image.width)
+        assertEquals(1, result.image.width)
         assertEquals(1, result.image.height)
-        // The two columns only present in `b` have no counterpart in `a` -> changed.
-        assertEquals(2, result.changedPixels)
+        assertEquals(0, result.changedPixels)
+        assertEquals(1, result.totalPixels)
     }
 
     @Test
     fun `null inputs`() {
         assertNull(PixelDiff.compute(null, null))
         assertNotNull(PixelDiff.compute(null, solid(2, 2, 0xFF123456.toInt())))
+    }
+
+    @Test
+    fun `single existing image uses its full size and counts as changed`() {
+        val result = PixelDiff.compute(null, solid(2, 2, 0xFF123456.toInt()))!!
+
+        assertEquals(2, result.image.width)
+        assertEquals(2, result.image.height)
+        assertEquals(4, result.changedPixels)
+        assertEquals(4, result.totalPixels)
     }
 }

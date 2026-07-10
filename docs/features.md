@@ -28,6 +28,12 @@ Right-anchored, id "Golden Diff". Left: header + golden list. Right: the compari
 - The list is rebuilt only when the name set actually changes. Clicking around the same file keeps the
   list and the user's manual selection intact. `caretName` is used only for the *initial* selection
   when a file is first shown.
+- For working-copy and generated-output comparisons, screenshots that differ from git HEAD are sorted
+  to the top of the list. Modified screenshots are marked with a subtle red accent; new screenshots
+  (not present in HEAD) are marked with a subtle green accent. A small legend appears when such
+  statuses are present.
+- Thumbnail size can be adjusted from the tool window header. Smaller sizes turn the left pane into a
+  wrapped grid so more screenshots can be scanned at once.
 - See [the matching guide](matching.md) for end-user configuration examples.
 
 ## Comparison source (git HEAD ↔ working copy / test output)
@@ -59,7 +65,9 @@ counterpart.
   labels the base/overlay roles.
 - **Diff** — pixel heatmap (`PixelDiff` → `DiffPanel`): unchanged pixels dimmed to grayscale context,
   changed pixels highlighted in magenta (opacity scales with the per-pixel change), plus a
-  "% pixels changed" readout. Areas present in only one image count as changed.
+  "% pixels changed" readout. When both images exist but have different dimensions, both are
+  downscaled to the smaller shared size before diffing so size-only differences do not dominate the
+  heatmap. Areas present in only one image count as changed when there is no counterpart image.
 - **Zoom** combo (always visible): `Fit / 50% / 75% / 100% / 150% / 200% / 400%`. Applies to all modes
   and the single view; zoomed-in content scrolls. Zoom level persists across files and modes.
 

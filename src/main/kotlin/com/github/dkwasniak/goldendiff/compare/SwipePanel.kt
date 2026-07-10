@@ -118,9 +118,18 @@ class SwipePanel : JPanel(BorderLayout()) {
 
         private fun drawLabels(g2: Graphics2D, rect: Rectangle) {
             val metrics = g2.fontMetrics
+            val inset = JBUI.scale(6)
+            val gap = JBUI.scale(12)
+            val maxLabelWidth = ((rect.width - inset * 2 - gap) / 2).coerceAtLeast(0)
+            val oldText = ImagePainting.ellipsize(oldLabel, metrics, maxLabelWidth)
+            val newText = ImagePainting.ellipsize(newLabel, metrics, maxLabelWidth)
             g2.color = JBColor.foreground()
-            g2.drawString(oldLabel, rect.x + JBUI.scale(6), metrics.ascent + JBUI.scale(6))
-            g2.drawString(newLabel, rect.x + rect.width - metrics.stringWidth(newLabel) - JBUI.scale(6), metrics.ascent + JBUI.scale(6))
+            if (oldText.isNotEmpty()) {
+                g2.drawString(oldText, rect.x + inset, metrics.ascent + inset)
+            }
+            if (newText.isNotEmpty()) {
+                g2.drawString(newText, rect.x + rect.width - metrics.stringWidth(newText) - inset, metrics.ascent + inset)
+            }
         }
     }
 }
