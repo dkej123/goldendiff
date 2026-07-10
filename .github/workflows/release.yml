@@ -29,8 +29,21 @@ jobs:
       - name: Build plugin
         run: ./gradlew buildPlugin -PgoldenDiffVariant=public --stacktrace
 
+      - name: Extract release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG.md entry found for $VERSION" >&2
+            exit 1
+          fi
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: build/distributions/golden-diff-[0-9]*.zip
-          generate_release_notes: true
+          body_path: release-notes.md

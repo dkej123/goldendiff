@@ -93,6 +93,10 @@ a fresh Marketplace listing under a new plugin ID (`com.github.dkwasniak.goldend
 - Compatibility with IntelliJ Platform 2024.1+ through build `254.*`; Java 17 bytecode so it loads on
   2024.1–2024.3 (JBR 17).
 
+[1.2.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.2.0
+[1.1.4]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.4
+[1.1.3]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.3
+[1.1.2]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.2
 [1.1.1]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.1
 [1.1.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.0.0
