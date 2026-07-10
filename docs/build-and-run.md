@@ -21,6 +21,23 @@ form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241";
 First build downloads the platform — slow, run it in the background and
 be patient. Subsequent builds are seconds (platform is cached).
 
+## Build variants
+The default build is the public Marketplace plugin. Figma-specific code lives under `src/figma` and
+is included only when the Figma variant is selected.
+
+```bash
+./gradlew buildPublicPlugin # build/distributions/golden-diff-<ver>.zip
+./gradlew buildFigmaPlugin  # build/distributions/golden-diff-figma-<ver>-figma.zip
+```
+
+Equivalent direct form:
+```bash
+./gradlew buildPlugin -PgoldenDiffVariant=public
+./gradlew buildPlugin -PgoldenDiffVariant=figma
+```
+
+Use `buildPublicPlugin` for Marketplace releases.
+
 ## Installing into Android Studio / IntelliJ
 The dev target is IntelliJ IDEA (only stable platform + Kotlin-PSI + Git4Idea APIs are used, all present
 in Android Studio builds based on supported IntelliJ Platform versions). To install the built plugin:

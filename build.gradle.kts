@@ -7,7 +7,20 @@ plugins {
 }
 
 group = providers.gradleProperty("pluginGroup").get()
-version = providers.gradleProperty("pluginVersion").get()
+val pluginBaseVersion = providers.gradleProperty("pluginVersion").get()
+
+val goldenDiffVariant = providers.gradleProperty("goldenDiffVariant")
+    .orElse("public")
+    .map { it.lowercase() }
+    .get()
+
+require(goldenDiffVariant == "public" || goldenDiffVariant == "figma") {
+    "Unsupported goldenDiffVariant '$goldenDiffVariant'. Use 'public' or 'figma'."
+}
+
+version = if (goldenDiffVariant == "figma") "$pluginBaseVersion-figma" else pluginBaseVersion
+
+layout.buildDirectory.set(layout.projectDirectory.dir("build/$goldenDiffVariant"))
 
 repositories {
     mavenCentral()
@@ -48,12 +61,15 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
             <ul>
-              <li>Removed the fixed upper IDE-version bound, so the plugin installs on current and
-              future IntelliJ / Android Studio builds. It uses only long-stable platform,
-              Kotlin-PSI, and Git4Idea APIs.</li>
-              <li>Golden list thumbnails now render from the full-resolution image at paint time
-              instead of a cached pre-scaled bitmap, so they stay crisp on HiDPI/Retina displays and
-              use less memory.</li>
+              <li>Screenshot thumbnails are now sorted by status, with changed screenshots first and
+              new screenshots next. The list also shows a compact legend and subtle red/green status
+              accents.</li>
+              <li>Added thumbnail scaling controls so the screenshot list can switch from a large
+              single-column view to a denser grid.</li>
+              <li>Comparison labels are now clipped gracefully in narrow tool windows instead of
+              overlapping.</li>
+              <li>Pixel diff now downscales mismatched image sizes before comparison, so pure size
+              differences no longer dominate the heatmap.</li>
             </ul>
         """.trimIndent()
 
@@ -75,6 +91,32 @@ intellijPlatform {
 
 kotlin {
     jvmToolchain(21)
+
+    sourceSets {
+        named("main") {
+            if (goldenDiffVariant == "figma") {
+                kotlin.srcDir("src/figma/kotlin")
+            }
+        }
+        named("test") {
+            if (goldenDiffVariant == "figma") {
+                kotlin.srcDir("src/figmaTest/kotlin")
+            }
+        }
+    }
+}
+
+sourceSets {
+    named("main") {
+        if (goldenDiffVariant == "figma") {
+            resources.srcDir("src/figma/resources")
+        }
+    }
+    named("test") {
+        if (goldenDiffVariant == "figma") {
+            resources.srcDir("src/figmaTest/resources")
+        }
+    }
 }
 
 // Build with JDK 21, but emit Java 17 bytecode: IntelliJ 2024.1–2024.3 (our sinceBuild = 241) run on
@@ -87,8 +129,25 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(17)
 }
 
+tasks.named<Zip>("buildPlugin") {
+    archiveBaseName.set(if (goldenDiffVariant == "figma") "golden-diff-figma" else "golden-diff")
+    destinationDirectory.set(layout.projectDirectory.dir("build/distributions"))
+}
+
 tasks {
     wrapper {
         gradleVersion = "9.6.1"
+    }
+
+    register<Exec>("buildPublicPlugin") {
+        group = "build"
+        description = "Builds the public Marketplace plugin without Figma variant sources."
+        commandLine("./gradlew", "buildPlugin", "-PgoldenDiffVariant=public")
+    }
+
+    register<Exec>("buildFigmaPlugin") {
+        group = "build"
+        description = "Builds the Figma plugin variant with Figma comparison sources."
+        commandLine("./gradlew", "buildPlugin", "-PgoldenDiffVariant=figma")
     }
 }
