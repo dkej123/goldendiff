@@ -1,6 +1,9 @@
 <plugins>
   <plugin id="com.github.dkwasniak.goldendiff.figma" url="https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution/golden-diff-figma-1.3.0.zip" version="1.3.0">
+    <name>Golden Diff — Figma</name>
+    <vendor>dkwasniak</vendor>
     <idea-version since-build="241"/>
     <depends>com.github.dkwasniak.goldendiff</depends>
+    <description><![CDATA[Adds a Figma reference comparison source to the Golden Diff plugin.]]></description>
   </plugin>
 </plugins>

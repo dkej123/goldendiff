@@ -83,6 +83,8 @@ tasks.register("generateUpdatePluginsXml") {
     val buildPlugin = tasks.named<Zip>("buildPlugin")
     dependsOn(buildPlugin)
     val pluginId = "com.github.dkwasniak.goldendiff.figma"
+    val pluginName = "Golden Diff — Figma"
+    val vendor = "dkwasniak"
     val dependsOnId = "com.github.dkwasniak.goldendiff"
     val pluginVersion = version.toString()
     val baseUrl = providers.gradleProperty("customRepoBaseUrl")
@@ -94,12 +96,17 @@ tasks.register("generateUpdatePluginsXml") {
     outputs.file(outputFile)
     doLast {
         val zipName = zipFile.get().asFile.name
+        // <name>/<vendor>/<description> make the IDE show a proper listing before download; without
+        // <name> it falls back to the ZIP file name (e.g. "golden-diff-figma-1.3.0").
         outputFile.get().asFile.writeText(
             """
             <plugins>
               <plugin id="$pluginId" url="${baseUrl.get().trimEnd('/')}/$zipName" version="$pluginVersion">
+                <name>$pluginName</name>
+                <vendor>$vendor</vendor>
                 <idea-version since-build="241"/>
                 <depends>$dependsOnId</depends>
+                <description><![CDATA[Adds a Figma reference comparison source to the Golden Diff plugin.]]></description>
               </plugin>
             </plugins>
             """.trimIndent() + "\n",
