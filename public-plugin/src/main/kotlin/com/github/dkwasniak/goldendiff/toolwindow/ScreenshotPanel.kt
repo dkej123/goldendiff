@@ -389,10 +389,28 @@ class ScreenshotPanel(
         refreshTimer.restart()
     }
 
+    // Append any comparison sources contributed after this panel was constructed. Idempotent: only
+    // sources not already in the combo are added, so selection and existing entries are untouched
+    // (JComboBox.addItem does not change the current selection or fire a selection event).
+    private fun syncExtraComparisonSources() {
+        val present = (0 until sourceCombo.itemCount)
+            .mapNotNull { sourceCombo.getItemAt(it)?.extra?.id }
+            .toSet()
+        ExtraComparisonSources.all
+            .filter { it.id !in present }
+            .forEach { sourceCombo.addItem(ComparisonSource.extra(it)) }
+    }
+
     private fun refresh() {
         // Don't scan for goldens while the tool window is collapsed/hidden; a pending force is kept
         // so it is honored once the window is reopened.
         if (!toolWindow.isVisible) return
+
+        // Extra comparison sources come from dependent plugins (e.g. Golden Diff — Figma) via an
+        // extension point. A dependent plugin can finish loading after this panel was first built —
+        // notably when the tool window is restored open on startup — so top up the source combo here
+        // instead of trusting the one-time snapshot taken in the field initializer.
+        syncExtraComparisonSources()
 
         val force = pendingForce
         pendingForce = false
