@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0] - 2026-07-21
+
+### Added
+- Right-click context menu on the golden list: **Show in Finder/Explorer**, **Copy Absolute Path**,
+  and **Delete** (with confirmation; supports deleting multiple selected goldens).
+- Optional **Trim transparent padding around image content** setting (Settings → Tools → Golden Diff →
+  Display). When enabled, fully transparent borders are cropped so images are shown tight to their
+  content, in both the comparison view and the list thumbnails. Off by default — images are shown
+  exactly as stored.
+
+### Fixed
+- Removed a thin checkerboard sliver that could appear along one edge of a rendered image. The image
+  now fills its draw rectangle exactly instead of being re-fit with independent rounding, so the
+  background no longer peeks out on wide or short screenshots.
+
 ## [1.3.1] - 2026-07-21
 
 ### Fixed

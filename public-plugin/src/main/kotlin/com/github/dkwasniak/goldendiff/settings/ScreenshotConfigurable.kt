@@ -25,6 +25,7 @@ import java.awt.Font
 import java.io.File
 import javax.swing.BoxLayout
 import javax.swing.ButtonGroup
+import javax.swing.JCheckBox
 import javax.swing.DefaultListModel
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -58,6 +59,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         margin = JBUI.insets(4, 6)
     }
     private val excludedSuffixesField = singleLineField()
+    private val trimTransparentPaddingCheckbox =
+        JCheckBox("Trim transparent padding around image content")
     private val previewCountLabel = JBLabel()
     private val previewModel = DefaultListModel<String>()
     private val previewList = JBList(previewModel)
@@ -95,6 +98,9 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         panel.add(spacer())
         panel.add(sectionHeader("Filtering"))
         panel.add(excludedSuffixesSection())
+        panel.add(spacer())
+        panel.add(sectionHeader("Display"))
+        panel.add(displaySection())
         panel.add(spacer())
         extraSettingsSources.forEach { (title, settings) ->
             panel.add(sectionHeader(title))
@@ -348,6 +354,19 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             add(excludedSuffixesField, BorderLayout.CENTER)
         }
 
+    private fun displaySection(): JPanel =
+        JPanel(BorderLayout()).apply {
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(64))
+            add(
+                labelBlock(
+                    "Image display:",
+                    "Crops fully transparent borders so images are shown tight to their content. Off by default; images are shown exactly as stored.",
+                ),
+                BorderLayout.NORTH,
+            )
+            add(trimTransparentPaddingCheckbox, BorderLayout.CENTER)
+        }
+
     private fun singleLineField(): JTextField =
         JTextField().apply {
             margin = JBUI.insets(2, 6)
@@ -410,6 +429,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             annotationRegexField.text != settings.annotatedFunctionRegex ||
             parsePatterns(goldenPatternsArea.text) != settings.goldenFilePatterns ||
             parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes ||
+            trimTransparentPaddingCheckbox.isSelected != settings.trimTransparentPadding ||
             extraSettings.any { it.isModified() }
     }
 
@@ -448,6 +468,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         settings.annotatedFunctionRegex = annotationRegex
         settings.goldenFilePatterns = goldenPatterns
         settings.excludedSuffixes = parseSuffixes(excludedSuffixesField.text)
+        settings.trimTransparentPadding = trimTransparentPaddingCheckbox.isSelected
         extraSettings.forEach { it.apply() }
     }
 
@@ -465,6 +486,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         annotationRegexField.text = settings.annotatedFunctionRegex
         goldenPatternsArea.text = settings.goldenFilePatterns.joinToString("\n")
         excludedSuffixesField.text = settings.excludedSuffixes.joinToString(", ")
+        trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding
         extraSettings.forEach { it.reset() }
         updateMatchModeEnablement()
     }

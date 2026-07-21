@@ -82,6 +82,30 @@ class ImagePaintingTest {
     }
 
     @Test
+    fun `trimTransparentBorder crops fully-transparent padding to the content`() {
+        val img = image(10, 10)
+        // 4x3 opaque block at (3, 2); everything else stays transparent (alpha 0).
+        for (x in 3..6) for (y in 2..4) img.setRGB(x, y, 0xFF00FF00.toInt())
+        val trimmed = ImagePainting.trimTransparentBorder(img)
+        assertEquals(4, trimmed.width)
+        assertEquals(3, trimmed.height)
+        assertEquals(0xFF00FF00.toInt(), trimmed.getRGB(0, 0))
+    }
+
+    @Test
+    fun `trimTransparentBorder returns the same image when there is no transparent border`() {
+        val img = image(5, 5)
+        for (x in 0 until 5) for (y in 0 until 5) img.setRGB(x, y, 0xFF123456.toInt())
+        assertEquals(img, ImagePainting.trimTransparentBorder(img))
+    }
+
+    @Test
+    fun `trimTransparentBorder leaves a fully-transparent image untouched`() {
+        val img = image(4, 4)
+        assertEquals(img, ImagePainting.trimTransparentBorder(img))
+    }
+
+    @Test
     fun `boundingSize handles nulls`() {
         val (w, h) = ImagePainting.boundingSize(null, image(30, 20))
         assertEquals(30, w)

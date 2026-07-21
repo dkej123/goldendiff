@@ -41,6 +41,9 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         // File-name suffixes (before the extension) whose files are not goldens themselves and are
         // excluded from the golden list, e.g. Roborazzi's `_compare` / `_actual` artifacts.
         var excludedSuffixes: MutableList<String> = DEFAULT_EXCLUDED_SUFFIXES.toMutableList()
+        // When true, fully transparent padding around an image's content is trimmed before it is shown
+        // (comparison view and list thumbnails). Off by default so images are shown exactly as stored.
+        var trimTransparentPadding: Boolean = false
     }
 
     private var state = State()
@@ -82,6 +85,12 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         get() = state.excludedSuffixes.toList()
         set(value) {
             state.excludedSuffixes = value.toMutableList()
+        }
+
+    var trimTransparentPadding: Boolean
+        get() = state.trimTransparentPadding
+        set(value) {
+            state.trimTransparentPadding = value
         }
 
     var matchMode: MatchMode
