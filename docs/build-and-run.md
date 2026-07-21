@@ -37,15 +37,22 @@ descriptor plus the ZIP. Both are hosted straight from this **public** GitHub re
 committed under [`distribution/`](../distribution/) and served over `raw.githubusercontent.com` (no
 GitHub release, no auth — the repo is public, so raw URLs are reachable directly).
 
-Publish a release (after bumping `pluginVersion` in `gradle.properties`):
+Publishing is **automated**: the [`publish-internal.yml`](../.github/workflows/publish-internal.yml)
+workflow rebuilds the internal plugin and commits refreshed `distribution/{ZIP,updatePlugins.xml}`
+back to `main` on every push that changes the sources or `gradle.properties`. So the normal release
+flow is just:
 ```bash
-./distribution/publish.sh          # builds, then refreshes distribution/{ZIP,updatePlugins.xml}
-git add distribution && git commit && git push
+# bump pluginVersion in gradle.properties, then
+git commit -am "…" && git push        # CI refreshes distribution/ for you
 ```
-`publish.sh` runs `:internal-plugin:buildPlugin` + `generateUpdatePluginsXml` (the descriptor's ZIP
-url defaults to `https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution`; override
-with `-PcustomRepoBaseUrl` if the repo/branch/path changes) and copies both files into
-`distribution/`. Only the current ZIP is kept there.
+The bot commit only touches `distribution/` and is pushed with `GITHUB_TOKEN` (which does not
+retrigger workflows), so there is no loop.
+
+To do it locally instead (or to preview), run `./distribution/publish.sh`: it runs
+`:internal-plugin:buildPlugin` + `generateUpdatePluginsXml` (the descriptor's ZIP url defaults to
+`https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution`; override with
+`-PcustomRepoBaseUrl` if the repo/branch/path changes) and copies both files into `distribution/`,
+keeping only the current ZIP.
 
 ### Team install (one-time)
 Settings → Plugins → ⚙ → **Manage Plugin Repositories** → add

@@ -1,0 +1,58 @@
+name: Publish internal plugin
+
+# Rebuilds the internal (Figma) plugin and refreshes the hosted files under distribution/ whenever the
+# sources or version change on main — so nobody has to run distribution/publish.sh by hand. The commit
+# it pushes back only touches distribution/ (not in the trigger paths) and is made with GITHUB_TOKEN,
+# which does not retrigger workflows, so there is no loop.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "internal-plugin/**"
+      - "public-plugin/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+      - "distribution/publish.sh"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-internal
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and host internal plugin
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build internal plugin and refresh distribution/
+        run: ./distribution/publish.sh
+
+      - name: Commit hosted files if changed
+        run: |
+          if git diff --quiet -- distribution; then
+            echo "distribution/ unchanged — nothing to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add distribution
+          git commit -m "Publish internal plugin (${GITHUB_SHA::7})"
+          git push
