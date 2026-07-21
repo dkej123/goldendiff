@@ -7,7 +7,10 @@ plugins {
 }
 
 group = providers.gradleProperty("pluginGroup").get()
-version = providers.gradleProperty("pluginVersion").get()
+// Versioned independently from the public plugin; falls back to pluginVersion if unset.
+version = providers.gradleProperty("figmaPluginVersion")
+    .orElse(providers.gradleProperty("pluginVersion"))
+    .get()
 
 repositories {
     mavenCentral()

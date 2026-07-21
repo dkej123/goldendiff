@@ -13,6 +13,12 @@
       repository, not the Marketplace.</p>
     ]]></description>
 
+    <!-- Declares this as a modern IntelliJ Platform plugin, so it is compatible with all Platform
+         IDEs (including Android Studio) rather than being treated as IntelliJ IDEA-only. Without a
+         module dependency the IDE shows "Compatible with IntelliJ IDEA only" and refuses to load it
+         elsewhere. -->
+    <depends>com.intellij.modules.platform</depends>
+
     <!-- Depends on the public plugin: its classloader is the parent, so the public API (the
          comparisonSource extension point, GitImageSource, ScreenshotSettings, CurrentScreen) is
          visible here. Installing this plugin requires Golden Diff to be present. -->
