@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2026-07-21
+
+### Fixed
+- An optional comparison source contributed by a companion plugin now appears in the tool window's
+  *Compare* dropdown even when that plugin finishes loading after the tool window was first shown
+  (for example when the tool window is restored open on IDE startup). The dropdown is now topped up on
+  refresh instead of only when it is first built.
+
 ## [1.3.0] - 2026-07-13
 
 ### Added
