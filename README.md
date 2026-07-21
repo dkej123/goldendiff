@@ -30,7 +30,7 @@ comparison source, the comparison is skipped and you just get a single preview l
   output mode.
 - Offers side-by-side, swipe, onion-skin, and pixel-diff comparison modes.
 - Keeps screenshot directories project-local.
-- Supports IntelliJ Platform 2024.1+ through build 254.
+- Supports IntelliJ Platform 2024.1+ (build 241+), with no upper build limit.
 
 ## Works with any screenshot tool
 It only needs PNG goldens committed to git, whose paths contain the method, class, or file name. That
@@ -43,12 +43,12 @@ point the plugin at the golden directory.
 - Or from the web: [plugins.jetbrains.com/plugin/32662-golden-diff](https://plugins.jetbrains.com/plugin/32662-golden-diff).
 
 **From a local zip:**
-1. Build the plugin (see below) or grab `build/distributions/golden-diff-<ver>.zip`.
+1. Build the plugin (see below) or grab `public-plugin/build/distributions/golden-diff-<ver>.zip`.
 2. **Settings → Plugins → ⚙ → Install Plugin from Disk…** → select the zip.
 3. Restart Android Studio.
 
 Compatible with JetBrains IDEs based on IntelliJ Platform **2024.1+ (build 241+)**, including Android
-Studio versions on those platform builds, up to the declared `254.*` range.
+Studio versions on those platform builds. There is no declared upper build bound.
 
 ## Use
 1. Open the **Golden Diff** tool window (right edge).
