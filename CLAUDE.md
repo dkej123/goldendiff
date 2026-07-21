@@ -29,6 +29,15 @@ output directories.
 ```
 Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → the built zip → restart.
 
+## Release cycle
+- **Internal (Figma) plugin — automated.** Bump `pluginVersion` in `gradle.properties`, commit, and
+  push to `main`. The `publish-internal.yml` workflow rebuilds it and commits the hosted files under
+  `distribution/` (ZIP + `updatePlugins.xml`, served via `raw.githubusercontent.com`). No manual step;
+  `./distribution/publish.sh` is only the local fallback. The team installs it once from the custom
+  repo (see [docs/installation.md](docs/installation.md)) and then auto-updates.
+- **Public plugin — Marketplace.** Tag `v<ver>` to trigger `release.yml` / `publish-plugin.yml`.
+- Details: [docs/build-and-run.md](docs/build-and-run.md#distributing-the-internal-plugin).
+
 ## Before you touch anything, read
 - [docs/architecture.md](docs/architecture.md) — modules, data flow, key classes.
 - [docs/build-and-run.md](docs/build-and-run.md) — build/run details, platform compatibility.

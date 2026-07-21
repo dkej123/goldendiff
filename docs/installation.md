@@ -34,6 +34,24 @@ If you have a `golden-diff-<version>.zip` (for example a build you produced your
 3. Select the zip file.
 4. Restart the IDE.
 
+## Install the internal Figma add-on (team only)
+
+*Golden Diff — Figma* is a separate, team-internal plugin that adds a **Figma** comparison source on
+top of Golden Diff. It is not on the Marketplace; it is served from a custom plugin repository and
+depends on the public *Golden Diff* plugin.
+
+1. **Settings → Plugins → ⚙ (gear) → Manage Plugin Repositories…**, click **+**, and add:
+   ```
+   https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution/updatePlugins.xml
+   ```
+2. Open the **Marketplace** tab, search for **Golden Diff — Figma**, and click **Install**. If the
+   base *Golden Diff* plugin is missing, the IDE offers to install it from Marketplace first — accept.
+3. Restart the IDE.
+
+Updates are automatic: whenever a new version is published you get the usual plugin-update
+notification. You only add the repository URL once. (No account or password — the repository is public
+and read-only.)
+
 ## Compatibility notes
 
 - Compatible with IntelliJ Platform **2024.1+ (build 241+)** with no declared upper bound,
