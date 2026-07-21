@@ -1,0 +1,24 @@
+<idea-plugin>
+    <id>com.github.dkwasniak.goldendiff.figma</id>
+    <name>Golden Diff — Figma</name>
+    <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
+
+    <description><![CDATA[
+      <p><b>Golden Diff — Figma</b> adds a Figma comparison source to the
+      <b>Golden Diff</b> plugin: it lists the <code>figma-compose-preview</code> @Preview functions in
+      the open file, downloads the referenced Figma frame, and compares it side-by-side with the
+      current screenshot golden — reusing all of Golden Diff's compare modes.</p>
+
+      <p>Requires the <b>Golden Diff</b> plugin. Distributed through an internal custom plugin
+      repository, not the Marketplace.</p>
+    ]]></description>
+
+    <!-- Depends on the public plugin: its classloader is the parent, so the public API (the
+         comparisonSource extension point, GitImageSource, ScreenshotSettings, CurrentScreen) is
+         visible here. Installing this plugin requires Golden Diff to be present. -->
+    <depends>com.github.dkwasniak.goldendiff</depends>
+
+    <extensions defaultExtensionNs="com.github.dkwasniak.goldendiff">
+        <comparisonSource implementation="com.github.dkwasniak.goldendiff.compare.FigmaImageSource"/>
+    </extensions>
+</idea-plugin>

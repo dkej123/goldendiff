@@ -26,8 +26,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build plugin
-        run: ./gradlew buildPlugin -PgoldenDiffVariant=public --stacktrace
+      - name: Build public plugin
+        run: ./gradlew :public-plugin:buildPlugin --stacktrace
 
       - name: Extract release notes
         run: |
@@ -45,5 +45,5 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/distributions/golden-diff-[0-9]*.zip
+          files: public-plugin/build/distributions/golden-diff-[0-9]*.zip
           body_path: release-notes.md

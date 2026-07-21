@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0] - 2026-07-13
+
+### Added
+- **Project changes scope.** A new *Scope* selector in the tool window header switches the list
+  between the file open in the editor and every changed golden across the whole project. Only changed
+  goldens are shown, sorted changed-first, then new. Works with both comparison sources: working copy
+  and test output.
+
+### Changed
+- Faster golden matching in *file/class regex* mode: each pattern is compiled once per refresh instead
+  of being recompiled for every candidate file, and the result sort key is precomputed. Noticeably
+  cheaper on large golden trees.
+- The *Project changes* working-copy view derives each screenshot's changed/new status directly from
+  `git status`, so it no longer performs a per-file `git HEAD` revision read.
+- The *Project changes* test-output view indexes the generated directory once for O(1) counterpart
+  lookups instead of re-scanning it for every golden, and computes the `git HEAD` comparisons in
+  parallel.
+
 ## [1.2.0] - 2026-07-10
 
 ### Added
@@ -93,6 +111,7 @@ a fresh Marketplace listing under a new plugin ID (`com.github.dkwasniak.goldend
 - Compatibility with IntelliJ Platform 2024.1+ through build `254.*`; Java 17 bytecode so it loads on
   2024.1–2024.3 (JBR 17).
 
+[1.3.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.3.0
 [1.2.0]: https://github.com/dkej123/goldendiff/releases/tag/v1.2.0
 [1.1.4]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.4
 [1.1.3]: https://github.com/dkej123/goldendiff/releases/tag/v1.1.3

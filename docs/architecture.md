@@ -3,14 +3,40 @@
 Plain IntelliJ Platform plugin. Kotlin + Swing UI, with one tiny Java tool-window factory to keep
 Plugin Verifier happy. No GUI forms.
 
+## Two-plugin layout
+The repo builds **two plugins** from two Gradle modules that share one root build:
+
+- **`public-plugin/`** — Golden Diff (`com.github.dkwasniak.goldendiff`). Everything described in this
+  doc lives here. Published to Marketplace.
+- **`internal-plugin/`** — Golden Diff — Figma (`com.github.dkwasniak.goldendiff.figma`). Only the
+  Figma comparison source (`compare/Figma*`). Declares `<depends>com.github.dkwasniak.goldendiff</depends>`,
+  so at runtime its classloader's parent is the public plugin's and it sees the public plugin's public
+  API. Built with `localPlugin(project(":public-plugin"))`. Distributed through a custom plugin
+  repository (see [build-and-run.md](build-and-run.md#distributing-the-internal-plugin)); not Marketplace.
+
+The seam between them is one **extension point**: the public plugin declares
+`<extensionPoint name="comparisonSource" interface="…variant.ExtraComparisonSource" dynamic="true"/>`
+and consumes the contributions via `ExtraComparisonSources.all` (`ExtensionPointName.extensionList`).
+The internal plugin registers `FigmaImageSource` against that point. `ExtraComparisonSource` is the
+only public API the internal plugin depends on, plus the incidental public classes `GitImageSource`,
+`ScreenshotSettings`, and `CurrentScreen.Screen`. First-run directory defaults for a fresh project are
+contributed the same way, through `ExtraComparisonSource.firstRunDefaults()`.
+
+Adding another team-internal feature = another dependent plugin (or another `comparisonSource`),
+never a fork of the public plugin.
+
 ## Package layout
-`src/main/kotlin/com/github/dkwasniak/goldendiff/`
+`public-plugin/src/main/kotlin/com/github/dkwasniak/goldendiff/` (Figma sources:
+`internal-plugin/src/main/kotlin/…/compare/Figma*`)
 
 - **`toolwindow/`** — UI entry point and the list side.
   - `ScreenshotToolWindowFactory` — registers the right-anchored tool window (`plugin.xml`).
-  - `ScreenshotPanel` — the whole tool window content: header (choose dirs / refresh / compare source),
-    the golden list (left) and the `CompareView` (right) in a `JBSplitter`. Owns the refresh logic
-    and the editor listener. Implements `Disposable`.
+  - `ScreenshotPanel` — the whole tool window content: header (choose dirs / refresh / scope / compare
+    source), the golden list (left) and the `CompareView` (right) in a `JBSplitter`. Owns the refresh
+    logic and the editor listener. Implements `Disposable`. The **Scope** combo switches between
+    current-file matching and a **Project changes** view: working-copy changes come from
+    `git status --porcelain` (status derived directly from the porcelain code, no per-file HEAD read);
+    test-output changes index the generated tree once and classify goldens with parallel HEAD reads.
   - `GoldenCellRenderer` — thumbnail + filename cell renderer with an icon cache.
 - **`match/`** — figuring out what to show.
   - `CurrentScreen` — reads the selected editor's `KtFile` via PSI and returns typed candidates:
@@ -40,9 +66,11 @@ Plugin Verifier happy. No GUI forms.
 
 ## Data flow
 1. Editor selection changes → `ScreenshotPanel.scheduleRefresh()` (debounced ~300 ms).
-2. `refresh()` → `CurrentScreen.compute()` (read action, using the configured annotation regex) →
-   `GoldenFinder.find()` (using configured golden filename patterns) on a pooled thread → `populate()`
-   on the EDT fills the list and picks an initial selection.
+2. `refresh()` → in **Current file** scope: `CurrentScreen.compute()` (read action, using the
+   configured annotation regex) → `GoldenFinder.find()` (using configured golden filename patterns) on
+   a pooled thread → `populate()` on the EDT fills the list and picks an initial selection. In
+   **Project changes** scope it instead builds the changed-golden list from `git status` (working copy)
+   or the indexed generated tree (test output) on a pooled thread.
 3. List selection → `loadComparison(file)` on a pooled thread: HEAD bytes vs the selected source.
    Source defaults to the working-copy golden, or can be switched to test-generated output.
    - Bytes equal → `CompareView.showSingle(…, "No changes vs HEAD")`.

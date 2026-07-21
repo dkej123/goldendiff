@@ -3,6 +3,21 @@
 ## Tool window
 Right-anchored, id "Golden Diff". Left: header + golden list. Right: the comparison viewer.
 
+## Scope (current file ↔ whole project)
+A **Scope** control in the header chooses what the list contains:
+- **Current file** (default) — goldens matched against the Kotlin file open in the editor (see below).
+- **Project changes** — every changed golden in the configured directories, regardless of the open file.
+  Only changed items are listed (unchanged ones are dropped), sorted MODIFIED first, then NEW, then by
+  path.
+  - **Working copy** source: the changed set and its per-item status come straight from
+    `git status --porcelain=v1 -z` — untracked/added/renamed/copied paths are **New**, everything else
+    that differs is **Changed**. No per-file HEAD read is needed to classify them.
+  - **Test output** source: goldens are matched to generated files by base name (the generated tree is
+    indexed once), and each golden's status is computed by comparing its HEAD bytes with the generated
+    output; these HEAD reads run in parallel.
+  Variant-provided (extra) comparison sources are not available in this scope; selecting one falls back
+  to Working copy.
+
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
 - `CurrentScreen` builds caret-independent names: declared class names + the file base name +

@@ -1,0 +1,73 @@
+<idea-plugin>
+    <id>com.github.dkwasniak.goldendiff</id>
+    <name>Golden Diff</name>
+    <vendor email="damian.kwasniak@gmail.com">dkwasniak</vendor>
+
+    <description><![CDATA[
+      <p><b>Golden Diff</b> helps Android and Kotlin developers review screenshot-test changes
+      directly in Android Studio or IntelliJ-based IDEs, without leaving the editor.</p>
+
+      <p>Open the tool window for the screen you are editing and it lists the matching screenshot
+      goldens, then compares the committed <b>git HEAD</b> version against your <b>working copy</b> or
+      generated test output &mdash; in four modes: side-by-side (2-up), swipe, onion skin, and a
+      pixel-diff heatmap.</p>
+
+      <p>It is tool-agnostic and works with PNG outputs from <b>Roborazzi, Paparazzi, Compose Preview
+      Screenshot Testing, Shot, Dropshots</b>, and similar screenshot-test tools &mdash; just point it
+      at the golden directory.</p>
+
+      <ul>
+        <li>Match goldens to the file you are editing in two modes: by annotated preview/test method,
+        or by a file/class regex &mdash; matched against each golden's path, so nested layouts work too.</li>
+        <li>Live preview in Settings shows how many and which goldens match the current file.</li>
+        <li>Compare Git HEAD with working-copy goldens.</li>
+        <li>Compare Git HEAD with generated test output such as <code>_actual.png</code> files.</li>
+        <li>Configure golden and generated-output directories, the matching rule, and excluded golden
+        suffixes per project.</li>
+        <li>Review changes in side-by-side, swipe, onion-skin, and pixel-diff modes.</li>
+        <li>Zoom (Fit / 50&ndash;400%) and scroll large screenshots.</li>
+        <li>When a golden is identical to the selected source, the comparison is skipped and a single
+        preview is shown.</li>
+      </ul>
+
+      <p>Works with IntelliJ Platform 2024.1+ (build 241+) through build 254.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>org.jetbrains.kotlin</depends>
+    <depends>Git4Idea</depends>
+
+    <!-- We only traverse Kotlin PSI (no Analysis API / resolve), so we support the K2 mode that
+         recent Android Studio versions use by default. -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" />
+    </extensions>
+
+    <!-- Contribution point for optional comparison sources supplied by dependent plugins (e.g. the
+         internal Golden Diff — Figma plugin). Dynamic so such plugins can load/unload at runtime. -->
+    <extensionPoints>
+        <extensionPoint name="comparisonSource"
+                        interface="com.github.dkwasniak.goldendiff.variant.ExtraComparisonSource"
+                        dynamic="true"/>
+    </extensionPoints>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Golden Diff"
+                    anchor="right"
+                    icon="/icons/goldenDiffToolWindow.svg"
+                    factoryClass="com.github.dkwasniak.goldendiff.toolwindow.ScreenshotToolWindowFactory"/>
+
+        <projectConfigurable
+            parentId="tools"
+            instance="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
+            id="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
+            displayName="Golden Diff"/>
+
+        <!-- Recommend Golden Diff when the project uses a supported screenshot-test library. -->
+        <dependencySupport kind="java" coordinate="io.github.takahirom.roborazzi:roborazzi" displayName="Roborazzi"/>
+        <dependencySupport kind="java" coordinate="app.cash.paparazzi:paparazzi" displayName="Paparazzi"/>
+        <dependencySupport kind="java" coordinate="com.karumi:shot" displayName="Shot"/>
+        <dependencySupport kind="java" coordinate="com.dropbox.dropshots:dropshots" displayName="Dropshots"/>
+    </extensions>
+</idea-plugin>

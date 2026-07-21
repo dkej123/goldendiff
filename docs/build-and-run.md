@@ -11,32 +11,48 @@ Key `build.gradle.kts` bits: `instrumentCode = false` and `buildSearchableOption
 form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241"; untilBuild = provider { null } }`
 (open-ended upper bound — see gotchas).
 
+## Modules
+Two Gradle modules produce two separate plugins (see [architecture.md](architecture.md#two-plugin-layout)):
+- **`:public-plugin`** — Golden Diff, published to JetBrains Marketplace.
+- **`:internal-plugin`** — Golden Diff — Figma, a dependent plugin (`<depends>` on the public one)
+  distributed through an internal custom plugin repository.
+
 ## Commands
 ```bash
-./gradlew buildPlugin      # assembles build/distributions/golden-diff-<ver>.zip
-./gradlew verifyPlugin     # plugin structure verifier
-./gradlew runIde           # launches a sandbox IntelliJ IDEA (NOT Android Studio)
+./gradlew :public-plugin:buildPlugin     # public-plugin/build/distributions/golden-diff-<ver>.zip
+./gradlew :internal-plugin:buildPlugin   # internal-plugin/build/distributions/golden-diff-figma-<ver>.zip
+./gradlew :public-plugin:verifyPlugin    # plugin structure verifier (public)
+./gradlew :public-plugin:runIde          # sandbox IntelliJ IDEA with the public plugin only
+./gradlew :internal-plugin:runIde        # sandbox IDEA with BOTH plugins (internal pulls in public)
 ```
 
 First build downloads the platform — slow, run it in the background and
 be patient. Subsequent builds are seconds (platform is cached).
 
-## Build variants
-The default build is the public Marketplace plugin. Figma-specific code lives under `src/figma` and
-is included only when the Figma variant is selected.
+Use `:public-plugin:buildPlugin` for Marketplace releases.
 
+## Distributing the internal plugin
+The internal plugin ships through a **custom plugin repository** — a static `updatePlugins.xml`
+descriptor plus the ZIP. Both are hosted straight from this **public** GitHub repo: they are
+committed under [`distribution/`](../distribution/) and served over `raw.githubusercontent.com` (no
+GitHub release, no auth — the repo is public, so raw URLs are reachable directly).
+
+Publish a release (after bumping `pluginVersion` in `gradle.properties`):
 ```bash
-./gradlew buildPublicPlugin # build/distributions/golden-diff-<ver>.zip
-./gradlew buildFigmaPlugin  # build/distributions/golden-diff-figma-<ver>-figma.zip
+./distribution/publish.sh          # builds, then refreshes distribution/{ZIP,updatePlugins.xml}
+git add distribution && git commit && git push
 ```
+`publish.sh` runs `:internal-plugin:buildPlugin` + `generateUpdatePluginsXml` (the descriptor's ZIP
+url defaults to `https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution`; override
+with `-PcustomRepoBaseUrl` if the repo/branch/path changes) and copies both files into
+`distribution/`. Only the current ZIP is kept there.
 
-Equivalent direct form:
-```bash
-./gradlew buildPlugin -PgoldenDiffVariant=public
-./gradlew buildPlugin -PgoldenDiffVariant=figma
-```
-
-Use `buildPublicPlugin` for Marketplace releases.
+### Team install (one-time)
+Settings → Plugins → ⚙ → **Manage Plugin Repositories** → add
+`https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution/updatePlugins.xml`, then
+install *Golden Diff — Figma* from the Marketplace tab (the IDE prompts to install the required
+*Golden Diff* from Marketplace if missing). Updates then arrive automatically on every push that bumps
+the version; the public plugin updates independently from Marketplace.
 
 ## Installing into Android Studio / IntelliJ
 The dev target is IntelliJ IDEA (only stable platform + Kotlin-PSI + Git4Idea APIs are used, all present

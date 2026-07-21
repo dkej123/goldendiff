@@ -8,8 +8,13 @@ Paparazzi, Compose Preview Screenshot, Shot…) — the user points it at golden
 output directories.
 
 ## Fast facts
-- Plugin id / package: `com.github.dkwasniak.goldendiff`. Display name: **Golden Diff**. Distribution
-  zip: `golden-diff-<ver>.zip`. (Was "Screenshot Compare" / `…screenshotcompare` — re-listed as a new
+- **Two Gradle modules → two plugins.** `:public-plugin` = **Golden Diff**
+  (`com.github.dkwasniak.goldendiff`, zip `golden-diff-<ver>.zip`), published to Marketplace.
+  `:internal-plugin` = **Golden Diff — Figma** (`com.github.dkwasniak.goldendiff.figma`, zip
+  `golden-diff-figma-<ver>.zip`), a dependent plugin (`<depends>` on the public one) with only the
+  Figma feature, distributed through an internal custom plugin repository — NOT Marketplace. The
+  internal plugin contributes its comparison source through the public plugin's `comparisonSource`
+  extension point. (Golden Diff was "Screenshot Compare" / `…screenshotcompare` — re-listed as a new
   Marketplace plugin under the new ID; new numeric ID assigned on first upload.)
 - Target platform: **IntelliJ Platform 2024.1+ (build 241+)**, with an open-ended `until-build`
   (no upper bound). Do not pin `untilBuild` to a concrete future branch — a non-existent version
@@ -18,8 +23,9 @@ output directories.
 
 ## Common commands
 ```bash
-./gradlew buildPlugin   # builds build/distributions/golden-diff-<ver>.zip
-./gradlew runIde        # sandbox IDE (IntelliJ, NOT Android Studio) for quick testing
+./gradlew :public-plugin:buildPlugin     # golden-diff-<ver>.zip → Marketplace
+./gradlew :internal-plugin:buildPlugin   # golden-diff-figma-<ver>.zip → custom repo
+./gradlew :internal-plugin:runIde        # sandbox IDE (IntelliJ, NOT AS) with BOTH plugins loaded
 ```
 Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → the built zip → restart.
 
