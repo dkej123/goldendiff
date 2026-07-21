@@ -78,8 +78,9 @@ class FigmaImageSource : ExtraComparisonSource {
         settings: ScreenshotSettings,
     ): ExtraComparisonResult {
         val previews = figmaPreviews(project)
+        val trim = settings.trimTransparentPadding
         val preview = findPreviewForFile(project, file, previews) ?: return ExtraComparisonResult.Single(
-            GitImageSource.decode(GitImageSource.workingBytes(file)),
+            ImagePainting.trimTransparentBorder(GitImageSource.decode(GitImageSource.workingBytes(file)), trim),
             "No figma-compose-preview function found for ${file.name}.",
         )
         val figmaFile = if (file.isFile) {
@@ -92,8 +93,8 @@ class FigmaImageSource : ExtraComparisonSource {
             lookup.file
         }
         val goldenFile = findWorkingGolden(preview.functionName, settings.resolvedPaths(project), settings.excludedSuffixes)
-        val figma = GitImageSource.decode(GitImageSource.workingBytes(figmaFile))
-        val golden = GitImageSource.decode(goldenFile?.let(GitImageSource::workingBytes))
+        val figma = ImagePainting.trimTransparentBorder(GitImageSource.decode(GitImageSource.workingBytes(figmaFile)), trim)
+        val golden = ImagePainting.trimTransparentBorder(GitImageSource.decode(goldenFile?.let(GitImageSource::workingBytes)), trim)
         return when {
             figma == null ->
                 ExtraComparisonResult.Single(null, "Figma reference not found on disk: ${figmaFile.path}")

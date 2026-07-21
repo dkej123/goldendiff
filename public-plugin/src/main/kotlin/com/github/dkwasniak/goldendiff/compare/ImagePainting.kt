@@ -94,20 +94,62 @@ object ImagePainting {
         }
     }
 
+    /**
+     * Draw [image] to fill [rect] exactly. Callers always pass a rect already at the image's aspect
+     * ratio (from [renderRect] / [bottomRect]), so filling it directly avoids a second aspect-fit whose
+     * independent rounding could leave the image ~1px short of [rect] — which let the checkerboard,
+     * painted on the full [rect], peek out as a thin sliver on one edge.
+     */
     fun drawImage(g: Graphics2D, image: BufferedImage, rect: Rectangle) {
+        if (rect.width <= 0 || rect.height <= 0) return
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-        val imageRect = fitRectAllowUpscale(image.width, image.height, rect.width, rect.height).apply {
-            translate(rect.x, rect.y)
-        }
-        g.drawImage(image, imageRect.x, imageRect.y, imageRect.width, imageRect.height, null)
+        g.drawImage(image, rect.x, rect.y, rect.width, rect.height, null)
     }
 
-    private fun fitRectAllowUpscale(imgW: Int, imgH: Int, areaW: Int, areaH: Int): Rectangle {
-        if (imgW <= 0 || imgH <= 0 || areaW <= 0 || areaH <= 0) return Rectangle(0, 0, 0, 0)
-        val scale = minOf(areaW.toDouble() / imgW, areaH.toDouble() / imgH)
-        val w = (imgW * scale).toInt().coerceAtLeast(1)
-        val h = (imgH * scale).toInt().coerceAtLeast(1)
-        return Rectangle((areaW - w) / 2, (areaH - h) / 2, w, h)
+    /** [trimTransparentBorder] applied only when [enabled]; a no-op (and null-safe) otherwise. */
+    fun trimTransparentBorder(image: BufferedImage?, enabled: Boolean): BufferedImage? =
+        if (enabled && image != null) trimTransparentBorder(image) else image
+
+    /**
+     * Crop away fully-transparent (alpha == 0) borders on every side so an image with transparent
+     * padding is shown tight to its actual content. Returns the original image when it has no alpha
+     * channel or no transparent border to trim, and null when the content is entirely transparent.
+     */
+    fun trimTransparentBorder(image: BufferedImage): BufferedImage {
+        if (!image.colorModel.hasAlpha()) return image
+        val w = image.width
+        val h = image.height
+        var top = 0
+        var bottom = h - 1
+        var left = 0
+        var right = w - 1
+        val row = IntArray(w)
+
+        fun rowHasContent(y: Int): Boolean {
+            image.getRGB(0, y, w, 1, row, 0, w)
+            return row.any { it ushr 24 != 0 }
+        }
+
+        fun columnHasContent(x: Int): Boolean {
+            for (y in top..bottom) if (image.getRGB(x, y) ushr 24 != 0) return true
+            return false
+        }
+
+        while (top <= bottom && !rowHasContent(top)) top++
+        if (top > bottom) return image // fully transparent — leave as-is rather than produce a 0-size crop
+        while (bottom > top && !rowHasContent(bottom)) bottom--
+        while (left < right && !columnHasContent(left)) left++
+        while (right > left && !columnHasContent(right)) right--
+
+        if (top == 0 && left == 0 && right == w - 1 && bottom == h - 1) return image
+        val cropW = right - left + 1
+        val cropH = bottom - top + 1
+        val copy = BufferedImage(cropW, cropH, BufferedImage.TYPE_INT_ARGB)
+        copy.createGraphics().apply {
+            drawImage(image.getSubimage(left, top, cropW, cropH), 0, 0, null)
+            dispose()
+        }
+        return copy
     }
 
     fun ellipsize(text: String, metrics: FontMetrics, maxWidth: Int): String {

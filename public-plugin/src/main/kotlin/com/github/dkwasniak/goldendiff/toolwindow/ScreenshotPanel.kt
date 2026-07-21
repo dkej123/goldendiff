@@ -3,6 +3,7 @@ package com.github.dkwasniak.goldendiff.toolwindow
 import com.github.dkwasniak.goldendiff.compare.CompareView
 import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
+import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable
@@ -12,15 +13,24 @@ import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonResult
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSource
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSources
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
@@ -37,10 +47,13 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.datatransfer.StringSelection
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.io.File
 import java.util.stream.Collectors
 import javax.swing.AbstractAction
@@ -65,7 +78,7 @@ class ScreenshotPanel(
     private val settings = ScreenshotSettings.getInstance(project)
 
     private val listModel = DefaultListModel<ExtraComparisonItem>()
-    private val listRenderer = GoldenCellRenderer()
+    private val listRenderer = GoldenCellRenderer(project)
     private val list = object : JBList<ExtraComparisonItem>(listModel) {
         override fun getScrollableTracksViewportWidth(): Boolean = true
     }.apply {
@@ -201,6 +214,7 @@ class ScreenshotPanel(
             if (!event.valueIsAdjusting) list.selectedValue?.let(::loadComparison)
         }
         installListKeyboardNavigation()
+        installListContextMenu()
 
         subscribeToEditor()
         updateThumbnailScaleControls()
@@ -244,6 +258,82 @@ class ScreenshotPanel(
                 }
             },
         )
+    }
+
+    private fun installListContextMenu() {
+        list.addMouseListener(
+            object : MouseAdapter() {
+                override fun mousePressed(event: MouseEvent) = maybeShowMenu(event)
+                override fun mouseReleased(event: MouseEvent) = maybeShowMenu(event)
+
+                private fun maybeShowMenu(event: MouseEvent) {
+                    if (!event.isPopupTrigger) return
+                    val index = list.locationToIndex(event.point)
+                    if (index < 0 || !list.getCellBounds(index, index).contains(event.point)) return
+                    // Right-clicking a row outside the current selection selects just that row first, so
+                    // the menu acts on what the user pointed at.
+                    if (index !in list.selectedIndices) list.selectedIndex = index
+                    showListContextMenu(event)
+                }
+            },
+        )
+    }
+
+    private fun showListContextMenu(event: MouseEvent) {
+        val clicked = list.selectedValue?.file
+        val existingSelected = list.selectedValuesList.mapNotNull { it.file }.filter { it.isFile }
+        val group = DefaultActionGroup().apply {
+            add(
+                listAction("Show in ${RevealFileAction.getFileManagerName()}", clicked?.isFile == true) {
+                    clicked?.let(RevealFileAction::openFile)
+                },
+            )
+            add(
+                listAction("Copy Absolute Path", clicked != null) {
+                    clicked?.let { CopyPasteManager.getInstance().setContents(StringSelection(it.absolutePath)) }
+                },
+            )
+            addSeparator()
+            add(
+                listAction(
+                    if (existingSelected.size > 1) "Delete ${existingSelected.size} Files" else "Delete",
+                    existingSelected.isNotEmpty(),
+                ) { deleteGoldenFiles(existingSelected) },
+            )
+        }
+        val popupMenu = ActionManager.getInstance().createActionPopupMenu(GOLDEN_LIST_POPUP_PLACE, group)
+        popupMenu.setTargetComponent(list)
+        popupMenu.component.show(list, event.x, event.y)
+    }
+
+    private fun listAction(text: String, enabled: Boolean, action: () -> Unit): AnAction =
+        object : AnAction(text) {
+            override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+            override fun update(e: AnActionEvent) {
+                e.presentation.isEnabled = enabled
+            }
+            override fun actionPerformed(e: AnActionEvent) = action()
+        }
+
+    private fun deleteGoldenFiles(files: List<File>) {
+        if (files.isEmpty()) return
+        val confirmed = Messages.showYesNoDialog(
+            project,
+            "Delete the following golden file(s) from disk?\n\n" + files.joinToString("\n") { it.name },
+            if (files.size > 1) "Delete ${files.size} Golden Files" else "Delete Golden File",
+            Messages.getWarningIcon(),
+        )
+        if (confirmed != Messages.YES) return
+        val failed = files.filterNot { runCatching { it.delete() }.getOrDefault(false) }
+        LocalFileSystem.getInstance().refreshIoFiles(files)
+        if (failed.isNotEmpty()) {
+            Messages.showErrorDialog(
+                project,
+                "Could not delete:\n" + failed.joinToString("\n") { it.path },
+                "Delete Golden File",
+            )
+        }
+        scheduleRefresh()
     }
 
     private fun bindListKey(keyCode: Int, actionName: String, delta: Int) {
@@ -810,8 +900,9 @@ class ScreenshotPanel(
                 else -> null
             }
             val workingBytes = workingFile?.let(GitImageSource::workingBytes)
-            val head = GitImageSource.decode(headBytes)
-            val working = GitImageSource.decode(workingBytes)
+            val trim = settings.trimTransparentPadding
+            val head = ImagePainting.trimTransparentBorder(GitImageSource.decode(headBytes), trim)
+            val working = ImagePainting.trimTransparentBorder(GitImageSource.decode(workingBytes), trim)
             val unchanged = headBytes != null && workingBytes != null && headBytes.contentEquals(workingBytes)
             ApplicationManager.getApplication().invokeLater {
                 if (loadedFile != file || loadedSource != source) return@invokeLater
@@ -862,6 +953,7 @@ class ScreenshotPanel(
 
     companion object {
         private const val DEBOUNCE_MS = 300
+        private const val GOLDEN_LIST_POPUP_PLACE = "GoldenDiffListPopup"
         private const val BASE_THUMBNAIL_CELL_WIDTH = 300
         private val THUMBNAIL_SCALES = listOf(1.0, 0.85, 0.70, 0.55, 0.40, 0.30, 0.22)
         private const val STATUS_LEGEND_HTML =

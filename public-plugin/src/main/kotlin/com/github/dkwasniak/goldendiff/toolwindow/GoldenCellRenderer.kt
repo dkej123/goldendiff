@@ -1,7 +1,10 @@
 package com.github.dkwasniak.goldendiff.toolwindow
 
+import com.github.dkwasniak.goldendiff.compare.ImagePainting
+import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
+import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -23,9 +26,9 @@ import javax.swing.ListCellRenderer
 import javax.swing.SwingConstants
 
 /** Renders each golden file as a left-aligned thumbnail. The full filename is available as a tooltip. */
-class GoldenCellRenderer : ListCellRenderer<ExtraComparisonItem> {
+class GoldenCellRenderer(private val project: Project) : ListCellRenderer<ExtraComparisonItem> {
 
-    private data class Key(val path: String, val lastModified: Long)
+    private data class Key(val path: String, val lastModified: Long, val trimmed: Boolean)
     private data class IconKey(val key: Key, val targetWidth: Int)
 
     private val modifiedBackground = JBColor(Color(0xFFF1F1), Color(0x3A2428))
@@ -112,15 +115,20 @@ class GoldenCellRenderer : ListCellRenderer<ExtraComparisonItem> {
     private fun iconFor(item: ExtraComparisonItem, targetWidth: Int): Icon? {
         val file = item.file
         val image = imageFor(file) ?: return PlaceholderIcon(item.title, targetWidth, item.isLoading)
-        val key = Key(file.path, file.lastModified())
-        val iconKey = IconKey(key, targetWidth)
+        val iconKey = IconKey(keyFor(file), targetWidth)
         return iconCache.getOrPut(iconKey) { FittedImageIcon(image, targetWidth) }
     }
 
     private fun imageFor(file: File): BufferedImage? {
-        val key = Key(file.path, file.lastModified())
-        return imageCache.getOrPut(key) { runCatching { ImageIO.read(file) }.getOrNull() }
+        val key = keyFor(file)
+        return imageCache.getOrPut(key) {
+            runCatching { ImageIO.read(file) }.getOrNull()
+                ?.let { ImagePainting.trimTransparentBorder(it, key.trimmed) }
+        }
     }
+
+    private fun keyFor(file: File): Key =
+        Key(file.path, file.lastModified(), ScreenshotSettings.getInstance(project).trimTransparentPadding)
 
     private fun thumbnailSize(image: BufferedImage, targetWidth: Int): Dimension {
         val height = (image.height * (targetWidth.toDouble() / image.width)).toInt().coerceAtLeast(1)
