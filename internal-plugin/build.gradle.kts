@@ -1,5 +1,10 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
+// Single source of truth for the compatibility floor: consumed both by `ideaVersion` below and by the
+// `<idea-version>` element that `generateUpdatePluginsXml` writes. These used to drift apart, which is
+// invisible at build time and only surfaces as a bad offer in the custom plugin repository.
+val pluginSinceBuild = "251"
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm")
@@ -55,7 +60,9 @@ intellijPlatform {
         """.trimIndent()
 
         ideaVersion {
-            sinceBuild = "241"
+            // Must not be lower than the public plugin's: this one <depends> on it, so offering it to
+            // an IDE that cannot install the public plugin would strand the user.
+            sinceBuild = pluginSinceBuild
             untilBuild = provider { null }
         }
     }
@@ -65,12 +72,7 @@ kotlin {
     jvmToolchain(21)
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-}
-tasks.withType<JavaCompile>().configureEach {
-    options.release.set(17)
-}
+// Bytecode 21: IntelliJ 2025.1+ runs on JBR 21. See the matching note in public-plugin/build.gradle.kts.
 
 tasks.named<Zip>("buildPlugin") {
     archiveBaseName.set("golden-diff-figma")
@@ -94,8 +96,10 @@ tasks.register("generateUpdatePluginsXml") {
         .orElse("https://raw.githubusercontent.com/dkej123/goldendiff/main/distribution")
     val zipFile = buildPlugin.flatMap { it.archiveFile }
     val outputFile = layout.buildDirectory.file("distributions/updatePlugins.xml")
+    val sinceBuild = pluginSinceBuild
     inputs.property("version", pluginVersion)
     inputs.property("baseUrl", baseUrl)
+    inputs.property("sinceBuild", sinceBuild)
     outputs.file(outputFile)
     doLast {
         val zipName = zipFile.get().asFile.name
@@ -107,7 +111,7 @@ tasks.register("generateUpdatePluginsXml") {
               <plugin id="$pluginId" url="${baseUrl.get().trimEnd('/')}/$zipName" version="$pluginVersion">
                 <name>$pluginName</name>
                 <vendor>$vendor</vendor>
-                <idea-version since-build="241"/>
+                <idea-version since-build="$sinceBuild"/>
                 <depends>$dependsOnId</depends>
                 <description><![CDATA[Adds a Figma reference comparison source to the Golden Diff plugin.]]></description>
               </plugin>
