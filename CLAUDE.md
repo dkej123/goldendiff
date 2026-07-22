@@ -58,6 +58,8 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
 - [docs/features.md](docs/features.md) — exact behavior (matching, compare modes, zoom, test output).
 - [docs/gotchas.md](docs/gotchas.md) — non-obvious traps. **Read this before build changes.**
 - [docs/roadmap.md](docs/roadmap.md) — limitations, planned work, good first tasks.
+- [docs/standalone-app-handoff.md](docs/standalone-app-handoff.md) — **start here if you are
+  continuing the standalone-app work**: decisions already settled, what is done, what is left.
 
 ## Working agreements
 - Keep new code in the style of the surrounding files (see architecture doc for package layout).
