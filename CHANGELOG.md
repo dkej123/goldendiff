@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1] - 2026-07-22
+
+### Added
+- The comparison view now shows the golden's file name in a header above the preview, with a
+  one-click button to copy the full name to the clipboard. Long Roborazzi-style names are shortened
+  by dropping the leading fully-qualified `package.ClassName.` prefix, keeping the human-relevant
+  tail (e.g. `FooPreview.Dark_PIXEL_7.png`).
+
 ## [1.4.0] - 2026-07-21
 
 ### Added
