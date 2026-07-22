@@ -30,8 +30,8 @@
         preview is shown.</li>
       </ul>
 
-      <p>Works with IntelliJ Platform 2024.1 and newer (build 241+), including recent Android Studio
-      releases &mdash; no upper build limit.</p>
+      <p>Works with IntelliJ Platform 2025.1 and newer (build 251+), including Android Studio Narwhal
+      and later.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
