@@ -26,6 +26,13 @@ repositories {
 }
 
 dependencies {
+    // `compileOnly`, deliberately the opposite of :public-plugin. The Figma sources implement core
+    // interfaces (Screen, ExtraComparisonSource), so the types must be on the compile classpath —
+    // but at runtime they resolve through the public plugin's classloader, which is this plugin's
+    // parent. Packaging a second copy of :core into the Figma ZIP would put the same classes on two
+    // classloaders and break the extension point.
+    compileOnly(project(":core"))
+
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion").get())
 

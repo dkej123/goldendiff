@@ -18,6 +18,12 @@ repositories {
 }
 
 dependencies {
+    // Must be `implementation`, not `compileOnly`: :core has to be packaged INTO the plugin ZIP.
+    // The Figma plugin resolves core classes through this plugin's classloader (it is its parent), so
+    // leaving them out compiles fine — they are on the compile classpath via localPlugin(...) — and
+    // only fails at runtime with NoClassDefFoundError. `unzip -l` the ZIP after touching this.
+    implementation(project(":core"))
+
     intellijPlatform {
         // Build against the oldest supported platform. From 2025.3 onward Community and Ultimate are
         // published as a unified `intellijIdea(...)` artifact, but 2025.1 still has the smaller

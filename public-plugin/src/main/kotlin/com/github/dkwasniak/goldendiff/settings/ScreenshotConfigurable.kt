@@ -434,7 +434,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     }
 
     override fun apply() {
-        val regex = generatedRegexField.text.ifBlank { ScreenshotSettings.DEFAULT_GENERATED_FILE_REGEX }
+        val regex = generatedRegexField.text.ifBlank { GoldenDiffDefaults.GENERATED_FILE_REGEX }
         try {
             Regex(regex)
         } catch (e: IllegalArgumentException) {

@@ -34,15 +34,15 @@ class GoldenFinderTest {
         classes: List<String> = emptyList(),
         fileName: String = "",
         caret: String? = null,
-    ) = CurrentScreen.Screen(functions.toList(), classes, fileName, caret)
+    ) = Screen(functions.toList(), classes, fileName, caret)
 
     private fun findByMethod(
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         excludedSuffixes: List<String> = emptyList(),
     ) = GoldenFinder.find(listOf(root), screen, MatchMode.ANNOTATED_METHOD, excludedSuffixes)
 
     private fun findByRegex(
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         patterns: List<String>,
         excludedSuffixes: List<String> = emptyList(),
     ) = GoldenFinder.find(listOf(root), screen, MatchMode.FILE_CLASS_REGEX, excludedSuffixes, patterns)

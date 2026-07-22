@@ -1,7 +1,7 @@
 package com.github.dkwasniak.goldendiff.match
 
 /**
- * Builds a [CurrentScreen.Screen] for files that are not Kotlin (TypeScript, JavaScript, Swift, Java,
+ * Builds a [Screen] for files that are not Kotlin (TypeScript, JavaScript, Swift, Java,
  * plain text…). The plugin is tool-agnostic, so matching goldens to the open file must not depend on
  * Kotlin PSI. This extractor is deliberately language-neutral and text-based: it scans the document
  * for the handful of declaration shapes that end up in screenshot golden file names across web and
@@ -9,15 +9,15 @@ package com.github.dkwasniak.goldendiff.match
  * name. It never touches any language plugin's PSI, so it adds no plugin dependencies and works even
  * when the file's language is unknown to the IDE.
  *
- * The result is intentionally caret-independent (there is no [CurrentScreen.Screen.caretName] here);
+ * The result is intentionally caret-independent (there is no [Screen.caretName] here);
  * all downstream filtering and noise control still happens in [GoldenFinder].
  */
 object GenericScreenExtractor {
 
-    fun extract(fileName: String, text: String): CurrentScreen.Screen {
+    fun extract(fileName: String, text: String): Screen {
         val classNames = CLASS_DECL.captures(text)
         val functionNames = FUNCTION_DECLS.flatMap { it.captures(text) }.distinct()
-        return CurrentScreen.Screen(
+        return Screen(
             functionNames = functionNames,
             classNames = classNames,
             fileName = fileName,

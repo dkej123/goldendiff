@@ -1,6 +1,6 @@
 package com.github.dkwasniak.goldendiff.variant
 
-import com.github.dkwasniak.goldendiff.match.CurrentScreen
+import com.github.dkwasniak.goldendiff.match.Screen
 import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
@@ -48,12 +48,12 @@ interface ExtraComparisonSource {
 
     fun createSettingsComponent(project: Project): ExtraSettingsComponent? = null
 
-    fun refreshKey(screen: CurrentScreen.Screen): List<String> = emptyList()
+    fun refreshKey(screen: Screen): List<String> = emptyList()
 
-    fun findItems(project: Project, screen: CurrentScreen.Screen, settings: ScreenshotSettings): List<ExtraComparisonItem> =
+    fun findItems(project: Project, screen: Screen, settings: ScreenshotSettings): List<ExtraComparisonItem> =
         findFiles(project, screen, settings).map { ExtraComparisonItem(it) }
 
-    fun findFiles(project: Project, screen: CurrentScreen.Screen, settings: ScreenshotSettings): List<File>
+    fun findFiles(project: Project, screen: Screen, settings: ScreenshotSettings): List<File>
 
     fun listStatus(files: List<File>): String? = null
 
@@ -63,7 +63,7 @@ interface ExtraComparisonSource {
     fun loadComparison(
         project: Project,
         file: File,
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         settings: ScreenshotSettings,
     ): ExtraComparisonResult
 }

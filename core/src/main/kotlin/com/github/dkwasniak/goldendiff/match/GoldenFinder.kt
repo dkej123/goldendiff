@@ -29,7 +29,7 @@ object GoldenFinder {
 
     fun find(
         roots: List<File>,
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         mode: MatchMode = MatchingDefaults.DEFAULT_MATCH_MODE,
         excludedSuffixes: List<String> = emptyList(),
         generalPatterns: List<String> = MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS,
@@ -93,7 +93,7 @@ object GoldenFinder {
     private fun File.isDescendantOf(root: File): Boolean =
         path.startsWith(root.path + File.separatorChar)
 
-    private fun List<String>.compileExpanded(screen: CurrentScreen.Screen): List<Regex> {
+    private fun List<String>.compileExpanded(screen: Screen): List<Regex> {
         val classAlternatives = screen.classNames
             .filter { isUsefulCandidate(it) }
             .joinToString("|") { Regex.escape(it) }

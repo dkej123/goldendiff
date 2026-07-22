@@ -31,7 +31,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         // paths are resolved against the project base directory.
         var generatedPaths: MutableList<String> = ArrayList()
         // Regex for selecting generated screenshots. First capture group maps to the golden basename.
-        var generatedFileRegex: String = DEFAULT_GENERATED_FILE_REGEX
+        var generatedFileRegex: String = GoldenDiffDefaults.GENERATED_FILE_REGEX
         // Which matching mode is active. See MatchMode.
         var matchMode: String = MatchingDefaults.DEFAULT_MATCH_MODE.name
         // Regex applied to annotation names. Matching annotated functions become golden candidates.
@@ -40,7 +40,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         var goldenFilePatterns: MutableList<String> = MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS.toMutableList()
         // File-name suffixes (before the extension) whose files are not goldens themselves and are
         // excluded from the golden list, e.g. Roborazzi's `_compare` / `_actual` artifacts.
-        var excludedSuffixes: MutableList<String> = DEFAULT_EXCLUDED_SUFFIXES.toMutableList()
+        var excludedSuffixes: MutableList<String> = GoldenDiffDefaults.EXCLUDED_SUFFIXES.toMutableList()
         // When true, fully transparent padding around an image's content is trimmed before it is shown
         // (comparison view and list thumbnails). Off by default so images are shown exactly as stored.
         var trimTransparentPadding: Boolean = false
@@ -76,9 +76,9 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         }
 
     var generatedFileRegex: String
-        get() = state.generatedFileRegex.ifBlank { DEFAULT_GENERATED_FILE_REGEX }
+        get() = state.generatedFileRegex.ifBlank { GoldenDiffDefaults.GENERATED_FILE_REGEX }
         set(value) {
-            state.generatedFileRegex = value.ifBlank { DEFAULT_GENERATED_FILE_REGEX }
+            state.generatedFileRegex = value.ifBlank { GoldenDiffDefaults.GENERATED_FILE_REGEX }
         }
 
     var excludedSuffixes: List<String>
@@ -131,9 +131,6 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
     }
 
     companion object {
-        const val DEFAULT_GENERATED_FILE_REGEX = "^(.+)_actual\\.png$"
-        val DEFAULT_EXCLUDED_SUFFIXES = listOf("_compare", "_actual")
-
         fun getInstance(project: Project): ScreenshotSettings = project.service()
     }
 }

@@ -5,6 +5,7 @@ import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.match.CurrentScreen
+import com.github.dkwasniak.goldendiff.match.Screen
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable
 import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
@@ -177,7 +178,7 @@ class ScreenshotPanel(
     // Names the list was last built from — used to avoid rebuilding when only the caret moves.
     private var lastNames: List<String>? = null
     // Current screen model used by variant-provided comparison sources.
-    private var currentScreen: CurrentScreen.Screen? = null
+    private var currentScreen: Screen? = null
     // File currently shown in the comparison view, to avoid reloading the same image.
     private var loadedFile: File? = null
     private var loadedSource = ComparisonSource.WORKING_COPY

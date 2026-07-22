@@ -1,6 +1,6 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
+import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -37,7 +37,7 @@ class GeneratedImageSourceTest {
             golden = golden,
             goldenRoots = listOf(goldenRoot),
             generatedRoots = listOf(generatedRoot),
-            generatedFileRegex = ScreenshotSettings.DEFAULT_GENERATED_FILE_REGEX,
+            generatedFileRegex = GoldenDiffDefaults.GENERATED_FILE_REGEX,
         )
 
         assertEquals(generated, found)
@@ -68,7 +68,7 @@ class GeneratedImageSourceTest {
             golden = golden,
             goldenRoots = listOf(goldenRoot),
             generatedRoots = listOf(generatedRoot),
-            generatedFileRegex = ScreenshotSettings.DEFAULT_GENERATED_FILE_REGEX,
+            generatedFileRegex = GoldenDiffDefaults.GENERATED_FILE_REGEX,
         )
 
         assertNull(found)

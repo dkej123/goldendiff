@@ -11,30 +11,14 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNamedFunction
 
 /**
- * Extracts the names used to match screenshot golden files against the file the user is currently
- * editing. [Screen] carries preview/test function names, class names, and the file base name;
- * [GoldenFinder] picks which of these to use depending on the active [MatchMode]. The [Screen.names]
- * set does NOT depend on the caret position, so it stays stable while the user clicks around the
- * file. [Screen.caretName] is separate and only used to preselect the best-matching golden when the
- * list is first built for a file.
+ * Builds a [Screen] from the file the user is currently editing.
+ *
+ * This is the IDE-only half of candidate extraction: it needs an open editor, a caret, and Kotlin PSI,
+ * none of which exist outside the IDE. The [Screen] type itself and the language-neutral
+ * [GenericScreenExtractor] fallback live in the platform-independent core module, so the standalone
+ * app can produce the same candidates from a file it was handed and feed the same [GoldenFinder].
  */
 object CurrentScreen {
-
-    data class Screen(
-        /** Function names selected from configured screenshot annotations and test naming. */
-        val functionNames: List<String>,
-        /** Class names declared in the current file. */
-        val classNames: List<String>,
-        /** File name without extension. */
-        val fileName: String,
-        /** Name of the function under the caret, used only for the initial selection. */
-        val caretName: String?,
-    ) {
-        /** Stable candidate set used to decide whether the list needs to be rebuilt. */
-        val names: List<String> = (functionNames + classNames + fileName)
-            .filter { it.isNotBlank() }
-            .distinct()
-    }
 
     fun compute(
         project: Project,

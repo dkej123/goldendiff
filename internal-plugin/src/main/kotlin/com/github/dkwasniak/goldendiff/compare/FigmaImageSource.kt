@@ -1,6 +1,6 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.github.dkwasniak.goldendiff.match.CurrentScreen
+import com.github.dkwasniak.goldendiff.match.Screen
 import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonResult
@@ -36,14 +36,14 @@ class FigmaImageSource : ExtraComparisonSource {
 
     override fun findFiles(
         project: Project,
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         settings: ScreenshotSettings,
     ): List<File> =
         findItems(project, screen, settings).map { it.file }
 
     override fun findItems(
         project: Project,
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         settings: ScreenshotSettings,
     ): List<ExtraComparisonItem> {
         project.basePath ?: return emptyList()
@@ -74,7 +74,7 @@ class FigmaImageSource : ExtraComparisonSource {
     override fun loadComparison(
         project: Project,
         file: File,
-        screen: CurrentScreen.Screen,
+        screen: Screen,
         settings: ScreenshotSettings,
     ): ExtraComparisonResult {
         val previews = figmaPreviews(project)
