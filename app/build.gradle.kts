@@ -42,6 +42,17 @@ compose.desktop {
     application {
         mainClass = "com.github.dkwasniak.goldendiff.app.MainKt"
 
+        // Packaging needs a JDK that ships jpackage. A JetBrains Runtime does not - and since this
+        // repo is usually built with Android Studio's JBR, `packageDmg` fails there with a bare
+        // "'jpackage' is missing" unless pointed elsewhere. Running and testing the app are
+        // unaffected; only the installer tasks care.
+        //
+        // Resolution order: -PappJavaHome, then JAVA_HOME, then whatever Gradle is running on.
+        providers.gradleProperty("appJavaHome")
+            .orElse(providers.environmentVariable("JAVA_HOME"))
+            .orNull
+            ?.let { javaHome = it }
+
         nativeDistributions {
             // All three are declared even though only macOS is built and verified for now: jpackage
             // ignores formats foreign to the host it runs on, so adding a CI runner later needs no
