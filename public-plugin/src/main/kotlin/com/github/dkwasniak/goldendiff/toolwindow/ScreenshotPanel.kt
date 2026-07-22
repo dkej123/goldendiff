@@ -5,6 +5,8 @@ import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
+import com.github.dkwasniak.goldendiff.git.GitChange
+import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.Screen
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
@@ -664,55 +666,16 @@ class ScreenshotPanel(
         return buildBuiltInItems(files) { statusByPath[it.normalize().path] ?: ExtraComparisonItemStatus.MODIFIED }
     }
 
-    private data class GitStatusEntry(val file: File, val status: ExtraComparisonItemStatus)
-
-    private fun gitStatusEntries(): List<GitStatusEntry> {
-        val basePath = project.basePath ?: return emptyList()
-        val base = File(basePath)
-        val output = runCatching {
-            // --untracked-files=all: without it git collapses an untracked directory into a single
-            // entry for the directory itself. Adding a new screen typically creates a whole new golden
-            // folder, and isGoldenCandidate below requires a `.png` extension - so the collapsed form
-            // dropped every file in it and the view read as "nothing changed".
-            ProcessBuilder("git", "-C", base.path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-                .redirectErrorStream(true)
-                .start()
-                .let { process ->
-                    val bytes = process.inputStream.readBytes()
-                    if (process.waitFor() != 0) ByteArray(0) else bytes
-                }
-        }.getOrDefault(ByteArray(0))
-        if (output.isEmpty()) return emptyList()
-
-        val records = output.toString(Charsets.UTF_8).split('\u0000').filter { it.isNotEmpty() }
-        val entries = ArrayList<GitStatusEntry>()
-        var index = 0
-        while (index < records.size) {
-            val record = records[index]
-            if (record.length >= 4) {
-                val status = record.substring(0, 2)
-                val path = record.substring(3)
-                if (status.any { it != ' ' && it != 'D' }) {
-                    entries.add(GitStatusEntry(File(base, path), status.toChangeStatus()))
-                }
-                // Rename/copy records carry a second (origin) path token that must be skipped.
-                if (status.any { it == 'R' || it == 'C' }) {
-                    index++
-                }
-            }
-            index++
-        }
-        return entries
+    /**
+     * Working-copy changes, read through core's git CLI wrapper.
+     *
+     * Deliberately not the VCS-backed [headBytesSource]: `git status` answers "what changed" for the
+     * whole project in one call, while the VCS API would need a revision fetch per file.
+     */
+    private fun gitStatusEntries(): List<GitChange> {
+        val root = project.basePath?.let(::File) ?: return emptyList()
+        return GitCli(root).changedFiles()
     }
-
-    // Untracked/added/renamed/copied paths do not exist in HEAD → NEW; anything else that changed
-    // exists in HEAD → MODIFIED.
-    private fun String.toChangeStatus(): ExtraComparisonItemStatus =
-        if (any { it == '?' || it == 'A' || it == 'R' || it == 'C' }) {
-            ExtraComparisonItemStatus.NEW
-        } else {
-            ExtraComparisonItemStatus.MODIFIED
-        }
 
     private fun projectGeneratedChangeItems(roots: List<File>): List<ExtraComparisonItem> {
         val generatedRoots = settings.resolvedGeneratedPaths(project)
