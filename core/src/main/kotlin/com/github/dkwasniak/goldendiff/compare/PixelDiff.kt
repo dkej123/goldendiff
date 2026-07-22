@@ -1,8 +1,5 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import java.awt.Rectangle
-import java.awt.image.BufferedImage
-
 /**
  * Pure pixel-difference computation shared by the diff compare mode (and unit-tested in isolation).
  *
@@ -14,6 +11,9 @@ import java.awt.image.BufferedImage
  * the result uses that image's dimensions. Unchanged pixels are drawn as a dimmed grayscale so they
  * stay as visible context; changed pixels are highlighted in magenta whose opacity grows with the
  * magnitude of the change.
+ *
+ * Works on [ArgbImage] rather than any toolkit image type, so the same code backs both the Swing and
+ * the Compose renderer; callers convert at the edges (see `BufferedImages.kt`).
  */
 object PixelDiff {
 
@@ -21,13 +21,19 @@ object PixelDiff {
     private const val MIN_HIGHLIGHT_ALPHA = 120
     private const val DIM_ALPHA = 70
 
-    data class Result(val image: BufferedImage, val changedPixels: Int, val totalPixels: Int) {
+    data class Result(val image: ArgbImage, val changedPixels: Int, val totalPixels: Int) {
         val changedRatio: Double
             get() = if (totalPixels == 0) 0.0 else changedPixels.toDouble() / totalPixels
     }
 
+    /** Where an image sits on the shared canvas. Replaces java.awt.Rectangle to keep this file toolkit-free. */
+    private data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
+        fun contains(px: Int, py: Int): Boolean =
+            px >= x && py >= y && px < x + width && py < y + height
+    }
+
     /** Returns null when there is nothing to compare (both images null / empty). */
-    fun compute(old: BufferedImage?, new: BufferedImage?): Result? {
+    fun compute(old: ArgbImage?, new: ArgbImage?): Result? {
         val width = maxOf(old?.width ?: 0, new?.width ?: 0)
         val height = maxOf(old?.height ?: 0, new?.height ?: 0)
         if (width <= 0 || height <= 0) return null
@@ -35,7 +41,7 @@ object PixelDiff {
         val oldRect = old?.let { bottomCenteredRect(it, width, height) }
         val newRect = new?.let { bottomCenteredRect(it, width, height) }
 
-        val out = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val out = ArgbImage.empty(width, height)
         var changed = 0
         var total = 0
         for (y in 0 until height) {
@@ -45,10 +51,10 @@ object PixelDiff {
                 if (o == null && n == null) continue // outside both images: leave transparent
                 total++
                 if (o != null && n != null && o == n) {
-                    out.setRGB(x, y, dim(o))
+                    out.setRgb(x, y, dim(o))
                 } else {
                     changed++
-                    out.setRGB(x, y, highlight(o, n))
+                    out.setRgb(x, y, highlight(o, n))
                 }
             }
         }
@@ -56,12 +62,12 @@ object PixelDiff {
     }
 
     /** Native-size placement of [image] on a [w]x[h] canvas: horizontally centered, bottom-anchored. */
-    private fun bottomCenteredRect(image: BufferedImage, w: Int, h: Int): Rectangle =
-        Rectangle((w - image.width) / 2, h - image.height, image.width, image.height)
+    private fun bottomCenteredRect(image: ArgbImage, w: Int, h: Int): Placement =
+        Placement((w - image.width) / 2, h - image.height, image.width, image.height)
 
-    private fun pixelAt(image: BufferedImage?, rect: Rectangle?, x: Int, y: Int): Int? {
+    private fun pixelAt(image: ArgbImage?, rect: Placement?, x: Int, y: Int): Int? {
         if (image == null || rect == null || !rect.contains(x, y)) return null
-        return image.getRGB(x - rect.x, y - rect.y)
+        return image.getRgb(x - rect.x, y - rect.y)
     }
 
     private fun dim(argb: Int): Int {

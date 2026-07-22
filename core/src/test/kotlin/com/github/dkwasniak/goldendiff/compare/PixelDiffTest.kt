@@ -5,13 +5,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.awt.image.BufferedImage
 
 class PixelDiffTest {
 
-    private fun solid(w: Int, h: Int, argb: Int) = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB).apply {
-        for (y in 0 until h) for (x in 0 until w) setRGB(x, y, argb)
-    }
+    private fun solid(w: Int, h: Int, argb: Int) = ArgbImage(w, h, IntArray(w * h) { argb })
 
     private fun alpha(argb: Int) = (argb ushr 24) and 0xFF
     private fun rgb(argb: Int) = argb and 0xFFFFFF
@@ -35,7 +32,7 @@ class PixelDiffTest {
         val white = 0xFFFFFFFF.toInt()
         val result = PixelDiff.compute(solid(1, 1, white), solid(1, 1, white))!!
 
-        val px = result.image.getRGB(0, 0)
+        val px = result.image.getRgb(0, 0)
         val r = (px shr 16) and 0xFF
         val g = (px shr 8) and 0xFF
         val b = px and 0xFF
@@ -48,14 +45,14 @@ class PixelDiffTest {
     fun `a single differing pixel is counted and highlighted`() {
         val a = solid(2, 1, 0xFF000000.toInt())
         val b = solid(2, 1, 0xFF000000.toInt())
-        b.setRGB(0, 0, 0xFFFFFFFF.toInt()) // change one of the two pixels
+        b.setRgb(0, 0, 0xFFFFFFFF.toInt()) // change one of the two pixels
 
         val result = PixelDiff.compute(a, b)!!
 
         assertEquals(1, result.changedPixels)
         assertEquals(0.5, result.changedRatio, 0.0)
-        assertEquals("changed pixel is magenta", 0xFF00FF, rgb(result.image.getRGB(0, 0)))
-        assertTrue("highlight is visible", alpha(result.image.getRGB(0, 0)) >= 120)
+        assertEquals("changed pixel is magenta", 0xFF00FF, rgb(result.image.getRgb(0, 0)))
+        assertTrue("highlight is visible", alpha(result.image.getRgb(0, 0)) >= 120)
     }
 
     @Test

@@ -31,25 +31,30 @@ class DiffPanel : JPanel(BorderLayout()) {
 
     private class Canvas : ZoomablePanel() {
         private var diff: PixelDiff.Result? = null
+        private var rendered: BufferedImage? = null
         private val titleHeight get() = JBUI.scale(28)
 
         fun setImages(old: BufferedImage?, new: BufferedImage?) {
-            diff = PixelDiff.compute(old, new)
+            val result = PixelDiff.compute(old?.toArgbImage(), new?.toArgbImage())
+            diff = result
+            // PixelDiff works on toolkit-neutral pixel arrays, so convert once here rather than on
+            // every paint — this canvas repaints on scroll, zoom and resize.
+            rendered = result?.image?.toBufferedImage()
             revalidate()
             repaint()
         }
 
         override fun contentSize(): Dimension {
-            val image = diff?.image ?: return Dimension(0, 0)
+            val image = rendered ?: return Dimension(0, 0)
             return Dimension(image.width, image.height + titleHeight)
         }
 
         override fun paintComponent(g: Graphics) {
             super.paintComponent(g)
             val result = diff ?: return
+            val image = rendered ?: return
             val g2 = g.create() as Graphics2D
             try {
-                val image = result.image
                 val area = Rectangle(0, titleHeight, width, height - titleHeight)
                 val scale = ImagePainting.scaleForBounding(zoom, image.width, image.height, area.width, area.height)
                 val rect = ImagePainting.bottomRect(image.width, image.height, scale, area)
