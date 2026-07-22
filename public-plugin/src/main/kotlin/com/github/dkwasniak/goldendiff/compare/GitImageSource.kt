@@ -5,27 +5,23 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.changes.ByteBackedContentRevision
 import com.intellij.openapi.vfs.LocalFileSystem
-import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
 import java.io.File
-import javax.imageio.ImageIO
 
 /**
- * Loads the raw bytes of the two sides of the comparison:
- *  - "old" = the committed version of the golden (git HEAD), via the VCS DiffProvider,
- *  - "new" = the working-copy file on disk.
+ * [HeadBytesSource] backed by the IDE's own VCS integration.
  *
- * Bytes (not decoded images) are exposed so the caller can cheaply detect "no change vs HEAD" by
- * comparing them directly. All methods do I/O / may run a git command, so call them off the EDT.
+ * Preferred over the git CLI while running inside the IDE: the platform already knows which VCS root
+ * a file belongs to, honours the user's configured git executable and credentials, and caches
+ * revision content. The CLI implementation in core exists for hosts that have none of that.
+ *
+ * Reading the working copy and decoding images is host-independent and lives in
+ * [com.github.dkwasniak.goldendiff.compare.ImageBytes].
+ *
+ * Runs a VCS operation — call off the EDT.
  */
-object GitImageSource {
+class GitImageSource(private val project: Project) : HeadBytesSource {
 
-    fun workingBytes(file: File): ByteArray? = runCatching { file.readBytes() }.getOrNull()
-
-    fun decode(bytes: ByteArray?): BufferedImage? =
-        bytes?.let { runCatching { ImageIO.read(ByteArrayInputStream(it)) }.getOrNull() }
-
-    fun headBytes(project: Project, file: File): ByteArray? {
+    override fun headBytes(file: File): ByteArray? {
         val vFile = LocalFileSystem.getInstance().findFileByIoFile(file) ?: return null
         return try {
             val vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(vFile) ?: return null

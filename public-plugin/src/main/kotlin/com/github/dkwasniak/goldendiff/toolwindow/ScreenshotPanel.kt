@@ -3,6 +3,7 @@ package com.github.dkwasniak.goldendiff.toolwindow
 import com.github.dkwasniak.goldendiff.compare.CompareView
 import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
+import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.Screen
@@ -77,6 +78,10 @@ class ScreenshotPanel(
 ) : JPanel(BorderLayout()), Disposable {
 
     private val settings = ScreenshotSettings.getInstance(project)
+
+    // Inside the IDE the VCS integration beats shelling out to git; core's GitCli backs the same
+    // interface for hosts that have no VCS layer.
+    private val headBytesSource = GitImageSource(project)
 
     private val listModel = DefaultListModel<ExtraComparisonItem>()
     private val listRenderer = GoldenCellRenderer(project)
@@ -627,7 +632,7 @@ class ScreenshotPanel(
         }
 
     private fun comparisonStatus(file: File, source: ComparisonSource): ExtraComparisonItemStatus {
-        val headBytes = GitImageSource.headBytes(project, file)
+        val headBytes = headBytesSource.headBytes(file)
         val sourceFile = when (source) {
             ComparisonSource.WORKING_COPY -> file
             ComparisonSource.GENERATED -> GeneratedImageSource.findForGolden(
@@ -639,7 +644,7 @@ class ScreenshotPanel(
             )
             else -> null
         }
-        val sourceBytes = sourceFile?.let(GitImageSource::workingBytes)
+        val sourceBytes = sourceFile?.let(ImageBytes::workingBytes)
         return when {
             sourceBytes == null -> ExtraComparisonItemStatus.UNCHANGED
             headBytes == null -> ExtraComparisonItemStatus.NEW
@@ -748,8 +753,8 @@ class ScreenshotPanel(
     }
 
     private fun generatedComparisonStatus(golden: File, generated: File?): ExtraComparisonItemStatus {
-        val sourceBytes = generated?.let(GitImageSource::workingBytes) ?: return ExtraComparisonItemStatus.UNCHANGED
-        val headBytes = GitImageSource.headBytes(project, golden) ?: return ExtraComparisonItemStatus.NEW
+        val sourceBytes = generated?.let(ImageBytes::workingBytes) ?: return ExtraComparisonItemStatus.UNCHANGED
+        val headBytes = headBytesSource.headBytes(golden) ?: return ExtraComparisonItemStatus.NEW
         return if (headBytes.contentEquals(sourceBytes)) {
             ExtraComparisonItemStatus.UNCHANGED
         } else {
@@ -894,7 +899,7 @@ class ScreenshotPanel(
             return
         }
         AppExecutorUtil.getAppExecutorService().execute {
-            val headBytes = GitImageSource.headBytes(project, file)
+            val headBytes = headBytesSource.headBytes(file)
             val workingFile = when (source) {
                 ComparisonSource.WORKING_COPY -> file
                 ComparisonSource.GENERATED -> GeneratedImageSource.findForGolden(
@@ -906,10 +911,10 @@ class ScreenshotPanel(
                 )
                 else -> null
             }
-            val workingBytes = workingFile?.let(GitImageSource::workingBytes)
+            val workingBytes = workingFile?.let(ImageBytes::workingBytes)
             val trim = settings.trimTransparentPadding
-            val head = ImagePainting.trimTransparentBorder(GitImageSource.decode(headBytes), trim)
-            val working = ImagePainting.trimTransparentBorder(GitImageSource.decode(workingBytes), trim)
+            val head = ImagePainting.trimTransparentBorder(ImageBytes.decode(headBytes), trim)
+            val working = ImagePainting.trimTransparentBorder(ImageBytes.decode(workingBytes), trim)
             val unchanged = headBytes != null && workingBytes != null && headBytes.contentEquals(workingBytes)
             ApplicationManager.getApplication().invokeLater {
                 if (loadedFile != file || loadedSource != source) return@invokeLater
