@@ -1,7 +1,39 @@
 # Architecture
 
-Plain IntelliJ Platform plugin. Kotlin + Swing UI, with one tiny Java tool-window factory to keep
-Plugin Verifier happy. No GUI forms.
+Kotlin. The comparison logic is a plain JVM library; on top of it sit two IntelliJ plugins (Swing UI,
+with one tiny Java tool-window factory to keep Plugin Verifier happy) and a standalone desktop
+application (Compose).
+
+## Modules
+
+| Module | What it is | May depend on |
+|---|---|---|
+| `:core` | All tool-agnostic logic: golden matching, git access, pixel diff, change scanning, project file index, config. | JDK only — **never** IntelliJ, Swing or Compose |
+| `:core-ui` | Comparison canvases in Compose. Compose is `compileOnly`. | `:core` |
+| `:public-plugin` | Golden Diff — tool window, Kotlin PSI, IDE settings, VCS. | `:core` (`implementation`) |
+| `:internal-plugin` | Golden Diff — Figma. | `:core` (`compileOnly`), `:public-plugin` |
+| `:app` | Standalone desktop app. macOS only for now. | `:core`, `:core-ui` |
+
+Why `:core` is plain `kotlin-jvm` and not Kotlin Multiplatform: every consumer is a JVM, so KMP would
+only add `expect/actual` ceremony around `File`, `BufferedImage`, `ImageIO` and git without unlocking
+a platform. It would also be unusable from the plugin side — the IntelliJ Platform Gradle Plugin looks
+for `compileKotlin`/`jar` while KMP produces `compileKotlinJvm`/`jvmJar`, and
+[silently builds a plugin ZIP with no Kotlin classes in it](https://github.com/JetBrains/intellij-platform-gradle-plugin/issues/1507).
+
+The dependency directions on `:core` are asymmetric on purpose and both mistakes compile cleanly —
+see [gotchas](gotchas.md#module-boundaries-two-traps-that-compile-fine-and-fail-at-runtime).
+
+## What the two hosts do differently
+
+Only three things, all behind interfaces in `:core`:
+
+- **HEAD content.** The plugin uses the IDE's VCS layer (`GitImageSource`), which knows the repo,
+  honours the user's git config and caches revisions. The app uses `GitCli`. Both are `HeadBytesSource`.
+- **Project-wide status.** Both use `GitCli.changedFiles()` — one git call beats a per-file revision
+  fetch, so even the plugin shells out here. (`WorkingCopyStatus`.)
+- **Which file drives matching.** The plugin reads the open editor (`CurrentScreen`, Kotlin PSI). The
+  app has no editor, so the user picks a file from the project list and it goes through
+  `GenericScreenExtractor`. Both produce a `Screen` and feed the same `GoldenFinder`.
 
 ## Two-plugin layout
 The repo builds **two plugins** from two Gradle modules that share one root build:
