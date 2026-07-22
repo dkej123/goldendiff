@@ -1,14 +1,23 @@
 package com.github.dkwasniak.goldendiff.compare
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.ui.MessageType
+import com.intellij.openapi.ui.popup.Balloon
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.datatransfer.StringSelection
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.image.BufferedImage
@@ -19,8 +28,10 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JScrollPane
+import javax.swing.JTextArea
 import javax.swing.SwingConstants
 import javax.swing.JToggleButton
+import kotlin.math.ceil
 
 /** Hosts the three comparison modes plus a single-image view, the mode switcher and a zoom control. */
 class CompareView : JPanel(BorderLayout()) {
@@ -35,6 +46,33 @@ class CompareView : JPanel(BorderLayout()) {
     private val single = SingleImagePanel()
 
     private val modeButtons = mutableListOf<JToggleButton>()
+    private var titleText: String? = null
+    // A JTextArea (not a JLabel) because file names are single long tokens without spaces, which the
+    // Swing HTML/CSS renderer refuses to break; a char-wrapping text area wraps them reliably.
+    private val titleArea = WrapLabel()
+    private val copyTitleButton = JButton(AllIcons.Actions.Copy).apply {
+        toolTipText = "Copy file name"
+        isFocusable = false
+        margin = JBUI.insets(2)
+        addActionListener {
+            titleText?.let {
+                CopyPasteManager.getInstance().setContents(StringSelection(it))
+                showCopiedBalloon(this)
+            }
+        }
+    }
+    private val titleBar = JPanel(BorderLayout()).apply {
+        add(titleArea, BorderLayout.CENTER)
+        // Keep the button pinned to the top so it stays put when the file name wraps to several lines.
+        add(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(copyTitleButton, BorderLayout.NORTH)
+            },
+            BorderLayout.EAST,
+        )
+        isVisible = false
+    }
     private val status = JBLabel().apply { border = JBUI.Borders.empty(4) }
     private var retryAction: (() -> Unit)? = null
     private val retryButton = JButton("Retry").apply {
@@ -81,7 +119,13 @@ class CompareView : JPanel(BorderLayout()) {
         cards.add(diff, MODE_DIFF)
         cards.add(single, MODE_SINGLE)
 
-        add(buildToolbar(), BorderLayout.NORTH)
+        add(
+            JPanel(BorderLayout()).apply {
+                add(titleBar, BorderLayout.NORTH)
+                add(buildToolbar(), BorderLayout.SOUTH)
+            },
+            BorderLayout.NORTH,
+        )
         add(BottomRightOverlayPanel(cards, zoomOverlay), BorderLayout.CENTER)
         add(statusBar, BorderLayout.SOUTH)
 
@@ -93,6 +137,57 @@ class CompareView : JPanel(BorderLayout()) {
                 override fun componentResized(e: ComponentEvent) = updateZoomControls()
             },
         )
+    }
+
+    /** Sets the file name shown as a header at the top of the preview; hidden when null/blank. */
+    fun setTitle(text: String?) {
+        titleText = text?.takeIf { it.isNotBlank() }
+        titleArea.text = titleText.orEmpty()
+        titleArea.toolTipText = titleText
+        titleBar.isVisible = titleText != null
+        titleBar.revalidate()
+    }
+
+    private fun showCopiedBalloon(target: JComponent) {
+        JBPopupFactory.getInstance()
+            .createHtmlTextBalloonBuilder("Copied to clipboard", MessageType.INFO, null)
+            .setFadeoutTime(1500)
+            .createBalloon()
+            .show(RelativePoint.getCenterOf(target), Balloon.Position.above)
+    }
+
+    /** Read-only, transparent, char-wrapping text area that behaves like a multi-line label. */
+    private class WrapLabel : JTextArea() {
+        init {
+            isEditable = false
+            isFocusable = false
+            isOpaque = false
+            lineWrap = true
+            // Word wrapping would not break a space-less file name; character wrapping does.
+            wrapStyleWord = false
+            border = JBUI.Borders.empty(4, 6, 2, 0)
+            font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
+            foreground = UIUtil.getLabelForeground()
+            // BorderLayout asks for the preferred height before the real width is known; once the width
+            // is applied a revalidate makes the parent re-measure the now-correct wrapped height.
+            addComponentListener(
+                object : ComponentAdapter() {
+                    override fun componentResized(e: ComponentEvent) = revalidate()
+                },
+            )
+        }
+
+        override fun getPreferredSize(): Dimension {
+            val base = super.getPreferredSize()
+            val currentWidth = width
+            if (currentWidth <= 0 || document.length == 0) return base
+            return try {
+                val end = modelToView2D(document.length)
+                Dimension(currentWidth, ceil(end.maxY).toInt() + insets.bottom)
+            } catch (e: Exception) {
+                base
+            }
+        }
     }
 
     fun showComparison(
