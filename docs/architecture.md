@@ -39,9 +39,14 @@ never a fork of the public plugin.
     test-output changes index the generated tree once and classify goldens with parallel HEAD reads.
   - `GoldenCellRenderer` — thumbnail + filename cell renderer with an icon cache.
 - **`match/`** — figuring out what to show.
-  - `CurrentScreen` — reads the selected editor's `KtFile` via PSI and returns typed candidates:
-    screenshot/test function names, class names, file base name, and `caretName`. The candidate set is
-    **caret-independent** (stable per file). `caretName` is separate, used only for initial selection.
+  - `CurrentScreen` — returns typed candidates for the selected editor: screenshot/test function
+    names, class names, file base name, and `caretName`. **Kotlin** files are read via `KtFile` PSI;
+    every other language falls back to `GenericScreenExtractor`. The candidate set is
+    **caret-independent** (stable per file). `caretName` is separate (Kotlin only), used for the
+    initial selection.
+  - `GenericScreenExtractor` — language-neutral, text-based candidate extraction for non-Kotlin files
+    (TS/JS/Swift/Java/…). Pure and unit-tested; touches no language-plugin PSI, so it adds no plugin
+    dependencies and keeps current-file matching tool-agnostic.
   - `GoldenFinder` — scans configured dirs for `*.png`. `find(roots, screen, mode, …)` matches each
     golden's path **relative to its root** using one of two `MatchMode`s: `ANNOTATED_METHOD` (path
     contains an annotated/`test*` function name) or `FILE_CLASS_REGEX` (user regex with `{file_name}`

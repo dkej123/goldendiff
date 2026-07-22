@@ -524,7 +524,7 @@ class ScreenshotPanel(
 
         val screen = CurrentScreen.compute(project, settings.annotatedFunctionRegex)
         if (screen == null || screen.names.isEmpty()) {
-            statusLabel.text = "Open a Kotlin screen or test file."
+            statusLabel.text = "Open a screen or test file, or switch scope to Project changes."
             updateStatusLegend(emptyList())
             listModel.clear()
             lastNames = null

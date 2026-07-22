@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] - 2026-07-22
+
+### Changed
+- Current-file golden matching is now language-agnostic. Previously only Kotlin files were inspected,
+  so the tool window stayed empty when a non-Kotlin file was open. Now TypeScript, JavaScript, Swift,
+  Java and other files are supported too, so web and native screenshot tests (Playwright, Storybook,
+  jest-image-snapshot, SwiftUI…) match against the file you are editing. Candidate names are taken
+  from the file name, declared `class`/`struct`/`interface`/`enum` names, `function`/`func`/`fun`
+  names, assigned React/arrow/styled components, and single-token `describe`/`test`/`it`/`story`
+  titles. Kotlin files keep their existing PSI-based matching unchanged.
+
 ## [1.4.1] - 2026-07-22
 
 ### Added

@@ -20,11 +20,18 @@ A **Scope** control in the header chooses what the list contains:
 
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
-- `CurrentScreen` builds caret-independent names: declared class names + the file base name +
-  functions annotated with annotations matched by the configured annotation regex (default
-  `.*Preview.*|Test`, excluding `PreviewParameter`) + `test*` functions. Plain `@Composable` helpers
-  are intentionally ignored because small names such as `Stat` or `Content` create noisy false
+- `CurrentScreen` builds caret-independent names. For **Kotlin** files (PSI): declared class names +
+  the file base name + functions annotated with annotations matched by the configured annotation regex
+  (default `.*Preview.*|Test`, excluding `PreviewParameter`) + `test*` functions. Plain `@Composable`
+  helpers are intentionally ignored because small names such as `Stat` or `Content` create noisy false
   positives.
+- For **any other file** (TypeScript, JavaScript, Swift, Java, plain text…) `GenericScreenExtractor`
+  produces the same `Screen` from a language-neutral, text-based scan: the file base name + declared
+  `class`/`struct`/`interface`/`enum` names + `function`/`func`/`fun` names + assigned React/arrow/
+  styled components + single-token `describe`/`test`/`it`/`story` titles. This keeps current-file
+  matching tool-agnostic (works for web screenshot tests: Playwright, Storybook, jest-image-snapshot…)
+  without adding any language-plugin dependency. Matching in either case is done entirely by
+  `GoldenFinder`, which is pure string matching over golden paths and language-agnostic.
 - `GoldenFinder.find` lists PNGs in the configured dirs, using one of two mutually exclusive
   `MatchMode`s (chosen with a radio in Settings). Matching is done against each golden's path
   **relative to its root** (with `/` separators), so layouts that nest the class or package as

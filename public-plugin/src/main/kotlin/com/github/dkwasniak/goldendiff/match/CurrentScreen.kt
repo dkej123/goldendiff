@@ -1,6 +1,7 @@
 package com.github.dkwasniak.goldendiff.match
 
 import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
@@ -24,7 +25,7 @@ object CurrentScreen {
         val functionNames: List<String>,
         /** Class names declared in the current file. */
         val classNames: List<String>,
-        /** Kotlin file name without extension. */
+        /** File name without extension. */
         val fileName: String,
         /** Name of the function under the caret, used only for the initial selection. */
         val caretName: String?,
@@ -41,8 +42,17 @@ object CurrentScreen {
     ): Screen? =
         runReadAction<Screen?> {
             val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return@runReadAction null
-            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) as? KtFile
-                ?: return@runReadAction null
+            val document = editor.document
+
+            // Non-Kotlin files (TS/JS/Swift/Java/…) get a language-neutral, text-based extraction so the
+            // plugin stays tool-agnostic instead of only matching Kotlin screens.
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document) as? KtFile
+                ?: run {
+                    val fileName = FileDocumentManager.getInstance().getFile(document)
+                        ?.name?.substringBeforeLast('.')
+                        ?: return@runReadAction null
+                    return@runReadAction GenericScreenExtractor.extract(fileName, document.text)
+                }
 
             val annotationPattern = runCatching { Regex(annotationNameRegex) }
                 .getOrElse { Regex(MatchingDefaults.ANNOTATION_NAME_REGEX) }
