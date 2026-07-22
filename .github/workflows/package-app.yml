@@ -1,0 +1,55 @@
+# Builds the standalone desktop installer.
+#
+# jpackage cannot cross-compile: an installer for a platform has to be produced on that platform.
+# The matrix therefore has one entry per OS. Only macOS is built and supported today - adding Windows
+# and Linux is a matter of appending entries here and actually testing the result, not a code change,
+# since the OS-specific branches are already written.
+name: Package app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'app-v*'
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            task: packageDmg
+            artifact: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A full JDK, not a JetBrains Runtime: jpackage ships only with the former.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: ./gradlew :app:${{ matrix.task }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-diff-${{ matrix.os }}
+          path: app/build/compose/binaries/main/${{ matrix.artifact }}/*
+
+  # Kept green on Linux from day one. It is the cheapest possible signal that core has not absorbed
+  # assumptions about macOS's case-insensitive filesystem or path handling, long before anyone builds
+  # the app there.
+  core-tests-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :core:test
