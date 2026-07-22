@@ -1,4 +1,4 @@
-package com.github.dkwasniak.goldendiff.toolwindow
+package com.github.dkwasniak.goldendiff.naming
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
