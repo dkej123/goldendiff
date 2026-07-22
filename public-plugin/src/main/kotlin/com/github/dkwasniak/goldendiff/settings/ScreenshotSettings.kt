@@ -117,18 +117,31 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
     val hasGeneratedPaths: Boolean
         get() = state.generatedPaths.isNotEmpty()
 
+    /**
+     * Snapshot of the persisted state in the form the platform-independent core understands.
+     *
+     * The accessors above already substitute defaults for blank or empty values, which matters here:
+     * `goldenDiff.xml` is a plain file a user can hand-edit into a state the UI would never produce.
+     * Core code is handed values that are always usable.
+     */
+    fun toConfig(): GoldenDiffConfig = GoldenDiffConfig(
+        goldenPaths = paths,
+        generatedPaths = generatedPaths,
+        generatedFileRegex = generatedFileRegex,
+        matchMode = matchMode,
+        annotatedFunctionRegex = annotatedFunctionRegex,
+        goldenFilePatterns = goldenFilePatterns,
+        excludedSuffixes = excludedSuffixes,
+        trimTransparentPadding = trimTransparentPadding,
+    )
+
     fun resolvedPaths(project: Project): List<File> =
-        paths.map { resolvePath(project, it) }
+        toConfig().resolvedGoldenPaths(project.rootDir())
 
     fun resolvedGeneratedPaths(project: Project): List<File> =
-        generatedPaths.map { resolvePath(project, it) }
+        toConfig().resolvedGeneratedPaths(project.rootDir())
 
-    private fun resolvePath(project: Project, path: String): File {
-        val file = File(path)
-        if (file.isAbsolute) return file.normalize()
-        val basePath = project.basePath ?: return file.normalize()
-        return File(basePath, path).normalize()
-    }
+    private fun Project.rootDir(): File? = basePath?.let(::File)
 
     companion object {
         fun getInstance(project: Project): ScreenshotSettings = project.service()
