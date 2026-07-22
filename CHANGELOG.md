@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Golden Diff as a standalone desktop application** (macOS). Opens a project directory and compares
+  goldens without an IDE: changed-golden list from git, a project file list, IntelliJ's Go to File
+  shortcut (`⇧⌘O`), and all four comparison modes. Distributed as a `.dmg` with an embedded Java
+  runtime — no JDK required. Windows and Linux are prepared for but not yet built or supported.
+
+### Changed
+- **Minimum IDE version is now 2025.1 (build 251)**; Android Studio Narwhal or newer. Required for the
+  Compose and Jewel platform modules the shared comparison UI will use. Plugin bytecode moves to Java 21.
+- The comparison logic now lives in a platform-independent `core` module shared by the plugins and the
+  application, so both report identical results for the same repository.
+
 ## [1.4.3] - 2026-07-22
 
 ### Fixed

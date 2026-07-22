@@ -50,8 +50,44 @@ and current design:
 - There is **no caret listener**; refresh is driven by file-selection changes only. The list rebuilds
   only when the name set changes; manual list selection is preserved. Keep it this way.
 
+## Module boundaries: two traps that compile fine and fail at runtime
+
+**`:core` must be `implementation` in `:public-plugin`, `compileOnly` in `:internal-plugin`.** The
+Figma plugin resolves core classes through the public plugin's classloader (its parent), so core has
+to be *inside* `golden-diff-*.zip` and *absent* from `golden-diff-figma-*.zip`. Both mistakes compile:
+`localPlugin(project(":public-plugin"))` puts everything on the compile classpath either way. Getting
+it wrong surfaces only as `NoClassDefFoundError` when a user loads the Figma plugin. Verify with
+`unzip -l public-plugin/build/distributions/golden-diff-*.zip`.
+
+**Compose must stay `compileOnly` in `:core-ui`.** The standalone app ships its own Compose runtime,
+but a plugin must take Compose, Skiko and Jewel from the platform (`bundledModule`). Two copies of
+those classes in one IDE process break the classloaders. Declaring them `implementation` silently
+drags Compose into the plugin ZIP; check with `unzip -l … | grep -iE 'compose|skiko'`.
+
+**`kotlin.stdlib.default.dependency = false`** in `gradle.properties` means non-plugin modules get no
+stdlib automatically. `:core` declares it `compileOnly` for the same reason — a second stdlib inside a
+plugin ZIP conflicts with the platform's.
+
+## `git status --porcelain` collapses untracked directories
+Without `--untracked-files=all`, git reports a brand-new directory as one entry for the directory
+itself rather than the files inside it. Callers filter on a `.png` extension, so those entries vanish
+and a newly added golden folder shows as *no changes at all*. Fixed in `GitCli.changedFiles()`; do not
+drop the flag. `-z` is equally load-bearing: it stops git quoting and escaping paths with spaces or
+non-ASCII characters.
+
+## macOS is case-insensitive — do not test ordering through the filesystem
+`Alpha.kt` and `alpha.kt` are the same file on a default macOS volume, so a test that writes both and
+asserts their order silently asserts nothing, then fails on Linux CI. `ProjectFileIndex.PATH_ORDER` is
+exposed precisely so ordering can be tested against the comparator instead. `:core:test` runs on
+`ubuntu-latest` in `package-app.yml` as the cheap early signal for this whole class of bug.
+
+## `jpackage` is missing from a JetBrains Runtime
+`:app:packageDmg` needs a full JDK. Building with Android Studio's JBR — the usual setup here — fails
+with a bare `'jpackage' is missing`. Pass `-PappJavaHome=<full JDK 21+>` or set `JAVA_HOME`. Also note
+jpackage cannot cross-compile: each platform's installer must be built on that platform.
+
 ## Stable-APIs-only rule
-Compiled against 241, and we deliberately use only long-stable platform APIs
+Compiled against 251, and we deliberately use only long-stable platform APIs
 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevision`, `FileChooserDescriptorFactory`,
 `ToolbarDecorator`, PSI) so the plugin also loads in Android Studio without AS-specific dependencies.
 
