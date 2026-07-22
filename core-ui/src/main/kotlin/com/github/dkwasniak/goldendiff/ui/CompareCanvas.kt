@@ -114,8 +114,14 @@ fun pairLayout(
 
 /** Onion skin: the two images stacked, with [opacity] fading between them. */
 @Composable
-fun OnionSkinView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, opacity: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxSize()) {
+fun OnionSkinView(
+    old: ImageBitmap?,
+    new: ImageBitmap?,
+    zoom: Double,
+    opacity: Float,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
+    Canvas(modifier) {
         val (oldRect, newRect) = pairLayout(zoom, old, new, size.width.toInt(), size.height.toInt())
         if (old != null) {
             drawCheckerboard(oldRect)
@@ -139,11 +145,16 @@ fun OnionSkinView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, opacity: F
  * of the screenshot when the window is resized.
  */
 @Composable
-fun SwipeView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, modifier: Modifier = Modifier) {
+fun SwipeView(
+    old: ImageBitmap?,
+    new: ImageBitmap?,
+    zoom: Double,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
     var fraction by remember { mutableStateOf(0.5f) }
     var width by remember { mutableStateOf(1) }
 
-    Box(modifier.fillMaxSize()) {
+    Box(modifier) {
         Canvas(
             Modifier.fillMaxSize().pointerInput(Unit) {
                 detectDragGestures { change, _ ->
@@ -153,14 +164,14 @@ fun SwipeView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, modifier: Modi
         ) {
             width = size.width.toInt()
             val (oldRect, newRect) = pairLayout(zoom, old, new, size.width.toInt(), size.height.toInt())
-            if (old != null) {
-                drawCheckerboard(oldRect)
-                drawImageIn(old, oldRect)
-            }
             if (new != null) {
+                drawCheckerboard(newRect)
+                drawImageIn(new, newRect)
+            }
+            if (old != null) {
                 clipRect(left = 0f, top = 0f, right = size.width * fraction, bottom = size.height) {
-                    drawCheckerboard(newRect)
-                    drawImageIn(new, newRect)
+                    drawCheckerboard(oldRect)
+                    drawImageIn(old, oldRect)
                 }
             }
             val x = size.width * fraction
@@ -181,8 +192,13 @@ fun SwipeView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, modifier: Modi
  * golden and a 1080x1200 one at the same on-screen height and hide the size change entirely.
  */
 @Composable
-fun TwoUpView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxSize()) {
+fun TwoUpView(
+    old: ImageBitmap?,
+    new: ImageBitmap?,
+    zoom: Double,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
+    Canvas(modifier) {
         val halfWidth = (size.width / 2).toInt()
         val height = size.height.toInt()
         val (boundW, boundH) = ImageLayout.boundingSize(
@@ -213,8 +229,12 @@ fun TwoUpView(old: ImageBitmap?, new: ImageBitmap?, zoom: Double, modifier: Modi
 
 /** A single image, centered and zoom-aware. Used for "no changes vs HEAD" and for new files. */
 @Composable
-fun SingleImageView(image: ImageBitmap?, zoom: Double, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxSize()) {
+fun SingleImageView(
+    image: ImageBitmap?,
+    zoom: Double,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
+    Canvas(modifier) {
         if (image == null) return@Canvas
         val rect = ImageLayout.renderRect(zoom, image.width, image.height, size.width.toInt(), size.height.toInt())
         drawCheckerboard(rect)
