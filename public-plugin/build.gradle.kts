@@ -3,6 +3,7 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.intellij.platform")
 }
 
@@ -23,6 +24,7 @@ dependencies {
     // leaving them out compiles fine — they are on the compile classpath via localPlugin(...) — and
     // only fails at runtime with NoClassDefFoundError. `unzip -l` the ZIP after touching this.
     implementation(project(":core"))
+    implementation(project(":core-ui"))
 
     intellijPlatform {
         // Build against the oldest supported platform. From 2025.3 onward Community and Ultimate are
@@ -32,6 +34,14 @@ dependencies {
 
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("Git4Idea")
+
+        // Compose, Skiko and Jewel are supplied by the target IDE. Never replace these with Maven
+        // implementation dependencies: a second runtime in the plugin ZIP breaks classloading.
+        bundledModule("intellij.platform.jewel.foundation")
+        bundledModule("intellij.platform.jewel.ui")
+        bundledModule("intellij.platform.jewel.ideLafBridge")
+        bundledModule("intellij.libraries.compose.foundation.desktop")
+        bundledModule("intellij.libraries.skiko")
 
         testFramework(TestFrameworkType.Platform)
 
