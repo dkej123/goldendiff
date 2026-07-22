@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.3] - 2026-07-22
+
+### Fixed
+- **Project changes** now lists goldens inside a newly added directory. `git status` collapses an
+  untracked directory into a single entry for the directory itself, and those entries were discarded
+  because they are not `.png` files — so adding a new screen, which usually creates a whole new golden
+  folder, showed nothing at all and looked like there was nothing to review. Goldens added to
+  directories that were already tracked were unaffected.
+
 ## [1.4.2] - 2026-07-22
 
 ### Changed

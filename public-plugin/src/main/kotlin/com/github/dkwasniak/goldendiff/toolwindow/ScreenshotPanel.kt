@@ -664,7 +664,11 @@ class ScreenshotPanel(
         val basePath = project.basePath ?: return emptyList()
         val base = File(basePath)
         val output = runCatching {
-            ProcessBuilder("git", "-C", base.path, "status", "--porcelain=v1", "-z")
+            // --untracked-files=all: without it git collapses an untracked directory into a single
+            // entry for the directory itself. Adding a new screen typically creates a whole new golden
+            // folder, and isGoldenCandidate below requires a `.png` extension - so the collapsed form
+            // dropped every file in it and the view read as "nothing changed".
+            ProcessBuilder("git", "-C", base.path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
                 .redirectErrorStream(true)
                 .start()
                 .let { process ->
