@@ -1,6 +1,7 @@
 package com.github.dkwasniak.goldendiff.git
 
 import com.github.dkwasniak.goldendiff.compare.HeadBytesSource
+import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import java.io.File
 
 /**
@@ -25,6 +26,56 @@ class GitCli(private val projectRoot: File) : HeadBytesSource {
     fun isInsideWorkTree(): Boolean =
         run("rev-parse", "--is-inside-work-tree", cwd = projectRoot)
             ?.toString(Charsets.UTF_8)?.trim() == "true"
+
+    /**
+     * Files changed in the working copy, with the status derived straight from the porcelain code.
+     *
+     * Reading NEW/MODIFIED from `git status` avoids a per-file HEAD revision fetch, which is what
+     * makes the project-wide view usable on a large change set.
+     *
+     * Deletions are skipped: a golden that no longer exists has nothing to display.
+     */
+    fun changedFiles(): List<GitChange> {
+        // -z: records are NUL-separated and paths are never quoted or escaped, so filenames with
+        // spaces, quotes or non-ASCII characters survive intact. The default output would mangle them.
+        //
+        // --untracked-files=all: without it git collapses an untracked directory into a single entry
+        // for the directory itself. Adding a new screen typically creates a whole new golden folder,
+        // and the caller filters on a `.png` extension — so the collapsed form silently yields no new
+        // goldens at all, which reads as "nothing changed".
+        val output = run("status", "--porcelain=v1", "-z", "--untracked-files=all", cwd = projectRoot)
+            ?: return emptyList()
+        if (output.isEmpty()) return emptyList()
+
+        val records = output.toString(Charsets.UTF_8).split('\u0000').filter { it.isNotEmpty() }
+        val entries = ArrayList<GitChange>()
+        var index = 0
+        while (index < records.size) {
+            val record = records[index]
+            if (record.length >= 4) {
+                val status = record.substring(0, 2)
+                val path = record.substring(3)
+                if (status.any { it != ' ' && it != 'D' }) {
+                    entries.add(GitChange(File(projectRoot, path), status.toChangeStatus()))
+                }
+                // Rename/copy records carry a second (origin) path token that must be skipped.
+                if (status.any { it == 'R' || it == 'C' }) {
+                    index++
+                }
+            }
+            index++
+        }
+        return entries
+    }
+
+    // Untracked/added/renamed/copied paths do not exist in HEAD → NEW; anything else that changed
+    // exists in HEAD → MODIFIED.
+    private fun String.toChangeStatus(): ExtraComparisonItemStatus =
+        if (any { it == '?' || it == 'A' || it == 'R' || it == 'C' }) {
+            ExtraComparisonItemStatus.NEW
+        } else {
+            ExtraComparisonItemStatus.MODIFIED
+        }
 
     override fun headBytes(file: File): ByteArray? {
         val parent = file.parentFile ?: return null

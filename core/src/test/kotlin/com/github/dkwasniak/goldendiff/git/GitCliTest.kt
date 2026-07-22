@@ -1,7 +1,9 @@
 package com.github.dkwasniak.goldendiff.git
 
 import org.junit.After
+import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -87,6 +89,77 @@ class GitCliTest {
         // GitCli is rooted at the repo, but resolves via the file's own parent directory, so depth
         // and the location of the repository root are irrelevant.
         assertArrayEquals(committed, GitCli(repo).headBytes(nested))
+    }
+
+    @Test
+    fun `changedFiles reports modified as MODIFIED and untracked as NEW`() {
+        val tracked = File(repo, "goldens/Tracked.png")
+        commit(tracked, byteArrayOf(1))
+        tracked.writeBytes(byteArrayOf(2))
+        val untracked = File(repo, "goldens/Untracked.png")
+        untracked.writeBytes(byteArrayOf(3))
+
+        val byName = git.changedFiles().associateBy { it.file.name }
+
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, byName.getValue("Tracked.png").status)
+        assertEquals(ExtraComparisonItemStatus.NEW, byName.getValue("Untracked.png").status)
+    }
+
+    @Test
+    fun `changedFiles keeps paths with spaces and non-ASCII characters intact`() {
+        // This is what --porcelain -z buys: the default output would quote and escape this name, and
+        // the file would then be looked up under a path that does not exist.
+        val awkward = File(repo, "goldens/Zażółć gęślą jaźń.png")
+        awkward.parentFile.mkdirs()
+        awkward.writeBytes(byteArrayOf(1))
+
+        val changed = git.changedFiles()
+
+        assertTrue(
+            "expected the awkward path, got ${changed.map { it.file.path }}",
+            changed.any { it.file.name == "Zażółć gęślą jaźń.png" && it.file.isFile },
+        )
+    }
+
+    @Test
+    fun `changedFiles lists files inside a brand-new untracked directory`() {
+        // git collapses an untracked directory into one entry for the directory unless asked not to.
+        // Adding a screen usually creates a whole new golden folder, and callers filter on a `.png`
+        // extension — so the collapsed form would show no new goldens and read as "nothing changed".
+        val fresh = File(repo, "brand/new/dir/Fresh.png")
+        fresh.parentFile.mkdirs()
+        fresh.writeBytes(byteArrayOf(1))
+
+        val changed = git.changedFiles()
+
+        assertTrue(
+            "expected the file, not its directory; got ${changed.map { it.file.path }}",
+            changed.any { it.file.name == "Fresh.png" },
+        )
+        assertEquals(ExtraComparisonItemStatus.NEW, changed.first { it.file.name == "Fresh.png" }.status)
+    }
+
+    @Test
+    fun `changedFiles skips deletions`() {
+        val doomed = File(repo, "goldens/Gone.png")
+        commit(doomed, byteArrayOf(1))
+        doomed.delete()
+
+        // A golden that no longer exists has nothing to render, so it must not reach the list.
+        assertTrue(git.changedFiles().none { it.file.name == "Gone.png" })
+    }
+
+    @Test
+    fun `changedFiles handles renames, whose records carry a second path token`() {
+        val original = File(repo, "goldens/Before.png")
+        commit(original, byteArrayOf(1, 2, 3))
+        run("mv", "goldens/Before.png", "goldens/After.png")
+
+        val changed = git.changedFiles()
+
+        // The origin path token must be consumed, not parsed as another record.
+        assertTrue(changed.any { it.file.name == "After.png" })
+        assertTrue(changed.none { it.file.name == "Before.png" })
     }
 
     @Test

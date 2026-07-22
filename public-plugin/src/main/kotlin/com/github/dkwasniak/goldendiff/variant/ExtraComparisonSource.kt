@@ -8,18 +8,8 @@ import java.awt.image.BufferedImage
 import java.io.File
 import javax.swing.JComponent
 
-enum class ExtraComparisonItemStatus {
-    UNCHANGED,
-    MODIFIED,
-    NEW,
-}
-
-data class ExtraComparisonItem(
-    val file: File,
-    val title: String = file.name,
-    val isLoading: Boolean = !file.isFile,
-    val status: ExtraComparisonItemStatus = ExtraComparisonItemStatus.UNCHANGED,
-)
+// ExtraComparisonItem and ExtraComparisonItemStatus are pure data and live in :core, in this same
+// package, so both the plugin and the standalone app can consume scan results.
 
 /** First-run directory defaults contributed by a source, applied when no settings are persisted yet. */
 data class ExtraFirstRunDefaults(
