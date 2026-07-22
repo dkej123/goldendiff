@@ -20,11 +20,10 @@ that shares its logic — and eventually its UI — with the plugins, without fo
 | Figma in the app | **No** | Figma stays plugin-only; `:app` mirrors the public plugin. |
 | Windows/Linux | Written, **not built or verified** | No machines to test on. Every OS-specific branch exists so enabling them is a CI change, not a code hunt. |
 
-**Accepted cost of the Compose decision, not yet paid.** Jewel is experimental
+**Accepted cost of the Compose decision.** Jewel is experimental
 (*"binary compatibility is not guaranteed across releases"*) and its artifacts are versioned per
-platform build (`jewel-ide-laf-bridge:251.x`). Once the tool window is Compose, the plugin must be
-tested against each new IDE release and `untilBuild` must become a bounded range. Today the plugin is
-still Swing on stable APIs, so `untilBuild` is legitimately open.
+platform build (`jewel-ide-laf-bridge:251.x`). The tool window now uses Compose/Jewel, so both plugins
+are bounded to `251.*` and must be rebuilt and tested before moving to another IDE branch.
 
 ## What is done
 
@@ -57,21 +56,16 @@ Two real bugs surfaced while extracting code under test:
 
 ## What is left
 
-### 1. Migrate the plugin UI to Compose + Jewel — the big one
+### 1. Migrate the plugin UI to Compose + Jewel — done
 
-Not started. The plugin still runs Swing: `compare/{CompareView,TwoUpPanel,SwipePanel,OnionSkinPanel,
-DiffPanel,SingleImagePanel,ZoomablePanel}.kt` and the list half of `toolwindow/ScreenshotPanel.kt`.
+The plugin tool window is hosted in `JewelComposePanel`; the list, controls and comparison viewer are
+Compose/Jewel, and the four canvases come from `:core-ui`. The platform supplies Jewel, Compose and
+Skiko through `bundledModule` / `<module>` declarations, and the old Swing viewer/list classes are
+deleted. Both plugins are bounded to `251.*`.
 
-- Host the tool window content in `JewelComposePanel` from `ScreenshotToolWindowFactory`.
-- Add to `public-plugin/build.gradle.kts` **and** `plugin.xml`: `intellij.platform.jewel.foundation`,
-  `.ui`, `.ideLafBridge`, `intellij.libraries.compose.foundation.desktop`, `intellij.libraries.skiko`
-  — as `bundledModule` / `<module>`, never as bundled jars.
-- Replace the Swing canvases with `:core-ui`, then delete them.
-- **Keep `ScreenshotConfigurable` in Swing.** This is deliberate: it keeps `ExtraSettingsComponent`
+**`ScreenshotConfigurable` stays in Swing.** This is deliberate: it keeps `ExtraSettingsComponent`
   returning `JComponent`, so `internal-plugin` never touches Compose and the two-plugin split is
   unaffected. Compose and Swing coexist fine here.
-- Then set a bounded `untilBuild` in both plugins and rewrite the "stable-APIs-only" sections of
-  `CLAUDE.md` and `gotchas.md`, which stop being true at that moment.
 
 Version alignment is the sharpest risk: `:core-ui` compiles against one Compose, the plugin gets the
 platform's, `:app` ships its own. Keep the IJP build number in `gradle.properties` driving both the

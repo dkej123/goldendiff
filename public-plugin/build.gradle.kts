@@ -82,12 +82,10 @@ intellijPlatform {
             // 251 = 2025.1, the first platform that bundles Jewel and the Compose modules the shared
             // UI needs. See docs/gotchas.md.
             sinceBuild = "251"
-            // Still no upper bound: at this point the plugin remains pure Swing and uses only
-            // long-stable platform + Kotlin-PSI + Git4Idea APIs. This has to become a bounded range
-            // once the tool window moves to Compose/Jewel, because those are versioned per platform
-            // build and carry no binary-compatibility guarantee. Note that pinning untilBuild to a
-            // branch that does not exist yet is rejected by the Marketplace verifier.
-            untilBuild = provider { null }
+            // Jewel and the platform Compose modules carry no binary-compatibility guarantee across
+            // platform branches. Raise both bounds only after rebuilding and testing against the new
+            // branch; never point untilBuild at a branch that does not exist.
+            untilBuild = "251.*"
         }
     }
 

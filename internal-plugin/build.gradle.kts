@@ -4,6 +4,7 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 // `<idea-version>` element that `generateUpdatePluginsXml` writes. These used to drift apart, which is
 // invisible at build time and only surfaces as a bad offer in the custom plugin repository.
 val pluginSinceBuild = "251"
+val pluginUntilBuild = "251.*"
 
 plugins {
     id("java")
@@ -68,9 +69,10 @@ intellijPlatform {
 
         ideaVersion {
             // Must not be lower than the public plugin's: this one <depends> on it, so offering it to
-            // an IDE that cannot install the public plugin would strand the user.
+            // an IDE that cannot install the public plugin would strand the user. The upper bound
+            // must match too, because the parent plugin's Compose/Jewel UI is branch-specific.
             sinceBuild = pluginSinceBuild
-            untilBuild = provider { null }
+            untilBuild = pluginUntilBuild
         }
     }
 }
@@ -104,9 +106,11 @@ tasks.register("generateUpdatePluginsXml") {
     val zipFile = buildPlugin.flatMap { it.archiveFile }
     val outputFile = layout.buildDirectory.file("distributions/updatePlugins.xml")
     val sinceBuild = pluginSinceBuild
+    val untilBuild = pluginUntilBuild
     inputs.property("version", pluginVersion)
     inputs.property("baseUrl", baseUrl)
     inputs.property("sinceBuild", sinceBuild)
+    inputs.property("untilBuild", untilBuild)
     outputs.file(outputFile)
     doLast {
         val zipName = zipFile.get().asFile.name
@@ -118,7 +122,7 @@ tasks.register("generateUpdatePluginsXml") {
               <plugin id="$pluginId" url="${baseUrl.get().trimEnd('/')}/$zipName" version="$pluginVersion">
                 <name>$pluginName</name>
                 <vendor>$vendor</vendor>
-                <idea-version since-build="$sinceBuild"/>
+                <idea-version since-build="$sinceBuild" until-build="$untilBuild"/>
                 <depends>$dependsOnId</depends>
                 <description><![CDATA[Adds a Figma reference comparison source to the Golden Diff plugin.]]></description>
               </plugin>

@@ -21,11 +21,11 @@ output directories.
   internal plugin contributes its comparison source through the public plugin's `comparisonSource`
   extension point. (Golden Diff was "Screenshot Compare" / `…screenshotcompare` — re-listed as a new
   Marketplace plugin under the new ID; new numeric ID assigned on first upload.)
-- Target platform: **IntelliJ Platform 2025.1+ (build 251+)**, with an open-ended `until-build`
-  (no upper bound) **while the plugin UI is still Swing**. 251 is the floor because Jewel and the
-  Compose platform modules first ship bundled with the platform there. Do not pin `untilBuild` to a
-  concrete future branch — a non-existent version (e.g. `254.*` → `2025.4`) is rejected as a
-  Marketplace configuration defect.
+- Target platform: **IntelliJ Platform 2025.1 only (build 251, `251.*`)**. 251 is the floor because
+  Jewel and the Compose platform modules first ship bundled with the platform there; it is also the
+  upper bound because Jewel has no binary-compatibility guarantee across platform branches. Moving to
+  a newer branch means aligning the bundled modules, rebuilding and testing both plugins, then moving
+  `sinceBuild` and `untilBuild` together. Never name a future branch that does not exist.
 - Toolchain: **JDK 21** (bytecode 21 — 2025.1+ runs on JBR 21), **Gradle 9.6.1**, Kotlin **2.2.20**,
   IntelliJ Platform Gradle Plugin **2.17.0**, Compose Multiplatform **1.8.2**.
 
@@ -73,10 +73,11 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   `unzip -l public-plugin/build/distributions/golden-diff-*.zip`.
 - **Compose is `compileOnly` in `:core-ui`.** The app ships its own runtime; a plugin must take
   Compose/Skiko/Jewel from the platform, and a second copy in one process breaks the classloaders.
-- Only stable platform + Kotlin-PSI + Git4Idea APIs — no Kotlin Analysis API (keeps K2 support valid).
-  This still holds: the plugin UI is Swing. It stops holding the moment the tool window moves to
-  Compose/Jewel, which are versioned per platform build with no binary-compatibility guarantee — at
-  that point `untilBuild` has to become a bounded range.
+- The tool window uses the platform-bundled **Compose + Jewel** modules, which are experimental and
+  branch-specific; both plugin descriptors therefore stay bounded to the platform line they were
+  compiled and visually tested against. Compose/Skiko/Jewel must come from `bundledModule` +
+  `<module>`, never plugin-bundled jars. The remaining IDE integration uses stable platform APIs plus
+  Kotlin PSI and Git4Idea; do not add Kotlin Analysis API calls, so K2 support remains valid.
 - After any build, **read the Gradle log for `BUILD SUCCESSFUL/FAILED`** — do not trust a piped exit
   code (see gotchas: `| tail` hides the real status).
 - Commit messages and release notes must not mention AI tools or assistants, including Codex or Claude.

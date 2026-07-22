@@ -5,11 +5,11 @@
 - Gradle **9.6.1** (wrapper). Required because IntelliJ Platform Gradle Plugin 2.17.0 needs Gradle 9+.
 - Kotlin JVM plugin **2.2.20**.
 - IntelliJ Platform Gradle Plugin **2.17.0**.
-- Platform dependency: **`intellijIdeaCommunity("2024.1")`**.
+- Platform dependency: **`intellijIdeaCommunity("2025.1")`**.
 
 Key `build.gradle.kts` bits: `instrumentCode = false` and `buildSearchableOptions = false` (no Java/
-form sources, no custom searchable settings), `ideaVersion { sinceBuild = "241"; untilBuild = provider { null } }`
-(open-ended upper bound — see gotchas).
+form sources, no custom searchable settings), `ideaVersion { sinceBuild = "251"; untilBuild = "251.*" }`.
+The bounded range is required by the branch-specific platform Compose/Jewel modules; see gotchas.
 
 ## Modules
 Two Gradle modules produce two separate plugins (see [architecture.md](architecture.md#two-plugin-layout)):
@@ -62,12 +62,12 @@ install *Golden Diff — Figma* from the Marketplace tab (the IDE prompts to ins
 the version; the public plugin updates independently from Marketplace.
 
 ## Installing into Android Studio / IntelliJ
-The dev target is IntelliJ IDEA (only stable platform + Kotlin-PSI + Git4Idea APIs are used, all present
-in Android Studio builds based on supported IntelliJ Platform versions). To install the built plugin:
+The dev target is IntelliJ IDEA. The tool window uses platform-bundled Compose/Jewel; Kotlin PSI and
+Git4Idea provide the editor and VCS integration. To install the built plugin:
 1. Settings → Plugins → ⚙ → **Install Plugin from Disk…** → the zip in `build/distributions/`.
 2. Restart Android Studio.
 Changing `<id>` counts as a new plugin, so an old-id build must be uninstalled first.
 
 ## Running the sandbox inside real Android Studio (optional)
-Swap `intellijIdeaCommunity("2024.1")` for `androidStudio("<version>")` in `build.gradle.kts`. Heavier download
+Swap `intellijIdeaCommunity("2025.1")` for `androidStudio("<version>")` in `build.gradle.kts`. Heavier download
 and the AS version must be resolvable by the Gradle plugin. Not needed for normal development.

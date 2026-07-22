@@ -30,8 +30,8 @@
         preview is shown.</li>
       </ul>
 
-      <p>Works with IntelliJ Platform 2025.1 and newer (build 251+), including Android Studio Narwhal
-      and later.</p>
+      <p>Works with IntelliJ Platform 2025.1 (build 251), including Android Studio Narwhal releases
+      based on that platform line.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

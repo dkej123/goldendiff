@@ -7,8 +7,9 @@ nav_order: 2
 
 ## Requirements
 
-- **An IntelliJ Platform IDE**, version **2024.1 or newer** (platform build **241+**, no upper bound).
-  This includes recent **Android Studio** releases and JetBrains IDEs built on those platform versions.
+- **An IntelliJ Platform IDE** based on **2025.1** (platform build **251**). The current plugin build
+  is bounded to `251.*` because its Compose/Jewel UI is tied to that platform line. This includes
+  **Android Studio Narwhal** releases built on 251.
 - **Git.** Golden Diff compares each golden against its committed (git HEAD) version, so your project
   must be a git repository and your goldens must be **committed PNG files**. The bundled **Git**
   integration (Git4Idea) and the **Kotlin** plugin are required; both ship with Android Studio and
@@ -54,8 +55,8 @@ and read-only.)
 
 ## Compatibility notes
 
-- Compatible with IntelliJ Platform **2024.1+ (build 241+)** with no declared upper bound,
-  including Android Studio versions on those platform builds.
+- Compatible with IntelliJ Platform **2025.1 (build 251 / `251.*`)**, including Android Studio Narwhal
+  releases on that platform line. Each later platform branch needs a separately aligned and tested build.
 - The plugin only traverses Kotlin PSI (no resolve/Analysis API), so it works in both the K1 and **K2**
   Kotlin modes that recent Android Studio versions use.
 

@@ -3,20 +3,18 @@
 Read this before changing the build or the refresh logic.
 
 ## Platform compatibility
-- The plugin is compiled against **IntelliJ Platform 2024.1 / build 241** and declares an
-  **open-ended `until-build`** (no upper bound, `untilBuild = provider { null }`). Keep code on stable
-  APIs available in 241 so the broad range stays true. Do **not** pin `untilBuild` to a concrete future
-  branch: the Marketplace verifier rejects a version that does not exist yet (e.g. `254.*` →
-  "Version '2025.4' does not exist").
+- Both plugins are compiled against **IntelliJ Platform 2025.1 / build 251** and declare the bounded
+  range `sinceBuild = "251"`, `untilBuild = "251.*"`. The tool window uses platform-bundled Compose
+  and Jewel, whose binary compatibility is not guaranteed across platform branches. To support a new
+  branch, compile and visually test against that branch, align all five bundled modules, then move the
+  two bounds together in both plugins. Do not name a future branch that does not exist: Marketplace
+  rejects it as a configuration defect.
 - Do not re-add Android Studio specific APIs. The plugin should remain installable in IntelliJ IDEA and
   Android Studio as long as Kotlin and Git4Idea bundled plugins are present.
 - On build 253+, `ideaIC` no longer exists; if you retarget back to 2025.3, use `intellijIdea("2025.3")`.
 - **Gradle 9+ required** by IntelliJ Platform Gradle Plugin 2.17.0. Wrapper is pinned to 9.6.1.
-- **Bytecode target is Java 17, not 21.** We build with a JDK 21 toolchain but force `jvmTarget = 17`
-  (and `JavaCompile` `release = 17`) in `build.gradle.kts`. IntelliJ 2024.1–2024.3 run on JBR 17, so
-  bytecode 21 would fail to load there with `UnsupportedClassVersionError` despite `sinceBuild = 241`.
-  Do not remove the per-task `jvmTarget` override, and don't rely on the toolchain to set the target —
-  it derives 21. Both the Kotlin and Java targets must stay in sync or Gradle fails the build.
+- **Bytecode target is Java 21.** IntelliJ 2025.1+ runs on JBR 21, and all modules use the JDK 21
+  toolchain without the old Java 17 task override.
 
 ## K2 mode
 Recent Android Studio versions run Kotlin in **K2 mode** by default. A plugin using Kotlin PSI must declare
@@ -86,10 +84,16 @@ exposed precisely so ordering can be tested against the comparator instead. `:co
 with a bare `'jpackage' is missing`. Pass `-PappJavaHome=<full JDK 21+>` or set `JAVA_HOME`. Also note
 jpackage cannot cross-compile: each platform's installer must be built on that platform.
 
-## Stable-APIs-only rule
-Compiled against 251, and we deliberately use only long-stable platform APIs
-(`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevision`, `FileChooserDescriptorFactory`,
-`ToolbarDecorator`, PSI) so the plugin also loads in Android Studio without AS-specific dependencies.
+## Compose/Jewel compatibility rule
+The tool window is hosted in `JewelComposePanel` and uses the platform's Jewel, Compose and Skiko
+modules. These APIs are experimental and branch-specific, so an open-ended `until-build` is no longer
+honest. Keep the plugin range bounded to the platform branch used at compile time and require a real
+IDE visual smoke test before moving it. `ScreenshotConfigurable` intentionally remains Swing: its
+`ExtraSettingsComponent` seam continues to return `JComponent`, so the Figma plugin never links
+Compose classes.
+
+The non-UI integration still uses platform APIs available in 251 (`ToolWindowFactory`, `DiffProvider`,
+`ByteBackedContentRevision`, `FileChooserDescriptorFactory`, PSI), with no Android Studio-specific API.
 
 ## Plugin Verifier warnings (accepted, non-blocking)
 The bundled verifier (IntelliJ Platform Gradle Plugin 2.17.0) reports **no** API-usage problems in our
@@ -101,11 +105,9 @@ all reviewed and **intentionally accepted**:
 - **Experimental API — `ByteBackedContentRevision`** (`compare/GitImageSource.kt`). Cleanest path to
   raw committed bytes; a non-experimental fallback (`ContentRevision.getContent()`) is already in place.
 - **Deprecated API — none.** Two were replaced: the old `com.intellij.util.Alarm` debounce by a plain
-  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`; and
+  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotToolWindow.kt`; and
   `ReadAction.compute(ThrowableComputable)` (deprecated on build 261+) by the Kotlin
-  `com.intellij.openapi.application.runReadAction { }` in `match/CurrentScreen.kt`. With the open-ended
-  `until-build`, the verifier now runs against 2026.x EAPs too, so prefer replacements that are stable
-  across 241…latest.
+  `com.intellij.openapi.application.runReadAction { }` in `match/CurrentScreen.kt`.
 
 The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
 so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
