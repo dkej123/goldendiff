@@ -19,9 +19,9 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        // Build against the oldest supported 2024.x Community platform. From 2025.3 onward Community
-        // and Ultimate are published as a unified `intellijIdea(...)` artifact, but 2024.1 still has
-        // the smaller Community distribution.
+        // Build against the oldest supported platform. From 2025.3 onward Community and Ultimate are
+        // published as a unified `intellijIdea(...)` artifact, but 2025.1 still has the smaller
+        // Community distribution.
         intellijIdeaCommunity(providers.gradleProperty("platformVersion").get())
 
         bundledPlugin("org.jetbrains.kotlin")
@@ -63,12 +63,14 @@ intellijPlatform {
         """.trimIndent()
 
         ideaVersion {
-            sinceBuild = "241"
-            // No upper bound. The plugin uses only long-stable platform + Kotlin-PSI + Git4Idea APIs
-            // (see docs/gotchas.md "Stable-APIs-only rule"), so it should load in current and future
-            // IDE builds without a re-release. Pinning untilBuild to a concrete future branch is also
-            // rejected by the Marketplace verifier while that version does not exist yet (e.g. "254.*"
-            // → "Version '2025.4' does not exist").
+            // 251 = 2025.1, the first platform that bundles Jewel and the Compose modules the shared
+            // UI needs. See docs/gotchas.md.
+            sinceBuild = "251"
+            // Still no upper bound: at this point the plugin remains pure Swing and uses only
+            // long-stable platform + Kotlin-PSI + Git4Idea APIs. This has to become a bounded range
+            // once the tool window moves to Compose/Jewel, because those are versioned per platform
+            // build and carry no binary-compatibility guarantee. Note that pinning untilBuild to a
+            // branch that does not exist yet is rejected by the Marketplace verifier.
             untilBuild = provider { null }
         }
     }
@@ -82,15 +84,9 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Build with JDK 21, but emit Java 17 bytecode: IntelliJ 2024.1–2024.3 (our sinceBuild = 241) run on
-// JBR 17, so bytecode 21 would fail to load there with UnsupportedClassVersionError. Set per-task so it
-// wins over the target the toolchain otherwise derives.
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-}
-tasks.withType<JavaCompile>().configureEach {
-    options.release.set(17)
-}
+// Bytecode 21 is fine from sinceBuild = 251 on: IntelliJ 2025.1+ runs on JBR 21. The previous
+// per-task JVM_17 override existed only because 2024.1–2024.3 ran on JBR 17 and would have failed
+// with UnsupportedClassVersionError; with 241–243 dropped it is no longer needed.
 
 tasks.named<Zip>("buildPlugin") {
     archiveBaseName.set("golden-diff")
