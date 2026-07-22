@@ -12,7 +12,7 @@ import java.io.File
  * while Windows does not unless Git for Windows was installed. Call [isAvailable] once at startup and
  * tell the user plainly, rather than showing an empty list that looks like "no changes".
  */
-class GitCli(private val projectRoot: File) : HeadBytesSource {
+class GitCli(private val projectRoot: File) : HeadBytesSource, WorkingCopyStatus {
 
     fun isAvailable(): Boolean =
         runCatching {
@@ -35,7 +35,7 @@ class GitCli(private val projectRoot: File) : HeadBytesSource {
      *
      * Deletions are skipped: a golden that no longer exists has nothing to display.
      */
-    fun changedFiles(): List<GitChange> {
+    override fun changedFiles(): List<GitChange> {
         // -z: records are NUL-separated and paths are never quoted or escaped, so filenames with
         // spaces, quotes or non-ASCII characters survive intact. The default output would mangle them.
         //

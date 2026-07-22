@@ -5,8 +5,10 @@ import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
-import com.github.dkwasniak.goldendiff.git.GitChange
 import com.github.dkwasniak.goldendiff.git.GitCli
+import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
+import com.github.dkwasniak.goldendiff.scan.BuiltInSource
+import com.github.dkwasniak.goldendiff.scan.ChangeScanner
 import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.Screen
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
@@ -59,7 +61,6 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
-import java.util.stream.Collectors
 import javax.swing.AbstractAction
 import javax.swing.BoxLayout
 import javax.swing.DefaultListModel
@@ -84,6 +85,23 @@ class ScreenshotPanel(
     // Inside the IDE the VCS integration beats shelling out to git; core's GitCli backs the same
     // interface for hosts that have no VCS layer.
     private val headBytesSource = GitImageSource(project)
+
+    /**
+     * Built fresh per scan rather than cached: settings and the project's git state both change
+     * underneath the tool window, and a stale snapshot would quietly show the wrong list.
+     *
+     * Deliberately mixes implementations - the IDE's VCS layer for per-file HEAD reads, the git CLI
+     * for the one-shot project-wide status.
+     */
+    private fun changeScanner(): ChangeScanner {
+        val root = project.basePath?.let(::File)
+        return ChangeScanner(
+            projectRoot = root,
+            config = settings.toConfig(),
+            headBytes = headBytesSource,
+            workingCopyStatus = root?.let(::GitCli) ?: WorkingCopyStatus { emptyList() },
+        )
+    }
 
     private val listModel = DefaultListModel<ExtraComparisonItem>()
     private val listRenderer = GoldenCellRenderer(project)
@@ -553,7 +571,7 @@ class ScreenshotPanel(
         currentScreen = screen
         statusLabel.text = "Searching…"
         AppExecutorUtil.getAppExecutorService().execute {
-            val items = source.extra?.findItems(project, screen, settings) ?: buildBuiltInItems(
+            val items = source.extra?.findItems(project, screen, settings) ?: changeScanner().itemsFor(
                 GoldenFinder.find(
                     roots,
                     screen,
@@ -561,7 +579,7 @@ class ScreenshotPanel(
                     settings.excludedSuffixes,
                     settings.goldenFilePatterns,
                 ),
-                source,
+                if (source == ComparisonSource.GENERATED) BuiltInSource.GENERATED else BuiltInSource.WORKING_COPY,
             )
             val statusOverride = source.extra?.listStatusForItems(items)
             ApplicationManager.getApplication().invokeLater {
@@ -584,8 +602,8 @@ class ScreenshotPanel(
         statusLabel.text = "Searching project changes..."
         AppExecutorUtil.getAppExecutorService().execute {
             val items = when (source) {
-                ComparisonSource.GENERATED -> projectGeneratedChangeItems(roots)
-                else -> projectWorkingCopyChangeItems(roots)
+                ComparisonSource.GENERATED -> changeScanner().generatedChanges()
+                else -> changeScanner().workingCopyChanges()
             }.filter { it.status != ExtraComparisonItemStatus.UNCHANGED }
             val sourceName = when (source) {
                 ComparisonSource.GENERATED -> "test output"
@@ -603,152 +621,6 @@ class ScreenshotPanel(
                 )
             }
         }
-    }
-
-    private fun buildBuiltInItems(files: List<File>, source: ComparisonSource): List<ExtraComparisonItem> =
-        buildBuiltInItems(files) { comparisonStatus(it, source) }
-
-    private fun buildBuiltInItems(
-        files: List<File>,
-        statusOf: (File) -> ExtraComparisonItemStatus,
-    ): List<ExtraComparisonItem> =
-        files.mapIndexed { index, file ->
-            IndexedValue(
-                index,
-                ExtraComparisonItem(
-                    file = file,
-                    title = file.name,
-                    isLoading = false,
-                    status = statusOf(file),
-                ),
-            )
-        }
-            .sortedWith(compareBy<IndexedValue<ExtraComparisonItem>> { statusSortRank(it.value.status) }.thenBy { it.index })
-            .map { it.value }
-
-    private fun statusSortRank(status: ExtraComparisonItemStatus): Int =
-        when (status) {
-            ExtraComparisonItemStatus.MODIFIED -> 0
-            ExtraComparisonItemStatus.NEW -> 1
-            ExtraComparisonItemStatus.UNCHANGED -> 2
-        }
-
-    private fun comparisonStatus(file: File, source: ComparisonSource): ExtraComparisonItemStatus {
-        val headBytes = headBytesSource.headBytes(file)
-        val sourceFile = when (source) {
-            ComparisonSource.WORKING_COPY -> file
-            ComparisonSource.GENERATED -> GeneratedImageSource.findForGolden(
-                golden = file,
-                goldenRoots = settings.resolvedPaths(project),
-                generatedRoots = settings.resolvedGeneratedPaths(project),
-                generatedFileRegex = settings.generatedFileRegex,
-                excludedSuffixes = settings.excludedSuffixes,
-            )
-            else -> null
-        }
-        val sourceBytes = sourceFile?.let(ImageBytes::workingBytes)
-        return when {
-            sourceBytes == null -> ExtraComparisonItemStatus.UNCHANGED
-            headBytes == null -> ExtraComparisonItemStatus.NEW
-            !headBytes.contentEquals(sourceBytes) -> ExtraComparisonItemStatus.MODIFIED
-            else -> ExtraComparisonItemStatus.UNCHANGED
-        }
-    }
-
-    private fun projectWorkingCopyChangeItems(roots: List<File>): List<ExtraComparisonItem> {
-        // git status already tells us which goldens changed and whether they exist in HEAD, so we can
-        // derive MODIFIED/NEW straight from the porcelain code — no per-file HEAD revision fetch.
-        val statusByPath = gitStatusEntries()
-            .filter { isGoldenCandidate(it.file, roots) }
-            .associateBy({ it.file.normalize().path }, { it.status })
-        val files = statusByPath.keys.map(::File)
-            .sortedBy { invariantPathIn(it, roots).lowercase() }
-        return buildBuiltInItems(files) { statusByPath[it.normalize().path] ?: ExtraComparisonItemStatus.MODIFIED }
-    }
-
-    /**
-     * Working-copy changes, read through core's git CLI wrapper.
-     *
-     * Deliberately not the VCS-backed [headBytesSource]: `git status` answers "what changed" for the
-     * whole project in one call, while the VCS API would need a revision fetch per file.
-     */
-    private fun gitStatusEntries(): List<GitChange> {
-        val root = project.basePath?.let(::File) ?: return emptyList()
-        return GitCli(root).changedFiles()
-    }
-
-    private fun projectGeneratedChangeItems(roots: List<File>): List<ExtraComparisonItem> {
-        val generatedRoots = settings.resolvedGeneratedPaths(project)
-        if (generatedRoots.none { it.isDirectory }) return emptyList()
-        val generatedPattern = runCatching { Regex(settings.generatedFileRegex) }.getOrNull() ?: return emptyList()
-        val suffixes = settings.excludedSuffixes.filter { it.isNotBlank() }
-        // Walk the generated tree once and index by base name, so resolving a golden's counterpart is
-        // an O(1) lookup instead of re-walking the whole tree per golden.
-        val generatedByBaseName = HashMap<String, File>()
-        generatedRoots
-            .asSequence()
-            .filter { it.isDirectory }
-            .flatMap { it.walkTopDown().asSequence() }
-            .filter { it.isFile && it.extension.equals("png", ignoreCase = true) }
-            .forEach { file ->
-                generatedBaseName(file, generatedPattern, suffixes)?.let {
-                    generatedByBaseName.putIfAbsent(it.lowercase(), file)
-                }
-            }
-        if (generatedByBaseName.isEmpty()) return emptyList()
-
-        val goldens = GoldenFinder.findAll(roots, settings.excludedSuffixes)
-            .asSequence()
-            .filter { it.nameWithoutExtension.lowercase() in generatedByBaseName }
-            .distinctBy { it.normalize().path }
-            .sortedBy { invariantPathIn(it, roots).lowercase() }
-            .toList()
-
-        // Each status still needs a per-golden HEAD revision fetch; compute them in parallel so a large
-        // change set isn't a serial chain of blocking git reads.
-        val statusByGolden: Map<File, ExtraComparisonItemStatus> = goldens.parallelStream().collect(
-            Collectors.toConcurrentMap(
-                { it },
-                { golden -> generatedComparisonStatus(golden, generatedByBaseName[golden.nameWithoutExtension.lowercase()]) },
-            ),
-        )
-        return buildBuiltInItems(goldens) { statusByGolden.getValue(it) }
-    }
-
-    private fun generatedComparisonStatus(golden: File, generated: File?): ExtraComparisonItemStatus {
-        val sourceBytes = generated?.let(ImageBytes::workingBytes) ?: return ExtraComparisonItemStatus.UNCHANGED
-        val headBytes = headBytesSource.headBytes(golden) ?: return ExtraComparisonItemStatus.NEW
-        return if (headBytes.contentEquals(sourceBytes)) {
-            ExtraComparisonItemStatus.UNCHANGED
-        } else {
-            ExtraComparisonItemStatus.MODIFIED
-        }
-    }
-
-    private fun generatedBaseName(file: File, pattern: Regex, suffixes: List<String>): String? {
-        val match = pattern.matchEntire(file.name)
-        return match?.groups?.getOrNull(1)?.value
-            ?: suffixes.fold(file.nameWithoutExtension) { acc, suffix -> acc.removeSuffix(suffix) }
-    }
-
-    private fun MatchGroupCollection.getOrNull(index: Int): MatchGroup? =
-        runCatching { get(index) }.getOrNull()
-
-    private fun isGoldenCandidate(file: File, roots: List<File>): Boolean =
-        file.isFile &&
-            file.extension.equals("png", ignoreCase = true) &&
-            settings.excludedSuffixes.none { it.isNotBlank() && file.nameWithoutExtension.endsWith(it) } &&
-            roots.any { root -> file.isDescendantOf(root) }
-
-    private fun File.isDescendantOf(root: File): Boolean {
-        val relative = runCatching { normalize().relativeTo(root.normalize()) }.getOrNull() ?: return false
-        return !relative.path.startsWith("..")
-    }
-
-    private fun invariantPathIn(file: File, roots: List<File>): String {
-        val root = roots.firstOrNull { file.isDescendantOf(it) }
-        val relative = root?.let { runCatching { file.normalize().relativeTo(it.normalize()) }.getOrNull() }
-        return (relative ?: file).path.replace(File.separatorChar, '/')
     }
 
     private fun populate(items: List<ExtraComparisonItem>, caretName: String?, statusOverride: String? = null) {
