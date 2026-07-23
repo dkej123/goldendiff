@@ -98,20 +98,20 @@ object AppTelemetry {
         AppTelemetry::class.java.classLoader.getResourceAsStream("golden-diff-telemetry.properties")
             ?.use(::load)
     }
-    private val version = buildProperties.getProperty("version").orEmpty().ifBlank { "dev" }
-    private val releaseChannel = ReleaseChannel.fromVersion(version)
+    val appVersion: String = buildProperties.getProperty("version").orEmpty().ifBlank { "dev" }
+    private val releaseChannel = ReleaseChannel.fromVersion(appVersion)
     val client = TelemetryClient(
         environment = TelemetryEnvironment(
             surface = TelemetrySurface.DESKTOP,
             releaseChannel = releaseChannel,
-            appVersion = version,
+            appVersion = appVersion,
         ),
         store = AppTelemetryStore,
         backendFactory = { consent ->
             GoldenDiffTelemetryBackend.create(
                 amplitudeApiKey = buildProperties.getProperty("amplitude.api_key").orEmpty(),
                 sentryDsn = buildProperties.getProperty("sentry.dsn").orEmpty(),
-                release = "golden-diff-app@$version",
+                release = "golden-diff-app@$appVersion",
                 environment = releaseChannel.wireValue,
                 consent = consent,
             )
