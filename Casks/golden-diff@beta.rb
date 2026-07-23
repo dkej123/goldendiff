@@ -23,6 +23,6 @@ cask "golden-diff@beta" do
       xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 
     Why this is needed:
-    https://github.com/dkej123/goldendiff/blob/beta/docs/installation.md#install-the-homebrew-beta
+    https://github.com/dkej123/goldendiff/blob/beta/docs/installation.md#install-the-standalone-macos-beta-with-homebrew
   EOS
 end
