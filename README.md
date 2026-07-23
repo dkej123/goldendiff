@@ -67,13 +67,22 @@ brew install --cask dkej123/goldendiff/golden-diff
 Later releases are picked up by the usual `brew update` and
 `brew upgrade --cask golden-diff`. The app includes its Java runtime, so no JDK is required.
 
-Preview releases use a separate, conflicting cask:
+Preview releases use a separate, conflicting cask. Copy and run:
 
 ```bash
-brew uninstall --cask golden-diff # only if stable is currently installed
-brew install --cask dkej123/goldendiff/golden-diff@beta
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
 ```
 
+The app is currently ad-hoc signed and not notarized because the project does not use a paid Apple
+Developer ID certificate. Homebrew verifies the release's SHA-256 checksum, but macOS still
+quarantines the downloaded app and blocks its first launch. If you trust this repository, remove that
+quarantine attribute after installation:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
+```
+
+If the stable cask is already installed, run `brew uninstall --cask golden-diff` first.
 Use `brew upgrade --cask golden-diff@beta` for later beta builds.
 
 ## Use
