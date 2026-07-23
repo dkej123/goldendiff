@@ -34,6 +34,26 @@ If you have a `golden-diff-<version>.zip` (for example a build you produced your
 3. Select the zip file.
 4. Restart the IDE.
 
+## Install the standalone macOS beta
+
+The standalone desktop app is currently available **only as a beta**. There is no Stable desktop cask
+yet; Stable currently refers to the IDE plugin release channel. Copy and run:
+
+```bash
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
+```
+
+Golden Diff is currently ad-hoc signed and not notarized because the project does not use a paid Apple
+Developer ID certificate. Homebrew verifies the immutable DMG against the SHA-256 checksum stored in
+the cask, but Gatekeeper does not treat that checksum as an Apple developer identity. macOS therefore
+quarantines the downloaded application and can block its first launch.
+
+If you trust this repository, remove only Golden Diff's quarantine attribute after installation:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
+```
+
 ## Install the internal Figma add-on (team only)
 
 *Golden Diff — Figma* is a separate, team-internal plugin that adds a **Figma** comparison source on
