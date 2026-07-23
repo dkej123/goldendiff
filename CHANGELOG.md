@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.4] - 2026-07-23
+
+### Fixed
+- The IntelliJ plugin's first-run telemetry dialog now uses a compact, consistently aligned layout.
+- The plugin's Privacy settings no longer drift to the right or clip their description, and now show
+  the exact installed plugin version.
+
 ## [1.5.0-beta.3] - 2026-07-23
 
 ### Added

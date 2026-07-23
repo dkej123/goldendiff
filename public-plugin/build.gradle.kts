@@ -80,7 +80,8 @@ intellijPlatform {
               exceptions and privacy-safe performance spans remain in Sentry EU.</li>
               <li>Telemetry never includes filenames, project paths, source code, image content or
               identifiers from optional comparison-source extensions.</li>
-              <li>The desktop Settings window now shows the exact installed Golden Diff version.</li>
+              <li>Fixes alignment and wrapping in the plugin's telemetry dialog and Privacy settings,
+              and shows the exact installed plugin version.</li>
               </ul>
         """.trimIndent()
 

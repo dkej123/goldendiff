@@ -24,6 +24,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.Action
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -90,6 +91,8 @@ class PluginTelemetryService {
         PluginManagerCore.getPlugin(PluginId.getId("com.github.dkwasniak.goldendiff"))
             ?.version.orEmpty().ifBlank { "dev" }
     }
+    val appVersion: String
+        get() = version
     private val releaseChannel = ReleaseChannel.fromVersion(version)
     val client = TelemetryClient(
         environment = TelemetryEnvironment(
@@ -183,43 +186,60 @@ private class TelemetryConsentDialog(
 
     override fun createCenterPanel(): JComponent =
         JPanel(BorderLayout()).apply {
-            preferredSize = Dimension(JBUI.scale(610), JBUI.scale(310))
-            border = JBUI.Borders.empty(20, 22)
+            preferredSize = Dimension(JBUI.scale(540), JBUI.scale(250))
+            border = JBUI.Borders.empty(12, 16, 4, 16)
             add(
                 JPanel().apply {
                     layout = BoxLayout(this, BoxLayout.Y_AXIS)
                     add(JBLabel("Help make Golden Diff better").apply {
-                        font = font.deriveFont(Font.BOLD, 22f)
+                        font = font.deriveFont(Font.BOLD, 20f)
                         alignmentX = JComponent.LEFT_ALIGNMENT
                     })
-                    add(JBLabel("<html><body style='width:540px;padding-top:12px'>" +
-                        "Sharing anonymous usage data and crash reports helps us find bugs faster, " +
-                        "prioritize the features teams actually use, and ship fixes sooner. It is optional, " +
-                        "and you can change your mind anytime in Settings.</body></html>").apply {
-                        alignmentX = JComponent.LEFT_ALIGNMENT
-                    })
-                    add(JPanel(BorderLayout()).apply {
-                        border = JBUI.Borders.emptyTop(22)
-                        add(analytics, BorderLayout.NORTH)
-                        add(
-                            JBLabel("<html><body style='width:480px;padding-left:24px'>" +
-                                "Which features you use — never filenames, paths, source code, or image content." +
-                                "</body></html>"),
-                            BorderLayout.CENTER,
-                        )
-                    })
-                    add(JPanel(BorderLayout()).apply {
-                        border = JBUI.Borders.emptyTop(18)
-                        add(diagnostics, BorderLayout.NORTH)
-                        add(
-                            JBLabel("<html><body style='width:480px;padding-left:24px'>" +
-                                "Sanitized stack traces from failures inside Golden Diff.</body></html>"),
-                            BorderLayout.CENTER,
-                        )
-                    })
+                    add(Box.createVerticalStrut(JBUI.scale(10)))
+                    add(
+                        consentText(
+                            "Sharing anonymous usage data and crash reports helps us find bugs faster, " +
+                                "prioritize the features teams actually use, and ship fixes sooner. It is optional, " +
+                                "and you can change your mind anytime in Settings.",
+                            width = 500,
+                        ),
+                    )
+                    add(Box.createVerticalStrut(JBUI.scale(18)))
+                    add(
+                        consentChoice(
+                            analytics,
+                            "Which features you use — never filenames, paths, source code, or image content.",
+                        ),
+                    )
+                    add(Box.createVerticalStrut(JBUI.scale(14)))
+                    add(
+                        consentChoice(
+                            diagnostics,
+                            "Sanitized stack traces from failures inside Golden Diff.",
+                        ),
+                    )
                 },
-                BorderLayout.CENTER,
+                BorderLayout.NORTH,
             )
+        }
+
+    private fun consentChoice(checkBox: JBCheckBox, description: String): JComponent =
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            checkBox.alignmentX = JComponent.LEFT_ALIGNMENT
+            add(checkBox)
+            add(
+                consentText(description, width = 466).apply {
+                    border = JBUI.Borders.emptyLeft(26)
+                },
+            )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
+
+    private fun consentText(text: String, width: Int): JBLabel =
+        JBLabel("<html><body style='width:${JBUI.scale(width)}px'>$text</body></html>").apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
         }
 
     override fun doOKAction() {

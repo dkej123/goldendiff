@@ -151,28 +151,54 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     }
 
     private fun privacySection(): JPanel =
-        JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(
-                labelBlock(
-                    "Optional telemetry:",
-                    "Both choices are off by default and independent. Golden Diff never sends project " +
-                        "names, file names, paths, source code or images.",
-                ),
-            )
-            add(analyticsCheckbox)
-            add(diagnosticsCheckbox)
-            add(
-                JBLabel("<html><a href=''>Read the privacy policy</a></html>").apply {
-                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                    addMouseListener(object : java.awt.event.MouseAdapter() {
-                        override fun mouseClicked(e: java.awt.event.MouseEvent?) {
-                            BrowserUtil.browse("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md")
-                        }
-                    })
-                },
-            )
+        JPanel(BorderLayout()).apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            val content = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                alignmentX = JComponent.LEFT_ALIGNMENT
+
+                add(JBLabel("Optional telemetry:").leftAligned())
+                add(
+                    wrappedHelpLabel(
+                        "Both choices are off by default and independent. Golden Diff never sends project " +
+                            "names, file names, paths, source code or images.",
+                    ).apply {
+                        border = JBUI.Borders.emptyBottom(6)
+                    },
+                )
+                add(analyticsCheckbox.leftAligned())
+                add(diagnosticsCheckbox.leftAligned())
+                add(
+                    JBLabel("<html><a href=''>Read the privacy policy</a></html>").apply {
+                        alignmentX = JComponent.LEFT_ALIGNMENT
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                        addMouseListener(object : java.awt.event.MouseAdapter() {
+                            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                                BrowserUtil.browse("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md")
+                            }
+                        })
+                    },
+                )
+                add(
+                    JBLabel("Golden Diff ${PluginTelemetryService.getInstance().appVersion}").apply {
+                        alignmentX = JComponent.LEFT_ALIGNMENT
+                        border = JBUI.Borders.emptyTop(12)
+                        foreground = UIUtil.getContextHelpForeground()
+                    },
+                )
+            }
+            add(content, BorderLayout.WEST)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
+
+    private fun wrappedHelpLabel(text: String): JBLabel =
+        JBLabel("<html><body style='width:${JBUI.scale(560)}px'>$text</body></html>").apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            foreground = UIUtil.getContextHelpForeground()
+        }
+
+    private fun <T : JComponent> T.leftAligned(): T =
+        apply { alignmentX = JComponent.LEFT_ALIGNMENT }
 
     /** Refresh the preview (debounced) whenever a matching-relevant field changes. */
     private fun wirePreviewTriggers() {
