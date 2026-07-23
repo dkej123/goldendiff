@@ -6,10 +6,13 @@ import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSources
 import com.github.dkwasniak.goldendiff.variant.ExtraSettingsComponent
+import com.github.dkwasniak.goldendiff.telemetry.BuildBadge
 import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetryService
 import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetrySettings
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryBuckets
 import com.intellij.ide.BrowserUtil
+import com.intellij.ui.JBColor
+import com.intellij.ui.RoundedLineBorder
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooser
@@ -20,13 +23,17 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
 import java.io.File
+import javax.swing.BorderFactory
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.ButtonGroup
 import javax.swing.JCheckBox
@@ -48,7 +55,7 @@ import javax.swing.event.ListDataListener
 
 private const val PREVIEW_DEBOUNCE_MS = 300
 
-class ScreenshotConfigurable(private val project: Project) : Configurable {
+class ScreenshotConfigurable(private val project: Project) : Configurable, Configurable.NoScroll {
 
     private val goldenModel = DefaultListModel<String>()
     private val goldenList = JBList(goldenModel)
@@ -120,7 +127,48 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         panel.add(previewSection())
         wirePreviewTriggers()
         reset()
-        return panel
+        return JPanel(BorderLayout()).apply {
+            add(JBScrollPane(panel), BorderLayout.CENTER)
+            add(versionFooter(), BorderLayout.SOUTH)
+        }
+    }
+
+    // Pinned to the bottom-left of the settings panel, next to the dialog's buttons. A developer or
+    // beta build shows its badges directly after the version (DEV BUILD before BETA); stable shows none.
+    private fun versionFooter(): JComponent {
+        val service = PluginTelemetryService.getInstance()
+        val left = JPanel().apply {
+            isOpaque = false
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(
+                JBLabel("Golden Diff ${service.appVersion}").apply {
+                    foreground = UIUtil.getContextHelpForeground()
+                },
+            )
+            service.metadata.badges.forEach { badge ->
+                add(Box.createRigidArea(Dimension(JBUI.scale(6), 0)))
+                add(badgeLabel(badge))
+            }
+        }
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8, 2, 2, 2)
+            add(left, BorderLayout.WEST)
+        }
+    }
+
+    private fun badgeLabel(badge: BuildBadge): JComponent {
+        val color = when (badge) {
+            BuildBadge.DEV -> JBColor(Color(0xA9761A), Color(0xD9A441))
+            BuildBadge.BETA -> JBColor(Color(0x3574F0), Color(0x548AF7))
+        }
+        return JBLabel(badge.label).apply {
+            foreground = color
+            font = font.deriveFont(Font.BOLD, JBUI.scale(10).toFloat())
+            border = BorderFactory.createCompoundBorder(
+                RoundedLineBorder(color, JBUI.scale(6), 1),
+                JBUI.Borders.empty(0, 4),
+            )
+        }
     }
 
     private fun previewSection(): JPanel {
@@ -151,54 +199,30 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     }
 
     private fun privacySection(): JPanel =
-        JPanel(BorderLayout()).apply {
-            alignmentX = JComponent.LEFT_ALIGNMENT
-            val content = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                alignmentX = JComponent.LEFT_ALIGNMENT
-
-                add(JBLabel("Optional telemetry:").leftAligned())
-                add(
-                    wrappedHelpLabel(
-                        "Both choices are off by default and independent. Golden Diff never sends project " +
-                            "names, file names, paths, source code or images.",
-                    ).apply {
-                        border = JBUI.Borders.emptyBottom(6)
-                    },
-                )
-                add(analyticsCheckbox.leftAligned())
-                add(diagnosticsCheckbox.leftAligned())
-                add(
-                    JBLabel("<html><a href=''>Read the privacy policy</a></html>").apply {
-                        alignmentX = JComponent.LEFT_ALIGNMENT
-                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                        addMouseListener(object : java.awt.event.MouseAdapter() {
-                            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
-                                BrowserUtil.browse("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md")
-                            }
-                        })
-                    },
-                )
-                add(
-                    JBLabel("Golden Diff ${PluginTelemetryService.getInstance().appVersion}").apply {
-                        alignmentX = JComponent.LEFT_ALIGNMENT
-                        border = JBUI.Borders.emptyTop(12)
-                        foreground = UIUtil.getContextHelpForeground()
-                    },
-                )
-            }
-            add(content, BorderLayout.WEST)
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(
+                labelBlock(
+                    "Optional telemetry:",
+                    "Both choices are off by default and independent. Golden Diff never sends project " +
+                        "names, file names, paths, source code or images.",
+                ),
+            )
+            add(analyticsCheckbox)
+            add(diagnosticsCheckbox)
+            add(
+                JBLabel("<html><a href=''>Read the privacy policy</a></html>").apply {
+                    border = JBUI.Borders.emptyTop(4)
+                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    addMouseListener(object : java.awt.event.MouseAdapter() {
+                        override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                            BrowserUtil.browse("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md")
+                        }
+                    })
+                },
+            )
             maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
-
-    private fun wrappedHelpLabel(text: String): JBLabel =
-        JBLabel("<html><body style='width:${JBUI.scale(560)}px'>$text</body></html>").apply {
-            alignmentX = JComponent.LEFT_ALIGNMENT
-            foreground = UIUtil.getContextHelpForeground()
-        }
-
-    private fun <T : JComponent> T.leftAligned(): T =
-        apply { alignmentX = JComponent.LEFT_ALIGNMENT }
 
     /** Refresh the preview (debounced) whenever a matching-relevant field changes. */
     private fun wirePreviewTriggers() {

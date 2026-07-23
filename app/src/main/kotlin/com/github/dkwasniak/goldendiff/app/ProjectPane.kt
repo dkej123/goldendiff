@@ -1,8 +1,10 @@
 package com.github.dkwasniak.goldendiff.app
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,7 +113,8 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
                             state = state,
                             row = row,
                             expanded = expanded[row.node.path] == true || filter.isNotBlank(),
-                            selected = !row.node.isDirectory && row.node.path == selectedPath,
+                            selected = !row.node.isDirectory &&
+                                row.node.path == (state.treeHighlight ?: selectedPath),
                             onToggle = { expanded[row.node.path] = expanded[row.node.path] != true },
                         )
                     }
@@ -121,6 +124,7 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TreeRow(
     state: AppState,
@@ -132,13 +136,24 @@ private fun TreeRow(
     val node = row.node
     val shape = RoundedCornerShape(Dimens.controlRadius)
     val file = File(state.projectRoot, node.path)
+    // A folder toggles on a single click; a file only highlights on a single click and opens on a
+    // double-click. Files use combinedClickable (which delays the single click to disambiguate) while
+    // folders keep a plain clickable so expanding stays instant.
+    val clickModifier = if (node.isDirectory) {
+        Modifier.clickable(onClick = onToggle)
+    } else {
+        Modifier.combinedClickable(
+            onClick = { state.treeHighlight = node.path },
+            onDoubleClick = { state.selectSourceFile(node.path) },
+        )
+    }
     FileContextMenu(state, file, canDelete = !node.isDirectory) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp).height(Dimens.rowHeight).clip(shape)
                 .background(if (selected) tokens.accentBg else Color.Transparent, shape)
                 .border(1.dp, if (selected) tokens.accentBorder else Color.Transparent, shape)
                 .hoverWash(!selected, shape)
-                .clickable { if (node.isDirectory) onToggle() else state.selectSourceFile(node.path) }
+                .then(clickModifier)
                 .padding(start = 8.dp + Dimens.treeIndent * row.depth, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),

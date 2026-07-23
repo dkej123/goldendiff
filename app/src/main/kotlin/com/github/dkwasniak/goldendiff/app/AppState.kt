@@ -70,6 +70,10 @@ class AppState(
     var selectedSourcePath by mutableStateOf<String?>(null)
         private set
 
+    // The project-tree row a single click highlights without opening it. Opening a file (double-click,
+    // a tab, quick-open) realigns this to the opened path so the tree marks whatever is actually shown.
+    var treeHighlight by mutableStateOf<String?>(null)
+
     var fileIndex by mutableStateOf<ProjectFileIndex?>(null)
         private set
     var items by mutableStateOf<List<ExtraComparisonItem>>(emptyList())
@@ -88,6 +92,39 @@ class AppState(
     var quickOpenQuery by mutableStateOf("")
     var settingsVisible by mutableStateOf(false)
     var compareWindowVisible by mutableStateOf(false)
+    var diagnosticsVisible by mutableStateOf(false)
+
+    /** A newer app build on this install's channel, once the launch check has found one. */
+    var update by mutableStateOf<UpdateChecker.UpdateInfo?>(null)
+        private set
+
+    /** One-time launch banner for [update], shown until the user dismisses that version. */
+    var updateBannerVisible by mutableStateOf(false)
+        private set
+
+    /** True while an update is being fetched/applied; disables the trigger and shows a spinner. */
+    var updateBusy by mutableStateOf(false)
+        private set
+
+    /** Short human status while updating — the latest brew line, a phase, or an error. */
+    var updateStatus by mutableStateOf<String?>(null)
+        private set
+
+    // Set once an in-place update finishes so the banner can offer a one-click restart into the new
+    // build. Only the Homebrew path sets it — the download path still needs a manual install first.
+    var updateCompleted by mutableStateOf(false)
+        private set
+
+    /**
+     * The Homebrew cask this install can update through, detected once and cached. Null when the app
+     * was not installed via Homebrew (the download-and-open path is used instead).
+     */
+    private val updateHomebrew: UpdateInstaller.HomebrewCask? by lazy {
+        UpdateInstaller.homebrewCask(AppTelemetry.metadata.updateChannel)
+    }
+
+    /** Whether [installUpdate] will upgrade in place via Homebrew rather than download a `.dmg`. */
+    val updateViaHomebrew: Boolean get() = updateHomebrew != null
 
     /**
      * Project files the user has opened, shown as editor-style tabs above the panes.
@@ -201,6 +238,99 @@ class AppState(
         scope.launch {
             val index = withContext(Dispatchers.IO) { ProjectFileIndex.scan(root) }
             fileIndex = index
+        }
+    }
+
+    /**
+     * Look for a newer build on this install's release channel. Runs once at launch; the check is
+     * cached for a day and every failure is silent, so it never blocks or interrupts the app.
+     */
+    fun checkForUpdates() {
+        scope.launch {
+            val channel = AppTelemetry.metadata.updateChannel
+            DevLog.record("update", "Checking (channel=${channel.wireValue}, current=${AppTelemetry.appVersion})")
+            val info = withContext(Dispatchers.IO) {
+                UpdateChecker.check(AppTelemetry.appVersion, channel)
+            }
+            if (info == null) {
+                DevLog.record("update", "Up to date — no newer release found")
+                return@launch
+            }
+            DevLog.record("update", "Available: ${info.version} (${info.url})")
+            update = info
+            updateBannerVisible = UpdateChecker.shouldShowBanner(info.version)
+        }
+    }
+
+    /** Relaunch into the freshly-installed build. Offered once an in-place update has completed. */
+    fun restartApp() {
+        featureUsed("update_restart")
+        DevLog.record("update", "Restarting into the new build")
+        UpdateInstaller.restart()
+    }
+
+    /** Hide the launch banner and remember not to show it again for this version. */
+    fun dismissUpdateBanner() {
+        updateBannerVisible = false
+        update?.let { UpdateChecker.rememberBannerDismissed(it.version) }
+    }
+
+    /** Open the release page for the available update in the user's browser. */
+    fun openUpdatePage() {
+        val info = update ?: return
+        featureUsed("update_open")
+        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(info.url)) }
+    }
+
+    /**
+     * Fetch and apply the available update. Homebrew installs upgrade in place and prompt to restart;
+     * everything else downloads the `.dmg` and opens it. On any failure the release page opens as a
+     * fallback. Guarded so a second click while [updateBusy] does nothing.
+     */
+    fun installUpdate() {
+        val info = update ?: return
+        if (updateBusy) return
+        updateBusy = true
+        updateStatus = null
+        updateCompleted = false
+        scope.launch {
+            val cask = updateHomebrew
+            if (cask != null) {
+                featureUsed("update_homebrew")
+                DevLog.record("update", "brew upgrade --cask ${cask.cask}")
+                updateStatus = "Updating with Homebrew…"
+                val exit = withContext(Dispatchers.IO) {
+                    UpdateInstaller.upgradeViaHomebrew(cask) { line ->
+                        if (line.isNotBlank()) updateStatus = line.trim()
+                    }
+                }
+                DevLog.record("update", "brew finished with exit code $exit")
+                if (exit == 0) {
+                    updateStatus = "Updated — restart to finish. If it will not open, " +
+                        "run: xattr -dr com.apple.quarantine \"/Applications/Golden Diff.app\""
+                    updateCompleted = true
+                } else {
+                    updateStatus = "Homebrew update failed — opening the release page."
+                    openUpdatePage()
+                }
+            } else {
+                featureUsed("update_download")
+                val url = UpdateInstaller.dmgUrl(info.version, AppTelemetry.metadata.updateChannel)
+                DevLog.record("update", "Downloading $url")
+                updateStatus = "Downloading…"
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { UpdateInstaller.openDmg(UpdateInstaller.downloadDmg(url, info.version)) }
+                }
+                if (result.isSuccess) {
+                    DevLog.record("update", "Installer opened from ~/Downloads")
+                    updateStatus = "Opened installer — drag Golden Diff into Applications, then restart."
+                } else {
+                    DevLog.record("update", "Download failed: ${result.exceptionOrNull()?.message}")
+                    updateStatus = "Download failed — opening the release page."
+                    openUpdatePage()
+                }
+            }
+            updateBusy = false
         }
     }
 
@@ -453,6 +583,7 @@ class AppState(
         val alreadyOpen = relativePath in openTabs
         browse = Browse.FILES
         selectedSourcePath = relativePath
+        treeHighlight = relativePath
         // Opening a file adds a tab (an already-open file just reactivates its tab).
         if (relativePath !in openTabs) openTabs = openTabs + relativePath
         val file = File(root, relativePath)

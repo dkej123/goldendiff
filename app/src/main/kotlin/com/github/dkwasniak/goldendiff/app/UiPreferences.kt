@@ -38,6 +38,7 @@ class UiPreferences private constructor(
     appearance: Appearance,
     thumbnailScale: Int,
     leftPaneCollapsed: Boolean,
+    settingsPreviewWidth: Int,
 ) {
     var appearance by mutableStateOf(appearance)
         private set
@@ -45,6 +46,8 @@ class UiPreferences private constructor(
     var thumbnailScale by mutableStateOf(thumbnailScale)
         private set
     var leftPaneCollapsed by mutableStateOf(leftPaneCollapsed)
+        private set
+    var settingsPreviewWidth by mutableStateOf(settingsPreviewWidth)
         private set
 
     fun selectAppearance(value: Appearance) = update { appearance = value }
@@ -54,6 +57,10 @@ class UiPreferences private constructor(
     }
 
     fun toggleLeftPane() = update { leftPaneCollapsed = !leftPaneCollapsed }
+
+    fun rememberSettingsPreviewWidth(width: Int) = update {
+        settingsPreviewWidth = width.coerceIn(SETTINGS_PREVIEW_MIN_WIDTH, SETTINGS_PREVIEW_MAX_WIDTH)
+    }
 
     /** Resolves [Appearance.SYSTEM] against the OS; anything else is taken literally. */
     val useDarkTheme: Boolean
@@ -73,6 +80,7 @@ class UiPreferences private constructor(
             setProperty("appearance", appearance.name)
             setProperty("thumbnailScale", thumbnailScale.toString())
             setProperty("leftPaneCollapsed", leftPaneCollapsed.toString())
+            setProperty("settingsPreviewWidth", settingsPreviewWidth.toString())
         }
         runCatching {
             file.parentFile.mkdirs()
@@ -92,8 +100,15 @@ class UiPreferences private constructor(
                 thumbnailScale = (props.getProperty("thumbnailScale")?.toIntOrNull() ?: ThumbnailScale.DEFAULT)
                     .coerceIn(ThumbnailScale.MIN, ThumbnailScale.MAX),
                 leftPaneCollapsed = props.getProperty("leftPaneCollapsed").toBoolean(),
+                settingsPreviewWidth =
+                    (props.getProperty("settingsPreviewWidth")?.toIntOrNull() ?: SETTINGS_PREVIEW_DEFAULT_WIDTH)
+                        .coerceIn(SETTINGS_PREVIEW_MIN_WIDTH, SETTINGS_PREVIEW_MAX_WIDTH),
             )
         }
+
+        private const val SETTINGS_PREVIEW_MIN_WIDTH = 220
+        private const val SETTINGS_PREVIEW_MAX_WIDTH = 2_000
+        private const val SETTINGS_PREVIEW_DEFAULT_WIDTH = 320
 
         /**
          * Read once at startup rather than observed.

@@ -7,12 +7,22 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * Observes telemetry activity for local diagnostics — e.g. a developer-build log panel. Called before
+ * consent filtering, so it sees every event, span and exception the client considered even when a
+ * developer build sends nothing. Null in release builds, so it adds no overhead there.
+ */
+fun interface TelemetryDiagnostics {
+    fun log(category: String, detail: String)
+}
+
 class TelemetryClient(
     private val environment: TelemetryEnvironment,
     private val store: TelemetryStore,
     private val backendFactory: TelemetryBackendFactory,
     initialConsent: TelemetryConsent = TelemetryConsent(),
     private val clock: Clock = Clock.systemUTC(),
+    private val diagnostics: TelemetryDiagnostics? = null,
 ) : AutoCloseable {
     private val sessionId = UUID.randomUUID().toString()
     private val startedAt = clock.millis()
@@ -92,6 +102,7 @@ class TelemetryClient(
 
     fun event(name: String, properties: Map<String, String>): Boolean {
         EventCatalog.validate(name, properties)
+        diagnostics?.log("analytics", diagnosticDetail(name, properties, sent = consent.analytics))
         if (!consent.analytics) return false
         val activeBackend = backend
         if (activeBackend == null || !activeBackend.acceptsProductEvents) return false
@@ -135,6 +146,10 @@ class TelemetryClient(
         fingerprint: String,
         projectRoot: File? = null,
     ) {
+        diagnostics?.log(
+            "exception",
+            "$fingerprint — ${throwable.javaClass.simpleName}: ${throwable.message ?: "(no message)"}",
+        )
         if (!consent.diagnostics || errorCount.get() >= 20) return
         val now = clock.millis()
         val previous = errorFingerprints.put(fingerprint, now)
@@ -149,6 +164,7 @@ class TelemetryClient(
         properties.forEach { (_, value) ->
             require(!PrivacySanitizer.containsSensitiveValue(value)) { "Unsafe span value" }
         }
+        diagnostics?.log("span", diagnosticDetail(name, properties, sent = consent.analytics))
         if (!consent.analytics || !rateLimiter.tryAcquire()) return NoOpSpan
         return backend?.startSpan(
             name,
@@ -172,6 +188,12 @@ class TelemetryClient(
             backend?.close()
             backend = null
         }
+    }
+
+    private fun diagnosticDetail(name: String, properties: Map<String, String>, sent: Boolean): String {
+        val suffix = if (sent) "" else " [suppressed: consent off]"
+        val props = if (properties.isEmpty()) "" else " " + properties.entries.joinToString(", ") { "${it.key}=${it.value}" }
+        return "$name$props$suffix"
     }
 
     private fun applyConsent(value: TelemetryConsent) {

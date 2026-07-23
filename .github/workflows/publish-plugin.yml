@@ -77,7 +77,7 @@ jobs:
           if [[ -n "$MARKETPLACE_CHANNEL" ]]; then
             CHANNEL_ARGUMENT+=("-PmarketplaceChannel=$MARKETPLACE_CHANNEL")
           fi
-          ./gradlew :public-plugin:publishPlugin --stacktrace "${CHANNEL_ARGUMENT[@]}"
+          ./gradlew :public-plugin:publishPlugin --stacktrace -PreleaseBuild=true "${CHANNEL_ARGUMENT[@]}"
 
       - name: Create Sentry release
         if: env.SENTRY_AUTH_TOKEN != '' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/beta-v'))

@@ -3,8 +3,10 @@ package com.github.dkwasniak.goldendiff.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +30,7 @@ import androidx.compose.material.darkColors
 import androidx.compose.material.lightColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,9 +40,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +54,7 @@ import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import com.github.dkwasniak.goldendiff.app.ui.Appearance
+import com.github.dkwasniak.goldendiff.app.ui.BuildBadges
 import com.github.dkwasniak.goldendiff.app.ui.DarkTokens
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
 import com.github.dkwasniak.goldendiff.app.ui.GhostButton
@@ -59,6 +67,11 @@ import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
+import java.awt.Cursor
+
+private val SettingsNavigationWidth = 210.dp
+private val SettingsPreviewMinimumWidth = 220.dp
+private val SettingsContentMinimumWidth = 320.dp
 
 /** The sections of the settings window, in nav order. */
 private enum class SettingsSection(val label: String) {
@@ -82,8 +95,12 @@ private enum class SettingsSection(val label: String) {
 @Composable
 fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
     val palette = if (state.ui.useDarkTheme) DarkTokens else LightTokens
+    var windowVisible by remember { mutableStateOf(true) }
+    DeferredWindowCloseEffect(windowVisible, onClose)
+    val requestClose = { windowVisible = false }
     Window(
-        onCloseRequest = onClose,
+        onCloseRequest = requestClose,
+        visible = windowVisible,
         title = "Golden Diff Settings",
         state = rememberWindowState(size = DpSize(1040.dp, 640.dp)),
     ) {
@@ -97,29 +114,53 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
             ) {
                 var section by remember { mutableStateOf(SettingsSection.DIRECTORIES) }
                 Column(Modifier.fillMaxSize().background(tokens.background)) {
-                    Row(Modifier.weight(1f).fillMaxWidth()) {
-                        Column(Modifier.width(210.dp).fillMaxHeight().padding(vertical = 10.dp)) {
-                            SettingsSection.entries.forEach { candidate ->
-                                NavItem(candidate.label, section == candidate) { section = candidate }
-                            }
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                        val maximumPreviewWidth =
+                            (maxWidth - SettingsNavigationWidth - SettingsContentMinimumWidth - 5.dp)
+                                .coerceAtLeast(SettingsPreviewMinimumWidth)
+                        val previewWidth = remember {
+                            mutableStateOf(
+                                state.ui.settingsPreviewWidth.dp.coerceIn(
+                                    SettingsPreviewMinimumWidth,
+                                    maximumPreviewWidth,
+                                ),
+                            )
                         }
-                        Box(Modifier.width(1.dp).fillMaxHeight().background(tokens.border))
-                        Column(
-                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
-                                .padding(horizontal = 28.dp, vertical = 22.dp),
-                        ) {
-                            when (section) {
-                                SettingsSection.DIRECTORIES -> DirectoriesSection(state)
-                                SettingsSection.OUTPUT_MATCHING -> OutputMatchingSection(state)
-                                SettingsSection.MATCHING -> MatchingSection(state)
-                                SettingsSection.FILTERING -> FilteringSection(state)
-                                SettingsSection.DISPLAY -> DisplaySection(state)
-                                SettingsSection.PRIVACY -> PrivacySection()
+                        val visiblePreviewWidth =
+                            previewWidth.value.coerceIn(SettingsPreviewMinimumWidth, maximumPreviewWidth)
+
+                        Row(Modifier.fillMaxSize()) {
+                            Column(
+                                Modifier.width(SettingsNavigationWidth).fillMaxHeight().padding(vertical = 10.dp),
+                            ) {
+                                SettingsSection.entries.forEach { candidate ->
+                                    NavItem(candidate.label, section == candidate) { section = candidate }
+                                }
                             }
-                        }
-                        if (section.showsPreview) {
                             Box(Modifier.width(1.dp).fillMaxHeight().background(tokens.border))
-                            PreviewPanel(state, Modifier.width(260.dp).fillMaxHeight())
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 28.dp, vertical = 22.dp),
+                            ) {
+                                when (section) {
+                                    SettingsSection.DIRECTORIES -> DirectoriesSection(state)
+                                    SettingsSection.OUTPUT_MATCHING -> OutputMatchingSection(state)
+                                    SettingsSection.MATCHING -> MatchingSection(state)
+                                    SettingsSection.FILTERING -> FilteringSection(state)
+                                    SettingsSection.DISPLAY -> DisplaySection(state)
+                                    SettingsSection.PRIVACY -> PrivacySection()
+                                }
+                            }
+                            if (section.showsPreview) {
+                                SettingsPreviewSplitter(
+                                    previewWidth = previewWidth,
+                                    maximumWidth = maximumPreviewWidth,
+                                    onDragFinished = { width ->
+                                        state.ui.rememberSettingsPreviewWidth(width.value.toInt())
+                                    },
+                                )
+                                PreviewPanel(state, Modifier.width(visiblePreviewWidth).fillMaxHeight())
+                            }
                         }
                     }
                     HairLine()
@@ -134,13 +175,48 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                             color = tokens.textFaint,
                             fontSize = Type.small,
                         )
+                        BuildBadges(AppTelemetry.metadata)
                         Spacer(Modifier.weight(1f))
-                        GhostButton("Cancel", onClose)
-                        PrimaryButton("Done", onClick = onClose)
+                        GhostButton("Cancel", requestClose)
+                        PrimaryButton("Done", onClick = requestClose)
                     }
                 }
             }
         }
+    }
+}
+
+/** Dragging left grows the preview; dragging right gives the form more room. */
+@Composable
+private fun SettingsPreviewSplitter(
+    previewWidth: MutableState<Dp>,
+    maximumWidth: Dp,
+    onDragFinished: (Dp) -> Unit,
+) {
+    var active by remember { mutableStateOf(false) }
+    Box(
+        Modifier.width(5.dp).fillMaxHeight()
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+            .pointerInput(maximumWidth) {
+                detectHorizontalDragGestures(
+                    onDragStart = { active = true },
+                    onDragEnd = {
+                        active = false
+                        onDragFinished(previewWidth.value)
+                    },
+                    onDragCancel = { active = false },
+                ) { _, drag ->
+                    previewWidth.value =
+                        (previewWidth.value - drag.toDp())
+                            .coerceIn(SettingsPreviewMinimumWidth, maximumWidth)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.width(if (active) 2.dp else 1.dp).fillMaxHeight()
+                .background(if (active) tokens.accent.copy(alpha = 0.55f) else tokens.border),
+        )
     }
 }
 

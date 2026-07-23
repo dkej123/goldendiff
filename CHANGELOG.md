@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.5] - 2026-07-23
+
+### Added
+- One-click updates for the standalone app: when a newer build is available it upgrades in place via
+  Homebrew (streaming progress) or downloads and opens the installer, then offers a Restart button to
+  relaunch into the new version.
+- `DEV BUILD` and `BETA` badges in the app status bar and Settings footer, and in the plugin's
+  settings footer, so it is always clear which build is running.
+- A developer-only diagnostics panel in the standalone app that shows update checks, analytics
+  activity and errors live, with nothing leaving the machine.
+
+### Changed
+- Developer builds run fully offline — no analytics, no crash reporting and no consent prompt — while
+  update checks still work, so local builds can be tested end to end without sending anything.
+- In the app's project tree, a single click now only highlights a file and a double-click opens it,
+  so browsing the tree no longer keeps opening tabs.
+
 ## [1.5.0-beta.4] - 2026-07-23
 
 ### Fixed

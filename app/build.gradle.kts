@@ -23,6 +23,8 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":core-ui"))
     implementation(project(":telemetry"))
+    // Parses the GitHub releases feed for the standalone-app update check.
+    implementation("org.json:json:20231013")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
@@ -39,12 +41,18 @@ dependencies {
 val generatedTelemetryResources = layout.buildDirectory.dir("generated/telemetry-resources")
 val telemetryVersion = version.toString()
 val generateTelemetryResources = tasks.register<WriteProperties>("generateTelemetryResources") {
-    val dsn = providers.gradleProperty("sentryAppDsn").orElse("")
-    val amplitudeApiKey = providers.gradleProperty("amplitudeApiKey").orElse("")
+    // Local builds are developer builds; only the release workflows pass -PreleaseBuild=true. A
+    // developer build is forced fully offline here: empty Amplitude/Sentry keys no matter what
+    // gradle.properties or the CLI supply, so telemetry can never reach a backend even if a host
+    // guard were bypassed.
+    val developerBuild = !providers.gradleProperty("releaseBuild").map { it.toBoolean() }.getOrElse(false)
+    val dsn = if (developerBuild) "" else providers.gradleProperty("sentryAppDsn").getOrElse("")
+    val amplitudeApiKey = if (developerBuild) "" else providers.gradleProperty("amplitudeApiKey").getOrElse("")
     destinationFile = generatedTelemetryResources.map { it.file("golden-diff-telemetry.properties") }.get().asFile
     property("sentry.dsn", dsn)
     property("amplitude.api_key", amplitudeApiKey)
     property("version", telemetryVersion)
+    property("build.developer", developerBuild.toString())
 }
 
 sourceSets.main {

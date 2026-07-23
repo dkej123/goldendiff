@@ -50,12 +50,17 @@ dependencies {
 val generatedTelemetryResources = layout.buildDirectory.dir("generated/telemetry-resources")
 val telemetryVersion = version.toString()
 val generateTelemetryResources = tasks.register<WriteProperties>("generateTelemetryResources") {
-    val dsn = providers.gradleProperty("sentryPluginDsn").orElse("")
-    val amplitudeApiKey = providers.gradleProperty("amplitudeApiKey").orElse("")
+    // Local (and ordinary CI) builds are developer builds; only the publish workflow passes
+    // -PreleaseBuild=true. A developer build is forced fully offline here: empty Amplitude/Sentry
+    // keys regardless of gradle.properties or the CLI, so no event can reach a backend.
+    val developerBuild = !providers.gradleProperty("releaseBuild").map { it.toBoolean() }.getOrElse(false)
+    val dsn = if (developerBuild) "" else providers.gradleProperty("sentryPluginDsn").getOrElse("")
+    val amplitudeApiKey = if (developerBuild) "" else providers.gradleProperty("amplitudeApiKey").getOrElse("")
     destinationFile = generatedTelemetryResources.map { it.file("golden-diff-telemetry.properties") }.get().asFile
     property("sentry.dsn", dsn)
     property("amplitude.api_key", amplitudeApiKey)
     property("version", telemetryVersion)
+    property("build.developer", developerBuild.toString())
 }
 
 sourceSets.main {
@@ -114,7 +119,16 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.named<Zip>("buildPlugin") {
     archiveBaseName.set("golden-diff")
-    if (distributionSuffix.isPresent) {
-        archiveVersion.set("${project.version}-${distributionSuffix.get()}")
+    // A developer build (the default) gets a `-dev` suffix so it never masquerades as a release
+    // artifact; an explicit distributionSuffix still wins, and -PreleaseBuild=true keeps the plain
+    // `golden-diff-<ver>.zip` name the Marketplace publication expects.
+    val releaseBuild = providers.gradleProperty("releaseBuild").map { it.toBoolean() }.getOrElse(false)
+    val suffix = when {
+        distributionSuffix.isPresent -> distributionSuffix.get()
+        !releaseBuild -> "dev"
+        else -> null
+    }
+    if (suffix != null) {
+        archiveVersion.set("${project.version}-$suffix")
     }
 }

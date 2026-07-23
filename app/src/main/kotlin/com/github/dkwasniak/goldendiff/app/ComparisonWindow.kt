@@ -14,6 +14,10 @@ import androidx.compose.material.darkColors
 import androidx.compose.material.lightColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -44,8 +48,11 @@ import com.github.dkwasniak.goldendiff.naming.shortGoldenName
 fun ApplicationScope.ComparisonWindow(state: AppState, onClose: () -> Unit) {
     val palette = if (state.ui.useDarkTheme) DarkTokens else LightTokens
     val selected = state.selected
+    var windowVisible by remember { mutableStateOf(true) }
+    DeferredWindowCloseEffect(windowVisible, onClose)
     Window(
-        onCloseRequest = onClose,
+        onCloseRequest = { windowVisible = false },
+        visible = windowVisible,
         title = selected?.let { shortGoldenName(it.name) } ?: "Golden Diff — Compare",
         state = rememberWindowState(size = DpSize(1000.dp, 760.dp)),
     ) {

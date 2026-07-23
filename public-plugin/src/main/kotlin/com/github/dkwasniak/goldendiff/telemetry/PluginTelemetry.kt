@@ -93,11 +93,22 @@ class PluginTelemetryService {
     }
     val appVersion: String
         get() = version
-    private val releaseChannel = ReleaseChannel.fromVersion(version)
+    val metadata = BuildMetadata.from(version, buildProperties)
+    val releaseChannel: ReleaseChannel
+        get() = metadata.releaseChannel
+
+    /**
+     * The consent the client actually runs with. A developer build is always offline: whatever the
+     * saved checkboxes say, the effective consent is empty, so no backend, installation id, event,
+     * span or exception report is produced. Release builds honour the saved preferences.
+     */
+    private val effectiveConsent: TelemetryConsent
+        get() = if (metadata.isDeveloperBuild) TelemetryConsent() else PluginTelemetrySettings.getInstance().consent
+
     val client = TelemetryClient(
         environment = TelemetryEnvironment(
             surface = TelemetrySurface.PLUGIN,
-            releaseChannel = releaseChannel,
+            releaseChannel = metadata.releaseChannel,
             appVersion = version,
             ideProduct = ideProduct(),
             ideBuildMajor = ApplicationInfo.getInstance().build.baselineVersion.toString(),
@@ -108,11 +119,11 @@ class PluginTelemetryService {
                 amplitudeApiKey = buildProperties.getProperty("amplitude.api_key").orEmpty(),
                 sentryDsn = buildProperties.getProperty("sentry.dsn").orEmpty(),
                 release = "golden-diff-plugin@$version",
-                environment = releaseChannel.wireValue,
+                environment = metadata.releaseChannel.wireValue,
                 consent = consent,
             )
         },
-        initialConsent = PluginTelemetrySettings.getInstance().consent,
+        initialConsent = effectiveConsent,
     )
 
     fun panelOpened(project: Project) {
@@ -127,11 +138,13 @@ class PluginTelemetryService {
     }
 
     fun updateConsent() {
-        client.updateConsent(PluginTelemetrySettings.getInstance().consent)
+        client.updateConsent(effectiveConsent)
         sendSessionEventIfEnabled()
     }
 
     private fun showConsentPromptIfNeeded(project: Project) {
+        // A developer build never prompts; the checkboxes stay editable but only apply in a release.
+        if (metadata.isDeveloperBuild) return
         val settings = PluginTelemetrySettings.getInstance()
         if (settings.consentPromptShown || !consentPromptScheduled.compareAndSet(false, true)) return
         ApplicationManager.getApplication().invokeLater {
@@ -147,7 +160,7 @@ class PluginTelemetryService {
     private fun sendSessionEventIfEnabled() {
         if (
             sessionLifecycleStarted.get() &&
-            PluginTelemetrySettings.getInstance().analyticsEnabled &&
+            effectiveConsent.analytics &&
             sessionEventSent.compareAndSet(false, true)
         ) {
             client.installationFirstSeen()

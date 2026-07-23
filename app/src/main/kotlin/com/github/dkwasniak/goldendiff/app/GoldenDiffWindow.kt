@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.darkColors
@@ -43,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.github.dkwasniak.goldendiff.app.ui.BuildBadges
 import com.github.dkwasniak.goldendiff.app.ui.CloseIcon
 import com.github.dkwasniak.goldendiff.app.ui.DarkTokens
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
@@ -83,12 +85,18 @@ fun GoldenDiffWindow(state: AppState) {
         }
         MaterialTheme(colors = materialColors) {
             Column(Modifier.fillMaxSize().background(palette.background)) {
+                if (state.updateBannerVisible) {
+                    UpdateBanner(state)
+                    HairLine()
+                }
                 Toolbar(state)
                 HairLine()
                 LegendRow(state)
                 HairLine()
                 if (state.openTabs.isNotEmpty()) TabStrip(state)
                 Body(state, Modifier.weight(1f))
+                HairLine()
+                StatusBar(state)
             }
             if (state.quickOpenVisible) QuickOpenDialog(state)
         }
@@ -199,6 +207,133 @@ private fun LegendRow(state: AppState) {
         Spacer(Modifier.weight(1f))
         state.blockerText()?.let { Text(it, color = tokens.changed, fontSize = Type.small) }
     }
+}
+
+/**
+ * Persistent footer: the running version and build badges on the left; on the right an update
+ * trigger (or, once an update is in progress, the live status) when one is available.
+ */
+@Composable
+private fun StatusBar(state: AppState) {
+    Row(
+        Modifier.fillMaxWidth().height(24.dp).background(tokens.panelHeader).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Golden Diff ${AppTelemetry.appVersion}", color = tokens.textFaint, fontSize = Type.small)
+        Spacer(Modifier.weight(1f))
+        when {
+            state.updateBusy -> UpdateProgress(state.updateStatus ?: "Updating…")
+            state.updateCompleted -> Text(
+                "Restart to finish update",
+                color = tokens.accent,
+                fontSize = Type.small,
+                modifier = Modifier
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickable { state.restartApp() },
+            )
+            state.update != null && state.updateStatus != null ->
+                Text(state.updateStatus.orEmpty(), color = tokens.textDim, fontSize = Type.small, maxLines = 1)
+            state.update != null -> Text(
+                "Update available: ${state.update?.version}",
+                color = tokens.accent,
+                fontSize = Type.small,
+                modifier = Modifier
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickable { state.installUpdate() },
+            )
+        }
+        if (AppTelemetry.metadata.isDeveloperBuild) {
+            Text(
+                "Diagnostics",
+                color = tokens.textDim,
+                fontSize = Type.small,
+                modifier = Modifier
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickable { state.diagnosticsVisible = true },
+            )
+        }
+        BuildBadges(AppTelemetry.metadata)
+    }
+}
+
+/** A small spinner beside the latest update status line. */
+@Composable
+private fun UpdateProgress(status: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(11.dp),
+            color = tokens.accent,
+            strokeWidth = 1.5.dp,
+        )
+        Text(status, color = tokens.textDim, fontSize = Type.small, maxLines = 1)
+    }
+}
+
+/** One-time launch strip announcing a newer build; dismissable per version. */
+@Composable
+private fun UpdateBanner(state: AppState) {
+    val update = state.update ?: return
+    val actionLabel = if (state.updateViaHomebrew) "Update with Homebrew" else "Download update"
+    Row(
+        Modifier.fillMaxWidth().height(36.dp)
+            .background(tokens.accent.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            "Golden Diff ${update.version} is available.",
+            color = tokens.text,
+            fontSize = Type.body,
+        )
+        // Once an in-place update has finished, the primary button becomes a one-click restart into
+        // the new build; until then it triggers the install.
+        if (state.updateCompleted) {
+            UpdateActionButton("Restart now", enabled = true) { state.restartApp() }
+        } else {
+            UpdateActionButton(actionLabel, enabled = !state.updateBusy) { state.installUpdate() }
+        }
+        Text(
+            "Details",
+            color = tokens.accent,
+            fontSize = Type.body,
+            modifier = Modifier
+                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                .clickable { state.openUpdatePage() },
+        )
+        if (state.updateBusy) {
+            UpdateProgress(state.updateStatus ?: "Updating…")
+        } else {
+            state.updateStatus?.let { Text(it, color = tokens.textDim, fontSize = Type.body, maxLines = 1) }
+        }
+        Spacer(Modifier.weight(1f))
+        Box(
+            Modifier.size(20.dp).clip(RoundedCornerShape(4.dp)).hoverWash()
+                .clickable { state.dismissUpdateBanner() },
+            contentAlignment = Alignment.Center,
+        ) {
+            CloseIcon(tokens.textFaint)
+        }
+    }
+}
+
+/** Compact bordered action used inside the update banner. */
+@Composable
+private fun UpdateActionButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    Text(
+        label,
+        color = tokens.onAccent,
+        fontSize = Type.body,
+        modifier = Modifier.clip(shape)
+            .background(tokens.accent.copy(alpha = if (enabled) 1f else 0.4f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+    )
 }
 
 private fun AppState.blockerText(): String? = when (blocker) {

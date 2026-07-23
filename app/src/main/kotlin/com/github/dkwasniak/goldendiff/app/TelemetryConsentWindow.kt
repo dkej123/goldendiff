@@ -41,14 +41,24 @@ import com.github.dkwasniak.goldendiff.app.ui.LightTokens
 fun TelemetryConsentWindow() {
     var analytics by remember { mutableStateOf(true) }
     var diagnostics by remember { mutableStateOf(true) }
+    var windowVisible by remember { mutableStateOf(true) }
+    var pendingDecision by remember { mutableStateOf(false to false) }
     val palette = if (AppTelemetry.settings.analyticsEnabled || AppTelemetry.settings.diagnosticsEnabled) {
         DarkTokens
     } else {
         if (UiPreferences.load().useDarkTheme) DarkTokens else LightTokens
     }
+    DeferredWindowCloseEffect(windowVisible) {
+        AppTelemetry.decideConsent(pendingDecision.first, pendingDecision.second)
+    }
+    val decide = { analyticsEnabled: Boolean, diagnosticsEnabled: Boolean ->
+        pendingDecision = analyticsEnabled to diagnosticsEnabled
+        windowVisible = false
+    }
 
     Window(
-        onCloseRequest = { AppTelemetry.decideConsent(false, false) },
+        onCloseRequest = { decide(false, false) },
+        visible = windowVisible,
         title = "Help make Golden Diff better",
         state = rememberWindowState(size = DpSize(760.dp, 610.dp)),
         resizable = false,
@@ -104,11 +114,11 @@ fun TelemetryConsentWindow() {
                         color = palette.textDim,
                         fontSize = 16.sp,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable {
-                            AppTelemetry.decideConsent(false, false)
+                            decide(false, false)
                         }.padding(horizontal = 24.dp, vertical = 13.dp),
                     )
                     Button(
-                        onClick = { AppTelemetry.decideConsent(analytics, diagnostics) },
+                        onClick = { decide(analytics, diagnostics) },
                         colors = ButtonDefaults.buttonColors(
                             backgroundColor = palette.accent,
                             contentColor = Color.White,

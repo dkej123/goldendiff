@@ -69,6 +69,10 @@
             id="com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable"
             displayName="Golden Diff"/>
 
+        <!-- Proactive, channel-aware "a newer Golden Diff is available" balloon (bottom-right). -->
+        <notificationGroup id="Golden Diff Updates" displayType="BALLOON"/>
+        <postStartupActivity implementation="com.github.dkwasniak.goldendiff.update.PluginUpdateStartupActivity"/>
+
         <!-- Recommend Golden Diff when the project uses a supported screenshot-test library. -->
         <dependencySupport kind="java" coordinate="io.github.takahirom.roborazzi:roborazzi" displayName="Roborazzi"/>
         <dependencySupport kind="java" coordinate="app.cash.paparazzi:paparazzi" displayName="Paparazzi"/>

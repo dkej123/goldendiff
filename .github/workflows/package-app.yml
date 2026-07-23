@@ -42,7 +42,15 @@ jobs:
       - name: Build app package
         env:
           ORG_GRADLE_PROJECT_sentryAppDsn: ${{ secrets.SENTRY_APP_DSN }}
-        run: ./gradlew :app:${{ matrix.task }}
+        shell: bash
+        # A tagged release is a real release build (badge-free, telemetry keys injected); a manual,
+        # untagged run stays a DEV build (offline, DEV BUILD badge).
+        run: |
+          RELEASE_ARG=""
+          if [[ "$GITHUB_REF" == refs/tags/app-v* || "$GITHUB_REF" == refs/tags/app-beta-v* ]]; then
+            RELEASE_ARG="-PreleaseBuild=true"
+          fi
+          ./gradlew :app:${{ matrix.task }} $RELEASE_ARG
 
       - name: Prepare macOS release asset
         if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))

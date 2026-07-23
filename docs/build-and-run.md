@@ -31,6 +31,34 @@ be patient. Subsequent builds are seconds (platform is cached).
 
 Use `:public-plugin:buildPlugin` for Marketplace releases.
 
+## Developer (DEV) vs release builds
+
+Every local build — and ordinary CI — is a **developer build**. The plugin and the app write
+`build.developer=true` into their generated `golden-diff-telemetry.properties`, which:
+
+- forces telemetry **fully offline**: the generated properties carry **empty Amplitude and Sentry
+  keys regardless of `gradle.properties` or `-P` arguments**, and the host code adds a second layer
+  (empty effective consent, no consent prompt, no Sentry exception bridge), so no installation id,
+  event, span or exception report is ever produced;
+- skips the update check (the effective release channel is `DEV`, and both update checkers return
+  before any network access);
+- shows a **`DEV BUILD`** badge in the footer (and additionally **`BETA`** when the version is a
+  prerelease). The telemetry checkboxes stay visible and editable and persist your choice, but only
+  take effect in a release build. A stable release shows no badge.
+- names the public-plugin ZIP `golden-diff-<ver>-dev.zip` (an explicit `-PdistributionSuffix=…`
+  still wins).
+
+A **release build** is opted into with `-PreleaseBuild=true`, which writes `build.developer=false`,
+injects the real telemetry keys, drops the `-dev` suffix, and re-enables the update check and (with
+consent) telemetry. The publish workflows pass it automatically; to reproduce one locally:
+
+```bash
+./gradlew :public-plugin:buildPlugin -PreleaseBuild=true      # golden-diff-<ver>.zip
+./gradlew :app:packageDmg -PreleaseBuild=true -PappJavaHome=<full JDK 21+>
+```
+
+`:internal-plugin:runIde` loads the developer (offline, DEV-badged) public plugin as-is.
+
 ## Releasing the public plugin
 
 The stable and beta channels use the same plugin ID:

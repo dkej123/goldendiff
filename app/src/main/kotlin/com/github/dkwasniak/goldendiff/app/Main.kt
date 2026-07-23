@@ -1,8 +1,11 @@
 package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -42,16 +45,20 @@ fun main() {
         }
         val scope = rememberCoroutineScope { coroutineExceptionHandler }
         val state = remember { AppState(scope, preferences, AppTelemetry.client) }
+        var mainWindowVisible by remember { mutableStateOf(true) }
 
         LaunchedEffect(Unit) {
             AppConfig.lastProject()?.let { state.openProject(it, restored = true) }
+            state.checkForUpdates()
+        }
+        DeferredWindowCloseEffect(mainWindowVisible) {
+            state.close()
+            exitApplication()
         }
 
         Window(
-            onCloseRequest = {
-                state.close()
-                exitApplication()
-            },
+            onCloseRequest = { mainWindowVisible = false },
+            visible = mainWindowVisible,
             title = "Golden Diff",
             icon = painterResource(Res.drawable.app_icon),
             state = rememberWindowState(size = DpSize(1400.dp, 900.dp)),
@@ -83,6 +90,7 @@ fun main() {
 
         // The compare pane detached into its own window; follows the live selection.
         if (state.compareWindowVisible) ComparisonWindow(state) { state.compareWindowVisible = false }
+        if (state.diagnosticsVisible) DiagnosticsWindow(state) { state.diagnosticsVisible = false }
         if (AppTelemetry.consentPromptVisible) TelemetryConsentWindow()
     }
 }

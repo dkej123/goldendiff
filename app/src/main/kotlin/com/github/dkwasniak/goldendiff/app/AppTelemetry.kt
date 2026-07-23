@@ -3,10 +3,11 @@ package com.github.dkwasniak.goldendiff.app
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.github.dkwasniak.goldendiff.telemetry.ReleaseChannel
+import com.github.dkwasniak.goldendiff.telemetry.BuildMetadata
 import com.github.dkwasniak.goldendiff.telemetry.GoldenDiffTelemetryBackend
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryClient
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryConsent
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryDiagnostics
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryEnvironment
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryStore
 import com.github.dkwasniak.goldendiff.telemetry.TelemetrySurface
@@ -99,7 +100,23 @@ object AppTelemetry {
             ?.use(::load)
     }
     val appVersion: String = buildProperties.getProperty("version").orEmpty().ifBlank { "dev" }
-    private val releaseChannel = ReleaseChannel.fromVersion(appVersion)
+    val metadata = BuildMetadata.from(appVersion, buildProperties)
+    val releaseChannel = metadata.releaseChannel
+
+    init {
+        // Developer builds keep a local diagnostics log (analytics, update checks, exceptions); it is
+        // off in release builds so recording costs nothing there.
+        DevLog.enabled = metadata.isDeveloperBuild
+    }
+
+    /**
+     * The consent the client actually runs with. A developer build is always offline: whatever the
+     * saved checkboxes say, the effective consent is empty, so no backend, installation id, event,
+     * span or exception report is produced. Release builds honour the saved preferences.
+     */
+    private val effectiveConsent: TelemetryConsent
+        get() = if (metadata.isDeveloperBuild) TelemetryConsent() else settings.consent
+
     val client = TelemetryClient(
         environment = TelemetryEnvironment(
             surface = TelemetrySurface.DESKTOP,
@@ -116,15 +133,23 @@ object AppTelemetry {
                 consent = consent,
             )
         },
-        initialConsent = settings.consent,
+        initialConsent = effectiveConsent,
+        // In a developer build, mirror everything the client considers into the local diagnostics log.
+        diagnostics = if (metadata.isDeveloperBuild) {
+            TelemetryDiagnostics { category, detail -> DevLog.record(category, detail) }
+        } else {
+            null
+        },
     )
     private val sessionStarted = AtomicBoolean()
     private val sessionEventSent = AtomicBoolean()
-    var consentPromptVisible by mutableStateOf(!settings.consentPromptShown)
+    // A developer build never prompts for consent; the checkboxes stay editable in Settings but only
+    // take effect in a release build.
+    var consentPromptVisible by mutableStateOf(!metadata.isDeveloperBuild && !settings.consentPromptShown)
         private set
 
     fun updateConsent() {
-        client.updateConsent(settings.consent)
+        client.updateConsent(effectiveConsent)
         sendSessionEventIfEnabled()
     }
 
@@ -141,6 +166,22 @@ object AppTelemetry {
     }
 
     fun installUncaughtExceptionBridge() {
+        if (metadata.isDeveloperBuild) {
+            // No Sentry in a developer build — but still surface crashes in the local diagnostics log.
+            val previous = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler(
+                ChainedUncaughtExceptionHandler(
+                    reporter = { throwable ->
+                        DevLog.record(
+                            "exception",
+                            "uncaught ${throwable.javaClass.simpleName}: ${throwable.message ?: "(no message)"}",
+                        )
+                    },
+                    previous = previous,
+                ),
+            )
+            return
+        }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler(
             ChainedUncaughtExceptionHandler(
@@ -157,7 +198,7 @@ object AppTelemetry {
     private fun sendSessionEventIfEnabled() {
         if (
             sessionStarted.get() &&
-            settings.analyticsEnabled &&
+            effectiveConsent.analytics &&
             sessionEventSent.compareAndSet(false, true)
         ) {
             client.installationFirstSeen()

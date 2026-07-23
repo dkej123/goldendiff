@@ -14,16 +14,7 @@ enum class TelemetrySurface(val wireValue: String) {
 enum class ReleaseChannel(val wireValue: String) {
     STABLE("stable"),
     BETA("beta"),
-    DEV("dev");
-
-    companion object {
-        fun fromVersion(version: String): ReleaseChannel = when {
-            version.contains("beta", ignoreCase = true) -> BETA
-            version.contains("dev", ignoreCase = true) ||
-                version.contains("snapshot", ignoreCase = true) -> DEV
-            else -> STABLE
-        }
-    }
+    DEV("dev"),
 }
 
 data class TelemetryConsent(
