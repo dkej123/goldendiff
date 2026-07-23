@@ -6,6 +6,10 @@ import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSources
 import com.github.dkwasniak.goldendiff.variant.ExtraSettingsComponent
+import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetryService
+import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetrySettings
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryBuckets
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooser
@@ -61,6 +65,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
     private val excludedSuffixesField = singleLineField()
     private val trimTransparentPaddingCheckbox =
         JCheckBox("Trim transparent padding around image content")
+    private val analyticsCheckbox = JCheckBox("Share anonymous product analytics")
+    private val diagnosticsCheckbox = JCheckBox("Share diagnostic error reports")
     private val previewCountLabel = JBLabel()
     private val previewModel = DefaultListModel<String>()
     private val previewList = JBList(previewModel)
@@ -102,6 +108,9 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         panel.add(sectionHeader("Display"))
         panel.add(displaySection())
         panel.add(spacer())
+        panel.add(sectionHeader("Privacy"))
+        panel.add(privacySection())
+        panel.add(spacer())
         extraSettingsSources.forEach { (title, settings) ->
             panel.add(sectionHeader(title))
             panel.add(settings.component)
@@ -140,6 +149,30 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             )
         }
     }
+
+    private fun privacySection(): JPanel =
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(
+                labelBlock(
+                    "Optional telemetry:",
+                    "Both choices are off by default and independent. Golden Diff never sends project " +
+                        "names, file names, paths, source code or images.",
+                ),
+            )
+            add(analyticsCheckbox)
+            add(diagnosticsCheckbox)
+            add(
+                JBLabel("<html><a href=''>Read the privacy policy</a></html>").apply {
+                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    addMouseListener(object : java.awt.event.MouseAdapter() {
+                        override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                            BrowserUtil.browse("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md")
+                        }
+                    })
+                },
+            )
+        }
 
     /** Refresh the preview (debounced) whenever a matching-relevant field changes. */
     private fun wirePreviewTriggers() {
@@ -430,6 +463,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             parsePatterns(goldenPatternsArea.text) != settings.goldenFilePatterns ||
             parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes ||
             trimTransparentPaddingCheckbox.isSelected != settings.trimTransparentPadding ||
+            analyticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().analyticsEnabled ||
+            diagnosticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().diagnosticsEnabled ||
             extraSettings.any { it.isModified() }
     }
 
@@ -461,6 +496,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
             }
         }
         val settings = ScreenshotSettings.getInstance(project)
+        val old = settings.toConfig()
         settings.paths = currentStoragePaths(goldenModel)
         settings.generatedPaths = currentStoragePaths(generatedModel)
         settings.generatedFileRegex = regex
@@ -469,6 +505,36 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         settings.goldenFilePatterns = goldenPatterns
         settings.excludedSuffixes = parseSuffixes(excludedSuffixesField.text)
         settings.trimTransparentPadding = trimTransparentPaddingCheckbox.isSelected
+        val telemetrySettings = PluginTelemetrySettings.getInstance()
+        telemetrySettings.analyticsEnabled = analyticsCheckbox.isSelected
+        telemetrySettings.diagnosticsEnabled = diagnosticsCheckbox.isSelected
+        PluginTelemetryService.getInstance().updateConsent()
+        val new = settings.toConfig()
+        if (old != new) {
+            PluginTelemetryService.getInstance().client.event(
+                "product.configuration_saved",
+                mapOf(
+                    "match_mode" to if (new.matchMode == MatchMode.ANNOTATED_METHOD) {
+                        "annotated_method"
+                    } else {
+                        "file_class_regex"
+                    },
+                    "golden_dir_count_bucket" to TelemetryBuckets.count(new.goldenPaths.size),
+                    "generated_dir_count_bucket" to TelemetryBuckets.count(new.generatedPaths.size),
+                    "generated_configured" to new.generatedPaths.isNotEmpty().toString(),
+                    "trim_enabled" to new.trimTransparentPadding.toString(),
+                    "changed_golden_dirs" to (old.goldenPaths != new.goldenPaths).toString(),
+                    "changed_generated_dirs" to (old.generatedPaths != new.generatedPaths).toString(),
+                    "changed_matching" to (
+                        old.matchMode != new.matchMode ||
+                            old.annotatedFunctionRegex != new.annotatedFunctionRegex ||
+                            old.goldenFilePatterns != new.goldenFilePatterns
+                        ).toString(),
+                    "changed_filtering" to (old.excludedSuffixes != new.excludedSuffixes).toString(),
+                    "changed_display" to (old.trimTransparentPadding != new.trimTransparentPadding).toString(),
+                ),
+            )
+        }
         extraSettings.forEach { it.apply() }
     }
 
@@ -487,6 +553,9 @@ class ScreenshotConfigurable(private val project: Project) : Configurable {
         goldenPatternsArea.text = settings.goldenFilePatterns.joinToString("\n")
         excludedSuffixesField.text = settings.excludedSuffixes.joinToString(", ")
         trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding
+        val telemetrySettings = PluginTelemetrySettings.getInstance()
+        analyticsCheckbox.isSelected = telemetrySettings.analyticsEnabled
+        diagnosticsCheckbox.isSelected = telemetrySettings.diagnosticsEnabled
         extraSettings.forEach { it.reset() }
         updateMatchModeEnablement()
     }

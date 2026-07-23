@@ -63,6 +63,7 @@ import com.github.dkwasniak.goldendiff.ui.OnionSkinView
 import com.github.dkwasniak.goldendiff.ui.SingleImageView
 import com.github.dkwasniak.goldendiff.ui.SwipeView
 import com.github.dkwasniak.goldendiff.ui.TwoUpView
+import kotlinx.coroutines.delay
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
@@ -92,10 +93,16 @@ fun ComparePane(state: AppState, modifier: Modifier) {
                 modifier = Modifier.weight(1f),
             )
             if (selected != null) {
-                IconButton(size = 26.dp, onClick = { state.compareWindowVisible = true }) {
+                IconButton(size = 26.dp, onClick = {
+                    state.featureUsed("detached_comparison")
+                    state.compareWindowVisible = true
+                }) {
                     ExpandIcon(tokens.textDim)
                 }
-                IconButton(size = 26.dp, onClick = { copyToClipboard(selected.absolutePath) }) {
+                IconButton(size = 26.dp, onClick = {
+                    state.featureUsed("copy_path")
+                    copyToClipboard(selected.absolutePath)
+                }) {
                     CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
                 }
             }
@@ -112,16 +119,29 @@ fun ComparePane(state: AppState, modifier: Modifier) {
  * state, so the pane and the detached window can sit at different modes and zoom levels.
  */
 @Composable
-fun CompareContent(state: AppState, modifier: Modifier) {
+fun CompareContent(state: AppState, modifier: Modifier, location: String = "main_pane") {
     var mode by remember { mutableStateOf(CompareMode.TWO_UP) }
     var zoomIndex by remember { mutableIntStateOf(FIT_INDEX) }
     var opacity by remember { mutableStateOf(0.5f) }
+    var pendingZoomAction by remember { mutableStateOf<String?>(null) }
     val comparison = state.comparison
     val selected = state.selected
 
     // A new selection restarts at Fit: carrying a 400% zoom across to a differently sized golden
     // drops the viewer into an arbitrary corner of it.
     LaunchedEffect(selected) { zoomIndex = FIT_INDEX }
+    LaunchedEffect(zoomIndex, pendingZoomAction) {
+        val action = pendingZoomAction ?: return@LaunchedEffect
+        delay(500)
+        val zoom = when {
+            zoomIndex == FIT_INDEX -> "fit"
+            ZoomSteps[zoomIndex] < 1.0 -> "lt_100"
+            ZoomSteps[zoomIndex] == 1.0 -> "equal_100"
+            else -> "gt_100"
+        }
+        state.zoomSelected(zoom, action, location)
+        pendingZoomAction = null
+    }
 
     Column(modifier.fillMaxWidth()) {
         val showModes = comparison?.hasDiff == true
@@ -133,7 +153,20 @@ fun CompareContent(state: AppState, modifier: Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 CompareMode.entries.forEach { candidate ->
-                    Segment(candidate.label, mode == candidate) { mode = candidate }
+                    Segment(candidate.label, mode == candidate) {
+                        if (mode != candidate) {
+                            mode = candidate
+                            state.compareModeSelected(
+                                when (candidate) {
+                                    CompareMode.TWO_UP -> "side_by_side"
+                                    CompareMode.SWIPE -> "swipe"
+                                    CompareMode.ONION -> "onion"
+                                    CompareMode.DIFF -> "diff"
+                                },
+                                location,
+                            )
+                        }
+                    }
                 }
             }
             HairLine()
@@ -167,10 +200,22 @@ fun CompareContent(state: AppState, modifier: Modifier) {
             if (selected != null) {
                 ZoomBar(
                     label = ZoomLabels[zoomIndex],
-                    onFit = { zoomIndex = FIT_INDEX },
-                    onOut = { zoomIndex = (zoomIndex - 1).coerceAtLeast(0) },
-                    onHundred = { zoomIndex = HUNDRED_INDEX },
-                    onIn = { zoomIndex = (zoomIndex + 1).coerceAtMost(ZoomSteps.lastIndex) },
+                    onFit = {
+                        zoomIndex = FIT_INDEX
+                        pendingZoomAction = "fit"
+                    },
+                    onOut = {
+                        zoomIndex = (zoomIndex - 1).coerceAtLeast(0)
+                        pendingZoomAction = "zoom_out"
+                    },
+                    onHundred = {
+                        zoomIndex = HUNDRED_INDEX
+                        pendingZoomAction = "hundred"
+                    },
+                    onIn = {
+                        zoomIndex = (zoomIndex + 1).coerceAtMost(ZoomSteps.lastIndex)
+                        pendingZoomAction = "zoom_in"
+                    },
                     canZoomOut = zoomIndex > 0,
                     canZoomIn = zoomIndex < ZoomSteps.lastIndex,
                     modifier = Modifier.align(Alignment.BottomEnd),

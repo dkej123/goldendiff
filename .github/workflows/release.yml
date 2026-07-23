@@ -27,6 +27,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build public plugin
+        env:
+          ORG_GRADLE_PROJECT_sentryPluginDsn: ${{ secrets.SENTRY_PLUGIN_DSN }}
         run: ./gradlew :public-plugin:buildPlugin --stacktrace
 
       - name: Extract release notes

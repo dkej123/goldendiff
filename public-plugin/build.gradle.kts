@@ -26,6 +26,7 @@ dependencies {
     // leaving them out compiles fine — they are on the compile classpath via localPlugin(...) — and
     // only fails at runtime with NoClassDefFoundError. `unzip -l` the ZIP after touching this.
     implementation(project(":core"))
+    implementation(project(":telemetry"))
 
     intellijPlatform {
         // Build against the oldest supported 2024.x Community platform.
@@ -46,6 +47,24 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
+val generatedTelemetryResources = layout.buildDirectory.dir("generated/telemetry-resources")
+val telemetryVersion = version.toString()
+val generateTelemetryResources = tasks.register<WriteProperties>("generateTelemetryResources") {
+    val dsn = providers.gradleProperty("sentryPluginDsn").orElse("")
+    val amplitudeApiKey = providers.gradleProperty("amplitudeApiKey").orElse("")
+    destinationFile = generatedTelemetryResources.map { it.file("golden-diff-telemetry.properties") }.get().asFile
+    property("sentry.dsn", dsn)
+    property("amplitude.api_key", amplitudeApiKey)
+    property("version", telemetryVersion)
+}
+
+sourceSets.main {
+    resources.srcDir(generatedTelemetryResources)
+}
+tasks.named("processResources") {
+    dependsOn(generateTelemetryResources)
+}
+
 intellijPlatform {
     // We have no GUI-form sources, so code instrumentation is unnecessary.
     instrumentCode = false
@@ -55,13 +74,12 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
               <ul>
-              <li><b>Beta of the new shared core.</b> Golden matching, Git access, project scanning,
-              image geometry and pixel diffing now use the same tool-agnostic implementation as the
-              standalone Golden Diff desktop app.</li>
-              <li>The IDE plugin remains Swing-based and compatible with IntelliJ Platform 2024.1+
-              (build 241+) while the desktop app keeps its independent Compose UI.</li>
-              <li>Includes the current-file and Project changes scopes, working-copy and test-output
-              sources, and all four comparison modes.</li>
+              <li>Adds optional anonymous product analytics with a dedicated consent prompt and
+              independent controls for analytics and crash reporting in Settings.</li>
+              <li>Analytics is processed by Amplitude in its European data region; diagnostic
+              exceptions and privacy-safe performance spans remain in Sentry EU.</li>
+              <li>Telemetry never includes filenames, project paths, source code, image content or
+              identifiers from optional comparison-source extensions.</li>
               </ul>
         """.trimIndent()
 

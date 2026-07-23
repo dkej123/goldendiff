@@ -21,6 +21,9 @@
 - [gotchas.md](gotchas.md)
 - [roadmap.md](roadmap.md)
 - [marketplace.md](marketplace.md)
+- [privacy.md](privacy.md)
+- [amplitude-setup.md](amplitude-setup.md)
+- [sentry-setup.md](sentry-setup.md)
 
 ## Publishing the site
 The site is built by GitHub Pages with no custom CI. To (re)enable it: repo **Settings → Pages →

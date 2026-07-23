@@ -75,7 +75,7 @@ fun QuickOpenDialog(state: AppState) {
     fun choose(index: Int) {
         results.getOrNull(index)?.let { path ->
             state.quickOpenVisible = false
-            state.selectSourceFile(path)
+            state.selectSourceFile(path, "quick_open")
         }
     }
 

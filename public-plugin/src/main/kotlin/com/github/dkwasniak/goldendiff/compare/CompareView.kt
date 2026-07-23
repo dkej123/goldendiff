@@ -30,11 +30,16 @@ import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
 import javax.swing.SwingConstants
+import javax.swing.Timer
 import javax.swing.JToggleButton
 import kotlin.math.ceil
 
 /** Hosts the three comparison modes plus a single-image view, the mode switcher and a zoom control. */
-class CompareView : JPanel(BorderLayout()) {
+class CompareView(
+    private val onModeSelected: (String) -> Unit = {},
+    private val onZoomSelected: (String, String) -> Unit = { _, _ -> },
+    private val onCopyPath: () -> Unit = {},
+) : JPanel(BorderLayout()) {
 
     private val cardLayout = CardLayout()
     private val cards = JPanel(cardLayout)
@@ -56,6 +61,7 @@ class CompareView : JPanel(BorderLayout()) {
         margin = JBUI.insets(2)
         addActionListener {
             titleText?.let {
+                onCopyPath()
                 CopyPasteManager.getInstance().setContents(StringSelection(it))
                 showCopiedBalloon(this)
             }
@@ -111,6 +117,16 @@ class CompareView : JPanel(BorderLayout()) {
 
     private var selectedMode = MODE_TWO_UP
     private var currentZoom = ImagePainting.FIT
+    private var pendingZoomAction = "zoom_in"
+    private val zoomTelemetryTimer = Timer(500) {
+        val zoom = when {
+            currentZoom == ImagePainting.FIT -> "fit"
+            currentZoom < 1.0 -> "lt_100"
+            currentZoom == 1.0 -> "equal_100"
+            else -> "gt_100"
+        }
+        onZoomSelected(zoom, pendingZoomAction)
+    }.apply { isRepeats = false }
 
     init {
         cards.add(twoUp, MODE_TWO_UP)
@@ -260,6 +276,14 @@ class CompareView : JPanel(BorderLayout()) {
                     selectedMode = mode
                     cardLayout.show(cards, mode)
                     updateZoomControls()
+                    onModeSelected(
+                        when (mode) {
+                            MODE_TWO_UP -> "side_by_side"
+                            MODE_SWIPE -> "swipe"
+                            MODE_ONION -> "onion"
+                            else -> "diff"
+                        },
+                    )
                 }
                 group.add(this)
                 modeButtons.add(this)
@@ -284,6 +308,8 @@ class CompareView : JPanel(BorderLayout()) {
         } else {
             ZOOM_STEPS.lastOrNull { it < effective - 0.001 } ?: ZOOM_STEPS.first()
         }
+        pendingZoomAction = if (direction > 0) "zoom_in" else "zoom_out"
+        zoomTelemetryTimer.restart()
         applyZoom(currentZoom)
     }
 

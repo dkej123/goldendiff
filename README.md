@@ -94,7 +94,8 @@ Full end-user docs are published as a site at
 [installation](docs/installation.md), [getting started](docs/getting-started.md),
 [matching goldens](docs/matching.md), [comparing screenshots](docs/comparing.md),
 [settings reference](docs/settings-reference.md), and
-[troubleshooting & FAQ](docs/troubleshooting.md).
+[troubleshooting & FAQ](docs/troubleshooting.md). See also the
+[privacy policy](docs/privacy.md).
 
 ## Build from source
 ```bash

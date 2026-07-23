@@ -5,6 +5,8 @@ import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.compare.GitImageSource
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
+import com.github.dkwasniak.goldendiff.compare.PixelDiff
+import com.github.dkwasniak.goldendiff.compare.toArgbImage
 import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
@@ -15,6 +17,11 @@ import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.naming.shortGoldenName
 import com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable
 import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
+import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetryService
+import com.github.dkwasniak.goldendiff.telemetry.NoOpSpan
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryBuckets
+import com.github.dkwasniak.goldendiff.telemetry.TelemetrySpan
+import com.github.dkwasniak.goldendiff.telemetry.TelemetrySpanStatus
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonResult
@@ -31,6 +38,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.ComboBox
@@ -81,6 +89,8 @@ class ScreenshotPanel(
 ) : JPanel(BorderLayout()), Disposable {
 
     private val settings = ScreenshotSettings.getInstance(project)
+    private val telemetryService = PluginTelemetryService.getInstance()
+    private val telemetry = telemetryService.client
 
     // Inside the IDE the VCS integration beats shelling out to git; core's GitCli backs the same
     // interface for hosts that have no VCS layer.
@@ -124,7 +134,23 @@ class ScreenshotPanel(
             },
         )
     }
-    private val compareView = CompareView()
+    private val compareView = CompareView(
+        onModeSelected = { mode ->
+            telemetry.event(
+                "product.compare_mode_selected",
+                mapOf("mode" to mode, "location" to "main_pane"),
+            )
+        },
+        onZoomSelected = { zoom, action ->
+            telemetry.event(
+                "product.zoom_selected",
+                mapOf("zoom" to zoom, "action" to action, "location" to "main_pane"),
+            )
+        },
+        onCopyPath = {
+            telemetry.event("product.feature_used", mapOf("feature" to "copy_path"))
+        },
+    )
     private val statusLabel = JBLabel().apply { border = JBUI.Borders.empty(4, 6) }
     private val statusLegendLabel = JBLabel(STATUS_LEGEND_HTML).apply {
         border = JBUI.Borders.empty(0, 6, 4, 6)
@@ -135,13 +161,22 @@ class ScreenshotPanel(
         selectedItem = Scope.CURRENT_FILE
         toolTipText = "Choose whether to show screenshots for the current file or all project golden changes"
         addActionListener {
+            val previous = reportedScope
             if (selectedScope() == Scope.PROJECT_CHANGES && selectedSource().extra != null) {
                 sourceCombo.selectedItem = ComparisonSource.WORKING_COPY
+            }
+            val next = selectedScope()
+            if (previous != next) {
+                telemetry.event(
+                    "product.browse_scope_selected",
+                    mapOf("from" to previous.wireValue(), "to" to next.wireValue()),
+                )
+                reportedScope = next
             }
             updateScopeControls()
             loadedFile = null
             lastNames = null
-            scheduleRefresh(force = true)
+            scheduleRefresh(force = true, trigger = "scope_change")
         }
     }
     private var thumbnailScaleIndex = 0
@@ -181,6 +216,14 @@ class ScreenshotPanel(
                     return@addActionListener
                 }
             }
+            val previous = reportedSource
+            if (previous != newSource && previous.extra == null && newSource.extra == null) {
+                telemetry.event(
+                    "product.comparison_source_selected",
+                    mapOf("from" to previous.wireValue(), "to" to newSource.wireValue()),
+                )
+            }
+            reportedSource = newSource
             loadedFile = null
             loadedSource = newSource
             lastNames = null
@@ -191,7 +234,7 @@ class ScreenshotPanel(
             statusLabel.text = "Searching…"
             // Every source has source-specific items and statuses. Rebuild the list, and invalidate
             // any older asynchronous scan so it cannot restore stale Working-copy thumbnails.
-            scheduleRefresh(force = true)
+            scheduleRefresh(force = true, trigger = "source_change")
         }
     }
 
@@ -206,11 +249,18 @@ class ScreenshotPanel(
     private var loadedFile: File? = null
     private var loadedSource = ComparisonSource.WORKING_COPY
     private var pendingForce = false
+    private var pendingTrigger = "automatic"
     private var refreshGeneration = 0L
+    private var reportedScope = Scope.CURRENT_FILE
+    private var reportedSource = ComparisonSource.WORKING_COPY
+    private var currentScanStarted = 0L
+    private var currentScanTrigger = "automatic"
+    private var nextSelectionTrigger = "automatic"
     // Tracks tool-window visibility so we can refresh once it is reopened.
     private var wasVisible = toolWindow.isVisible
 
     init {
+        telemetryService.panelOpened(project)
         val listScrollPane = JBScrollPane(list).apply {
             minimumSize = Dimension(JBUI.scale(120), 0)
             preferredSize = Dimension(JBUI.scale(320), 0)
@@ -236,7 +286,11 @@ class ScreenshotPanel(
         add(splitter, BorderLayout.CENTER)
 
         list.addListSelectionListener { event ->
-            if (!event.valueIsAdjusting) list.selectedValue?.let(::loadComparison)
+            if (!event.valueIsAdjusting) {
+                val trigger = nextSelectionTrigger
+                nextSelectionTrigger = "grid"
+                list.selectedValue?.let { loadComparison(it, trigger) }
+            }
         }
         installListKeyboardNavigation()
         installListContextMenu()
@@ -296,11 +350,13 @@ class ScreenshotPanel(
         val group = DefaultActionGroup().apply {
             add(
                 listAction("Show in ${RevealFileAction.getFileManagerName()}", clicked?.isFile == true) {
+                    telemetry.event("product.feature_used", mapOf("feature" to "reveal_in_file_manager"))
                     clicked?.let(RevealFileAction::openFile)
                 },
             )
             add(
                 listAction("Copy Absolute Path", clicked != null) {
+                    telemetry.event("product.feature_used", mapOf("feature" to "copy_path"))
                     clicked?.let { CopyPasteManager.getInstance().setContents(StringSelection(it.absolutePath)) }
                 },
             )
@@ -372,6 +428,7 @@ class ScreenshotPanel(
         val current = list.selectedIndex.takeIf { it >= 0 } ?: if (delta > 0) -1 else listModel.size()
         val next = (current + delta).coerceIn(0, listModel.size() - 1)
         if (next == list.selectedIndex) return
+        nextSelectionTrigger = "keyboard"
         list.selectedIndex = next
         list.ensureIndexIsVisible(next)
     }
@@ -400,7 +457,9 @@ class ScreenshotPanel(
         directoriesButton.addActionListener { onDirectoriesClicked() }
         val toolbar = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(4))).apply {
             add(directoriesButton)
-            add(JButton("Refresh").apply { addActionListener { scheduleRefresh(force = true) } })
+            add(JButton("Refresh").apply {
+                addActionListener { scheduleRefresh(force = true, trigger = "manual_refresh") }
+            })
             add(JBLabel("Scope:"))
             add(scopeCombo)
             add(JBLabel("Compare:"))
@@ -448,7 +507,7 @@ class ScreenshotPanel(
         if (settings.isConfigured) {
             ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
             updateHeader()
-            scheduleRefresh(force = true)
+            scheduleRefresh(force = true, trigger = "config_change")
         } else {
             val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
                 .withTitle("Select Screenshot Directory")
@@ -456,7 +515,7 @@ class ScreenshotPanel(
             val chosen = FileChooser.chooseFile(descriptor, project, null) ?: return
             settings.paths = settings.paths + storagePath(chosen.path)
             updateHeader()
-            scheduleRefresh(force = true)
+            scheduleRefresh(force = true, trigger = "config_change")
         }
     }
 
@@ -490,8 +549,9 @@ class ScreenshotPanel(
             ?: path
     }
 
-    private fun scheduleRefresh(force: Boolean = false) {
+    private fun scheduleRefresh(force: Boolean = false, trigger: String = "automatic") {
         if (force) pendingForce = true
+        pendingTrigger = trigger
         refreshGeneration++
         refreshTimer.restart()
     }
@@ -521,7 +581,18 @@ class ScreenshotPanel(
 
         val force = pendingForce
         pendingForce = false
+        val trigger = pendingTrigger
+        pendingTrigger = "automatic"
         val generation = refreshGeneration
+        val scanStarted = System.nanoTime()
+        val scanSpan = if (selectedSource().extra == null) {
+            telemetry.startSpan(
+                "golden.scan",
+                mapOf("scope" to selectedScope().wireValue(), "source" to selectedSource().wireValue()),
+            )
+        } else {
+            NoOpSpan
+        }
 
         if (!settings.isConfigured) {
             statusLabel.text = "Choose a screenshots directory to begin."
@@ -530,13 +601,15 @@ class ScreenshotPanel(
             lastNames = null
             currentScreen = null
             clearComparison()
+            emitScan(emptyList(), trigger, scanStarted, "blocked", "no_configuration", false)
+            scanSpan.finish()
             return
         }
         val roots = settings.resolvedPaths(project)
         if (force) loadedFile = null
 
         if (selectedScope() == Scope.PROJECT_CHANGES) {
-            refreshProjectChanges(roots, force, generation)
+            refreshProjectChanges(roots, force, generation, trigger, scanStarted, scanSpan)
             return
         }
 
@@ -548,6 +621,8 @@ class ScreenshotPanel(
             lastNames = null
             currentScreen = null
             clearComparison()
+            emitScan(emptyList(), trigger, scanStarted, "success_empty", "none", false)
+            scanSpan.finish()
             return
         }
 
@@ -556,6 +631,15 @@ class ScreenshotPanel(
 
         // Same file/name-set/source as before: keep the current list and the user's selection untouched.
         if (!force && refreshKey == lastNames) {
+            emitScan(
+                listModel.elements().toList(),
+                trigger,
+                scanStarted,
+                if (listModel.isEmpty) "success_empty" else "success_nonempty",
+                "none",
+                true,
+            )
+            scanSpan.finish()
             return
         }
 
@@ -563,61 +647,138 @@ class ScreenshotPanel(
         currentScreen = screen
         statusLabel.text = "Searching…"
         AppExecutorUtil.getAppExecutorService().execute {
-            val items = source.extra?.findItems(project, screen, settings) ?: changeScanner().itemsFor(
-                GoldenFinder.find(
-                    roots,
-                    screen,
-                    settings.matchMode,
-                    settings.excludedSuffixes,
-                    settings.goldenFilePatterns,
-                ),
-                if (source == ComparisonSource.GENERATED) BuiltInSource.GENERATED else BuiltInSource.WORKING_COPY,
-            )
-            val statusOverride = source.extra?.listStatusForItems(items)
+            val result = runCatching {
+                val items = source.extra?.findItems(project, screen, settings) ?: telemetry.measureSpan(
+                    "golden.match",
+                    mapOf("scope" to "current_file", "source" to source.wireValue()),
+                ) {
+                    changeScanner().itemsFor(
+                        GoldenFinder.find(
+                            roots,
+                            screen,
+                            settings.matchMode,
+                            settings.excludedSuffixes,
+                            settings.goldenFilePatterns,
+                        ),
+                        if (source == ComparisonSource.GENERATED) {
+                            BuiltInSource.GENERATED
+                        } else {
+                            BuiltInSource.WORKING_COPY
+                        },
+                    )
+                }
+                items to source.extra?.listStatusForItems(items)
+            }
             ApplicationManager.getApplication().invokeLater {
-                if (generation != refreshGeneration || selectedSource() != source) return@invokeLater
-                populate(items, if (source.extra == null) screen.caretName else null, statusOverride)
+                if (generation != refreshGeneration || selectedSource() != source) {
+                    scanSpan.finish(TelemetrySpanStatus.CANCELLED)
+                    return@invokeLater
+                }
+                result.onFailure {
+                    reportOperationFailure("scan", it, retryable = true)
+                    emitScan(emptyList(), trigger, scanStarted, "failure", "none", false)
+                    scanSpan.finish(TelemetrySpanStatus.ERROR)
+                    statusLabel.text = "Could not scan screenshots."
+                }
+                result.onSuccess { (items, statusOverride) ->
+                    populate(
+                        items,
+                        if (source.extra == null) screen.caretName else null,
+                        statusOverride,
+                        trigger,
+                        scanStarted,
+                        scanSpan,
+                    )
+                    if (source.extra == null) reportEditorSelection()
+                }
             }
         }
     }
 
-    private fun refreshProjectChanges(roots: List<File>, force: Boolean, generation: Long) {
+    private fun refreshProjectChanges(
+        roots: List<File>,
+        force: Boolean,
+        generation: Long,
+        trigger: String,
+        scanStarted: Long,
+        scanSpan: TelemetrySpan,
+    ) {
         val source = selectedSource().takeIf { it.extra == null } ?: ComparisonSource.WORKING_COPY
         val refreshKey = listOf(
             "project-changes",
             source.id,
             settings.generatedFileRegex,
         ) + roots.map { it.path } + settings.resolvedGeneratedPaths(project).map { it.path }
-        if (!force && refreshKey == lastNames) return
+        if (!force && refreshKey == lastNames) {
+            emitScan(
+                listModel.elements().toList(),
+                trigger,
+                scanStarted,
+                if (listModel.isEmpty) "success_empty" else "success_nonempty",
+                "none",
+                true,
+            )
+            scanSpan.finish()
+            return
+        }
 
         lastNames = refreshKey
         currentScreen = null
         statusLabel.text = "Searching project changes..."
         AppExecutorUtil.getAppExecutorService().execute {
-            val items = when (source) {
-                ComparisonSource.GENERATED -> changeScanner().generatedChanges()
-                else -> changeScanner().workingCopyChanges()
-            }.filter { it.status != ExtraComparisonItemStatus.UNCHANGED }
+            val result = runCatching {
+                when (source) {
+                    ComparisonSource.GENERATED -> telemetry.measureSpan(
+                        "generated.lookup",
+                        mapOf("scope" to "project_changes", "source" to "test_output"),
+                    ) { changeScanner().generatedChanges() }
+                    else -> telemetry.measureSpan(
+                        "git.status",
+                        mapOf("scope" to "project_changes", "source" to "working_copy"),
+                    ) { changeScanner().workingCopyChanges() }
+                }.filter { it.status != ExtraComparisonItemStatus.UNCHANGED }
+            }
             val sourceName = when (source) {
                 ComparisonSource.GENERATED -> "test output"
                 else -> "working copy"
             }
             ApplicationManager.getApplication().invokeLater {
-                if (generation != refreshGeneration || selectedSource() != source) return@invokeLater
-                populate(
-                    items,
-                    caretName = null,
-                    statusOverride = if (items.isEmpty()) {
-                        "No golden changes found in $sourceName."
-                    } else {
-                        "${items.size} changed screenshot(s) found in project $sourceName."
-                    },
-                )
+                if (generation != refreshGeneration || selectedSource() != source) {
+                    scanSpan.finish(TelemetrySpanStatus.CANCELLED)
+                    return@invokeLater
+                }
+                result.onFailure {
+                    reportOperationFailure("scan", it, retryable = true)
+                    emitScan(emptyList(), trigger, scanStarted, "failure", "none", false)
+                    scanSpan.finish(TelemetrySpanStatus.ERROR)
+                    statusLabel.text = "Could not scan project changes."
+                }
+                result.onSuccess { items ->
+                    populate(
+                        items,
+                        caretName = null,
+                        statusOverride = if (items.isEmpty()) {
+                            "No golden changes found in $sourceName."
+                        } else {
+                            "${items.size} changed screenshot(s) found in project $sourceName."
+                        },
+                        trigger = trigger,
+                        scanStarted = scanStarted,
+                        scanSpan = scanSpan,
+                    )
+                }
             }
         }
     }
 
-    private fun populate(items: List<ExtraComparisonItem>, caretName: String?, statusOverride: String? = null) {
+    private fun populate(
+        items: List<ExtraComparisonItem>,
+        caretName: String?,
+        statusOverride: String? = null,
+        trigger: String,
+        scanStarted: Long,
+        scanSpan: TelemetrySpan,
+    ) {
         val previouslyLoaded = loadedFile
         listModel.clear()
         items.forEach(listModel::addElement)
@@ -628,6 +789,15 @@ class ScreenshotPanel(
         } else {
             "${items.size} screenshot(s) found."
         }
+        emitScan(
+            items,
+            trigger,
+            scanStarted,
+            if (items.isEmpty()) "success_empty" else "success_nonempty",
+            "none",
+            false,
+        )
+        scanSpan.finish()
         if (items.isEmpty()) {
             clearComparison()
             return
@@ -639,6 +809,7 @@ class ScreenshotPanel(
             caretName != null -> items.indexOfFirst { it.file.name.contains(caretName, ignoreCase = true) }.takeIf { it >= 0 } ?: 0
             else -> 0
         }
+        nextSelectionTrigger = "automatic"
         list.selectedIndex = index
         list.ensureIndexIsVisible(index)
     }
@@ -663,6 +834,111 @@ class ScreenshotPanel(
         }
     }
 
+    private fun emitScan(
+        items: List<ExtraComparisonItem>,
+        trigger: String,
+        started: Long,
+        result: String,
+        blocker: String,
+        cacheHit: Boolean,
+    ) {
+        val source = selectedSource()
+        if (source.extra != null) return
+        telemetry.event(
+            "product.scan_completed",
+            mapOf(
+                "trigger" to trigger,
+                "scope" to selectedScope().wireValue(),
+                "source" to source.wireValue(),
+                "result" to result,
+                "blocker" to blocker,
+                "duration_bucket" to TelemetryBuckets.duration((System.nanoTime() - started) / 1_000_000),
+                "item_count_bucket" to TelemetryBuckets.count(items.size),
+                "modified_count_bucket" to TelemetryBuckets.count(
+                    items.count { it.status == ExtraComparisonItemStatus.MODIFIED },
+                ),
+                "new_count_bucket" to TelemetryBuckets.count(
+                    items.count { it.status == ExtraComparisonItemStatus.NEW },
+                ),
+                "cache_hit" to cacheHit.toString(),
+            ),
+        )
+    }
+
+    private fun reportEditorSelection() {
+        val file = FileEditorManager.getInstance(project).selectedFiles.firstOrNull() ?: return
+        telemetry.sourceFileSelected(
+            memoryKey = file.path,
+            trigger = "ide_editor",
+            fileFamily = when (file.extension.orEmpty().lowercase()) {
+                "kt", "kts" -> "kotlin"
+                "java" -> "java"
+                "js", "jsx", "ts", "tsx" -> "js_ts"
+                "swift" -> "swift"
+                "png" -> "png"
+                else -> "other"
+            },
+            alreadyOpen = true,
+        )
+    }
+
+    private fun reportOperationFailure(operation: String, error: Throwable, retryable: Boolean) {
+        telemetry.captureException(error, "plugin:$operation", project.basePath?.let(::File))
+        val properties = mutableMapOf(
+            "operation" to operation,
+            "error_category" to when (error) {
+                is java.io.IOException -> "io"
+                is IllegalArgumentException -> "invalid_config"
+                else -> "internal"
+            },
+            "retryable" to retryable.toString(),
+        )
+        val source = selectedSource()
+        if (source.extra == null) {
+            properties["scope"] = selectedScope().wireValue()
+            properties["source"] = source.wireValue()
+        }
+        telemetry.event("product.operation_failed", properties)
+    }
+
+    private fun emitComparisonViewed(
+        head: java.awt.image.BufferedImage?,
+        working: java.awt.image.BufferedImage?,
+        unchanged: Boolean,
+        diffRatio: Double?,
+        source: ComparisonSource,
+        selectionTrigger: String,
+        started: Long,
+    ) {
+        if (source.extra != null) return
+        val result = when {
+            head == null && working == null -> "decode_failed"
+            unchanged -> "identical"
+            head == null -> "new"
+            working == null -> "missing_counterpart"
+            else -> "modified"
+        }
+        telemetry.event(
+            "product.comparison_viewed",
+            mapOf(
+                "source" to source.wireValue(),
+                "result" to result,
+                "load_duration_bucket" to TelemetryBuckets.duration(
+                    (System.nanoTime() - started) / 1_000_000,
+                ),
+                "diff_ratio_bucket" to TelemetryBuckets.diffRatio(diffRatio, head != null && working != null),
+                "dimensions" to when {
+                    head == null || working == null -> "one_missing"
+                    head.width == working.width && head.height == working.height -> "same"
+                    else -> "different"
+                },
+                "cache_hit" to "false",
+                "selection_trigger" to selectionTrigger,
+            ),
+        )
+        telemetry.activationCompleted(selectedScope().wireValue(), source.wireValue())
+    }
+
     // Clears the comparison viewer and its cached selection so no stale preview lingers when the
     // current file has no goldens.
     private fun clearComparison() {
@@ -672,7 +948,7 @@ class ScreenshotPanel(
         compareView.showSingle(null, "")
     }
 
-    private fun loadComparison(item: ExtraComparisonItem) {
+    private fun loadComparison(item: ExtraComparisonItem, selectionTrigger: String = "grid") {
         val file = item.file
         val source = selectedSource()
         if (file == loadedFile && source == loadedSource) return
@@ -727,48 +1003,104 @@ class ScreenshotPanel(
             }
             return
         }
+        val comparisonStarted = System.nanoTime()
+        val comparisonSpan = telemetry.startSpan(
+            "comparison.load",
+            mapOf(
+                "scope" to selectedScope().wireValue(),
+                "source" to source.wireValue(),
+                "cache_hit" to "false",
+            ),
+        )
         AppExecutorUtil.getAppExecutorService().execute {
-            val headBytes = headBytesSource.headBytes(file)
-            val workingFile = when (source) {
-                ComparisonSource.WORKING_COPY -> file
-                ComparisonSource.GENERATED -> GeneratedImageSource.findForGolden(
-                    golden = file,
-                    goldenRoots = settings.resolvedPaths(project),
-                    generatedRoots = settings.resolvedGeneratedPaths(project),
-                    generatedFileRegex = settings.generatedFileRegex,
-                    excludedSuffixes = settings.excludedSuffixes,
-                )
-                else -> null
-            }
-            val workingBytes = workingFile?.let(ImageBytes::workingBytes)
-            val trim = settings.trimTransparentPadding
-            val head = ImagePainting.trimTransparentBorder(ImageBytes.decode(headBytes), trim)
-            val working = ImagePainting.trimTransparentBorder(ImageBytes.decode(workingBytes), trim)
-            val unchanged = headBytes != null && workingBytes != null && headBytes.contentEquals(workingBytes)
-            ApplicationManager.getApplication().invokeLater {
-                if (loadedFile != file || loadedSource != source) return@invokeLater
-                when {
-                    source == ComparisonSource.GENERATED && !settings.hasGeneratedPaths ->
-                        compareView.showSingle(head, "Configure generated test output directories in Settings.")
-                    source == ComparisonSource.GENERATED && workingFile == null ->
-                        compareView.showSingle(head, "No generated test output found for ${file.name}.")
-                    unchanged && working != null ->
-                        // Identical to HEAD: no point in a two-up diff — show a single preview.
-                        compareView.showSingle(working, "No changes vs HEAD — ${file.name}")
-                    head != null && working != null ->
-                        compareView.showComparison(
-                            old = head,
-                            new = working,
-                            statusText = comparisonTitle(file, workingFile, source),
-                            oldLabel = "HEAD",
-                            newLabel = source.compareLabel,
+            try {
+                val headBytes = telemetry.measureSpan(
+                    "git.head_read",
+                    mapOf("scope" to selectedScope().wireValue(), "source" to source.wireValue()),
+                ) { headBytesSource.headBytes(file) }
+                val workingFile = when (source) {
+                    ComparisonSource.WORKING_COPY -> file
+                    ComparisonSource.GENERATED -> telemetry.measureSpan(
+                        "generated.lookup",
+                        mapOf("scope" to selectedScope().wireValue(), "source" to "test_output"),
+                    ) {
+                        GeneratedImageSource.findForGolden(
+                            golden = file,
+                            goldenRoots = settings.resolvedPaths(project),
+                            generatedRoots = settings.resolvedGeneratedPaths(project),
+                            generatedFileRegex = settings.generatedFileRegex,
+                            excludedSuffixes = settings.excludedSuffixes,
                         )
-                    head == null && working != null ->
-                        compareView.showSingle(working, "New file (not in git HEAD) — ${workingFile?.name ?: file.name}")
-                    head != null && working == null ->
-                        compareView.showSingle(head, "Working copy missing — showing HEAD.")
-                    else ->
-                        compareView.showSingle(null, "Could not read image.")
+                    }
+                    else -> null
+                }
+                val workingBytes = workingFile?.let(ImageBytes::workingBytes)
+                val trim = settings.trimTransparentPadding
+                val (head, working) = telemetry.measureSpan(
+                    "image.decode",
+                    mapOf("scope" to selectedScope().wireValue(), "source" to source.wireValue()),
+                ) {
+                    ImagePainting.trimTransparentBorder(ImageBytes.decode(headBytes), trim) to
+                        ImagePainting.trimTransparentBorder(ImageBytes.decode(workingBytes), trim)
+                }
+                val unchanged = headBytes != null && workingBytes != null && headBytes.contentEquals(workingBytes)
+                val diffRatio = if (!unchanged && head != null && working != null) {
+                    telemetry.measureSpan(
+                        "pixel_diff.compute",
+                        mapOf("scope" to selectedScope().wireValue(), "source" to source.wireValue()),
+                    ) {
+                        PixelDiff.compute(head.toArgbImage(), working.toArgbImage())?.changedRatio
+                    }
+                } else {
+                    if (unchanged) 0.0 else null
+                }
+                ApplicationManager.getApplication().invokeLater {
+                    if (loadedFile != file || loadedSource != source) {
+                        comparisonSpan.finish(TelemetrySpanStatus.CANCELLED)
+                        return@invokeLater
+                    }
+                    when {
+                        source == ComparisonSource.GENERATED && !settings.hasGeneratedPaths ->
+                            compareView.showSingle(head, "Configure generated test output directories in Settings.")
+                        source == ComparisonSource.GENERATED && workingFile == null ->
+                            compareView.showSingle(head, "No generated test output found for ${file.name}.")
+                        unchanged && working != null ->
+                            compareView.showSingle(working, "No changes vs HEAD — ${file.name}")
+                        head != null && working != null ->
+                            compareView.showComparison(
+                                old = head,
+                                new = working,
+                                statusText = comparisonTitle(file, workingFile, source),
+                                oldLabel = "HEAD",
+                                newLabel = source.compareLabel,
+                            )
+                        head == null && working != null ->
+                            compareView.showSingle(working, "New file (not in git HEAD) — ${workingFile?.name ?: file.name}")
+                        head != null && working == null ->
+                            compareView.showSingle(head, "Working copy missing — showing HEAD.")
+                        else ->
+                            compareView.showSingle(null, "Could not read image.")
+                    }
+                    comparisonSpan.finish()
+                    emitComparisonViewed(
+                        head = head,
+                        working = working,
+                        unchanged = unchanged,
+                        diffRatio = diffRatio,
+                        source = source,
+                        selectionTrigger = selectionTrigger,
+                        started = comparisonStarted,
+                    )
+                }
+            } catch (error: Throwable) {
+                ApplicationManager.getApplication().invokeLater {
+                    if (loadedFile != file || loadedSource != source) return@invokeLater
+                    comparisonSpan.finish(TelemetrySpanStatus.ERROR)
+                    reportOperationFailure("comparison_load", error, retryable = true)
+                    compareView.showRetry("Could not read image.") {
+                        loadedFile = null
+                        loadComparison(item, selectionTrigger)
+                    }
                 }
             }
         }
@@ -790,6 +1122,7 @@ class ScreenshotPanel(
     override fun dispose() {
         // messageBus connection and caret listener are tied to this Disposable and cleaned up here.
         refreshTimer.stop()
+        telemetryService.panelClosed()
     }
 
     companion object {
@@ -808,6 +1141,8 @@ class ScreenshotPanel(
         val extra: ExtraComparisonSource? = null,
     ) {
         val compareLabel: String get() = extra?.compareLabel ?: title
+        fun wireValue(): String =
+            if (this == GENERATED) "test_output" else "working_copy"
 
         override fun toString(): String = title
 
@@ -829,6 +1164,9 @@ private enum class Scope(private val title: String) {
     PROJECT_CHANGES("Project changes");
 
     override fun toString(): String = title
+
+    fun wireValue(): String =
+        if (this == CURRENT_FILE) "current_file" else "project_changes"
 }
 
 private class ThumbnailScaleIcon(

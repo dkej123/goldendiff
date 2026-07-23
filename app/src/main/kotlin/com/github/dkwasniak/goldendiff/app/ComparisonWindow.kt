@@ -80,7 +80,7 @@ fun ApplicationScope.ComparisonWindow(state: AppState, onClose: () -> Unit) {
                         }
                     }
                     HairLine()
-                    CompareContent(state, Modifier.weight(1f))
+                    CompareContent(state, Modifier.weight(1f), location = "detached_window")
                 }
             }
         }

@@ -66,10 +66,11 @@ private enum class SettingsSection(val label: String) {
     OUTPUT_MATCHING("Test output matching"),
     MATCHING("Golden matching"),
     FILTERING("Filtering"),
-    DISPLAY("Display");
+    DISPLAY("Display"),
+    PRIVACY("Privacy");
 
     /** The live match preview is meaningless for the appearance/trim controls. */
-    val showsPreview: Boolean get() = this != DISPLAY
+    val showsPreview: Boolean get() = this != DISPLAY && this != PRIVACY
 }
 
 /**
@@ -113,6 +114,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                 SettingsSection.MATCHING -> MatchingSection(state)
                                 SettingsSection.FILTERING -> FilteringSection(state)
                                 SettingsSection.DISPLAY -> DisplaySection(state)
+                                SettingsSection.PRIVACY -> PrivacySection()
                             }
                         }
                         if (section.showsPreview) {
@@ -391,6 +393,61 @@ private fun DisplaySection(state: AppState) {
     FieldLabel("Appearance")
     Appearance.entries.forEach { candidate ->
         RadioRow(candidate.label, state.ui.appearance == candidate) { state.ui.selectAppearance(candidate) }
+    }
+}
+
+@Composable
+private fun PrivacySection() {
+    val settings = AppTelemetry.settings
+    SectionHeader(
+        "Privacy",
+        "Golden Diff sends nothing unless you opt in. Product analytics and diagnostic error reports " +
+            "are independent and never include project names, file names, paths, source code or images.",
+    )
+    ConsentRow(
+        title = "Share anonymous product analytics",
+        description = "Feature adoption and coarse operation-duration buckets.",
+        checked = settings.analyticsEnabled,
+    ) {
+        settings.setAnalytics(!settings.analyticsEnabled)
+        AppTelemetry.updateConsent()
+    }
+    Spacer(Modifier.height(12.dp))
+    ConsentRow(
+        title = "Share diagnostic error reports",
+        description = "Sanitized crashes and unexpected Golden Diff errors.",
+        checked = settings.diagnosticsEnabled,
+    ) {
+        settings.setDiagnostics(!settings.diagnosticsEnabled)
+        AppTelemetry.updateConsent()
+    }
+    Spacer(Modifier.height(20.dp))
+    Text(
+        "Privacy policy",
+        color = tokens.accent,
+        fontSize = Type.body,
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).hoverWash().clickable {
+            runCatching {
+                java.awt.Desktop.getDesktop().browse(
+                    java.net.URI("https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md"),
+                )
+            }
+        }.padding(horizontal = 4.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun ConsentRow(title: String, description: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Dimens.controlRadius)).hoverWash()
+            .clickable(onClick = onClick).padding(vertical = 6.dp, horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Toggle(checked, onClick)
+        Column {
+            Text(title, color = tokens.text, fontSize = Type.panelTitle)
+            Text(description, color = tokens.textDim, fontSize = 11.5.sp)
+        }
     }
 }
 
