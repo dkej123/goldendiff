@@ -29,6 +29,8 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
 - Review changes in side-by-side, swipe, and onion-skin modes.
 - Zoom and scroll large screenshots.
 - Works with IntelliJ Platform 2024.1 and newer (build 241+).
+- Optional analytics and diagnostic reporting are disabled by default and documented in the
+  [privacy policy](privacy.md).
 
 ## Suggested Tags
 - Android

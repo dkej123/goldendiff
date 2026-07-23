@@ -32,6 +32,10 @@
 
       <p>Works with IntelliJ Platform 2024.1 and newer (build 241+), including compatible Android
       Studio releases.</p>
+
+      <p>Optional analytics and diagnostic reporting are disabled by default and can be controlled
+      independently. See the
+      <a href="https://github.com/dkej123/goldendiff/blob/main/docs/privacy.md">privacy policy</a>.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

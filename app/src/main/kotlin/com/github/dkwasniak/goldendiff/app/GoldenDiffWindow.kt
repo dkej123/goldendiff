@@ -105,7 +105,7 @@ private fun Toolbar(state: AppState) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!hasProject) {
-            ToolButton("Open project…") { chooseDirectory("Select project directory")?.let(state::openProject) }
+            ToolButton("Open project…") { chooseDirectory("Select project directory")?.let { state.openProject(it) } }
         }
         ToolButton("Settings", enabled = hasProject) { state.settingsVisible = true }
         ToolButton("Refresh", enabled = hasProject) { state.forceRefresh() }
@@ -113,6 +113,7 @@ private fun Toolbar(state: AppState) {
         DropdownButton("Scope", state.browse, Browse.entries.toList(), Browse::label, hasProject) { state.selectBrowse(it) }
         if (state.browse == Browse.FILES) {
             ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
+                state.featureUsed("quick_open")
                 state.quickOpenQuery = ""
                 state.quickOpenVisible = true
             }
@@ -139,7 +140,7 @@ private fun TabStrip(state: AppState) {
             Tab(
                 label = File(path).name,
                 active = state.selectedSourcePath == path,
-                onClick = { state.selectSourceFile(path) },
+                onClick = { state.selectSourceFile(path, "tab") },
                 onClose = { state.closeTab(path) },
             )
         }
@@ -284,8 +285,14 @@ fun FileContextMenu(state: AppState, file: File, canDelete: Boolean, content: @C
     ContextMenuArea(
         items = {
             buildList {
-                add(ContextMenuItem(showInFileManagerLabel()) { RevealInFileManager.reveal(file) })
-                add(ContextMenuItem("Copy Absolute Path") { copyToClipboard(file.absolutePath) })
+                add(ContextMenuItem(showInFileManagerLabel()) {
+                    state.featureUsed("reveal_in_file_manager")
+                    RevealInFileManager.reveal(file)
+                })
+                add(ContextMenuItem("Copy Absolute Path") {
+                    state.featureUsed("copy_path")
+                    copyToClipboard(file.absolutePath)
+                })
                 if (canDelete && file.isFile) {
                     add(ContextMenuItem("Delete") {
                         val answer = JOptionPane.showConfirmDialog(

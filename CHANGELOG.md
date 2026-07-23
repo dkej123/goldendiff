@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.2] - 2026-07-23
+
+### Added
+- Optional anonymous product analytics for the standalone app and public IDE plugin, with separate
+  consent from crash reporting and controls in Settings.
+- Product-health tracking for activation, retention, feature adoption, scans, comparisons and
+  versions, split between the standalone app and IntelliJ plugin without collecting filenames,
+  project paths, source code or image content.
+- Privacy documentation describing the complete telemetry payload and opt-out behavior.
+
+### Changed
+- Product analytics is processed by Amplitude in its European data region. Diagnostic exceptions and
+  privacy-safe performance spans remain in separate Sentry EU projects.
+
 ## [1.5.0-beta.1] - 2026-07-23
 
 ### Added

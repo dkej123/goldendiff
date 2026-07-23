@@ -80,11 +80,12 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
                 fontSize = 10.sp,
                 fontFamily = Type.Mono,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).hoverWash().clickable {
+                    state.featureUsed("quick_open")
                     state.quickOpenQuery = ""
                     state.quickOpenVisible = true
                 }.padding(horizontal = 4.dp, vertical = 2.dp),
             )
-            IconButton(size = 18.dp, onClick = { state.ui.toggleLeftPane() }) {
+            IconButton(size = 18.dp, onClick = state::toggleLeftPane) {
                 Chevron(Direction.LEFT, tokens.textFaint)
             }
         }
@@ -170,7 +171,7 @@ fun CollapsedProjectEdge(state: AppState, modifier: Modifier) {
     Box(
         modifier.width(14.dp).clip(RoundedCornerShape(Dimens.controlRadius))
             .background(tokens.panel).border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
-            .hoverWash().clickable { state.ui.toggleLeftPane() },
+            .hoverWash().clickable { state.toggleLeftPane() },
         contentAlignment = Alignment.Center,
     ) {
         Chevron(Direction.RIGHT, tokens.textFaint)

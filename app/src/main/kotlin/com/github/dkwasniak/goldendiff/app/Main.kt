@@ -19,6 +19,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.github.dkwasniak.goldendiff.app.generated.resources.Res
 import com.github.dkwasniak.goldendiff.app.generated.resources.app_icon
 import com.github.dkwasniak.goldendiff.platform.Os
+import kotlinx.coroutines.CoroutineExceptionHandler
 import org.jetbrains.compose.resources.painterResource
 
 fun main() {
@@ -31,16 +32,26 @@ fun main() {
             if (preferences.useDarkTheme) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",
         )
     }
+    AppTelemetry.installUncaughtExceptionBridge()
+    AppTelemetry.startSession(projectRestored = AppConfig.lastProject() != null)
     application {
-        val scope = rememberCoroutineScope()
-        val state = remember { AppState(scope, preferences) }
+        val coroutineExceptionHandler = remember {
+            CoroutineExceptionHandler { _, throwable ->
+                AppTelemetry.client.captureException(throwable, "coroutine:${throwable.javaClass.name}")
+            }
+        }
+        val scope = rememberCoroutineScope { coroutineExceptionHandler }
+        val state = remember { AppState(scope, preferences, AppTelemetry.client) }
 
         LaunchedEffect(Unit) {
-            AppConfig.lastProject()?.let(state::openProject)
+            AppConfig.lastProject()?.let { state.openProject(it, restored = true) }
         }
 
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                state.close()
+                exitApplication()
+            },
             title = "Golden Diff",
             icon = painterResource(Res.drawable.app_icon),
             state = rememberWindowState(size = DpSize(1400.dp, 900.dp)),
@@ -50,6 +61,7 @@ fun main() {
                 when {
                     event.type != KeyEventType.KeyDown -> false
                     Shortcuts.isQuickOpen(event) -> {
+                        state.featureUsed("quick_open")
                         state.quickOpenQuery = ""
                         state.quickOpenVisible = true
                         true
@@ -71,6 +83,7 @@ fun main() {
 
         // The compare pane detached into its own window; follows the live selection.
         if (state.compareWindowVisible) ComparisonWindow(state) { state.compareWindowVisible = false }
+        if (AppTelemetry.consentPromptVisible) TelemetryConsentWindow()
     }
 }
 

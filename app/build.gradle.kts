@@ -22,6 +22,7 @@ repositories {
 dependencies {
     implementation(project(":core"))
     implementation(project(":core-ui"))
+    implementation(project(":telemetry"))
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
@@ -33,6 +34,24 @@ dependencies {
 
     testImplementation(kotlin("stdlib"))
     testImplementation("junit:junit:4.13.2")
+}
+
+val generatedTelemetryResources = layout.buildDirectory.dir("generated/telemetry-resources")
+val telemetryVersion = version.toString()
+val generateTelemetryResources = tasks.register<WriteProperties>("generateTelemetryResources") {
+    val dsn = providers.gradleProperty("sentryAppDsn").orElse("")
+    val amplitudeApiKey = providers.gradleProperty("amplitudeApiKey").orElse("")
+    destinationFile = generatedTelemetryResources.map { it.file("golden-diff-telemetry.properties") }.get().asFile
+    property("sentry.dsn", dsn)
+    property("amplitude.api_key", amplitudeApiKey)
+    property("version", telemetryVersion)
+}
+
+sourceSets.main {
+    resources.srcDir(generatedTelemetryResources)
+}
+tasks.named("processResources") {
+    dependsOn(generateTelemetryResources)
 }
 
 kotlin {

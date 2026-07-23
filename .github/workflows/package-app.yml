@@ -18,6 +18,8 @@ on:
 
 jobs:
   package:
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +39,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - run: ./gradlew :app:${{ matrix.task }}
+      - name: Build app package
+        env:
+          ORG_GRADLE_PROJECT_sentryAppDsn: ${{ secrets.SENTRY_APP_DSN }}
+        run: ./gradlew :app:${{ matrix.task }}
 
       - name: Prepare macOS release asset
         if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))
@@ -71,6 +76,17 @@ jobs:
           echo "APP_RELEASE_NAME=$APP_RELEASE_NAME" >> "$GITHUB_ENV"
           echo "APP_DMG=$ASSET_DMG" >> "$GITHUB_ENV"
           echo "APP_DMG_SHA256=$(shasum -a 256 "$ASSET_DMG" | awk '{ print $1 }')" >> "$GITHUB_ENV"
+
+      - name: Create Sentry release
+        if: env.SENTRY_AUTH_TOKEN != '' && matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_ORG: damian-kwasniak-consulting
+          SENTRY_PROJECT: golden-diff-app
+        with:
+          environment: ${{ env.APP_CHANNEL }}
+          release: golden-diff-app@${{ env.APP_VERSION }}
+          set_commits: auto
 
       - name: Publish macOS app release
         if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))

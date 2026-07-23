@@ -23,6 +23,8 @@ jobs:
   publish:
     name: Publish to JetBrains Marketplace
     runs-on: macos-latest
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
     steps:
       - name: Checkout
@@ -62,11 +64,13 @@ jobs:
             exit 1
           fi
 
+          echo "PLUGIN_VERSION=$PLUGIN_VERSION" >> "$GITHUB_ENV"
           echo "MARKETPLACE_CHANNEL=$MARKETPLACE_CHANNEL" >> "$GITHUB_ENV"
 
       - name: Publish plugin
         env:
           ORG_GRADLE_PROJECT_intellijPlatformPublishingToken: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          ORG_GRADLE_PROJECT_sentryPluginDsn: ${{ secrets.SENTRY_PLUGIN_DSN }}
         shell: bash
         run: |
           CHANNEL_ARGUMENT=()
@@ -74,3 +78,14 @@ jobs:
             CHANNEL_ARGUMENT+=("-PmarketplaceChannel=$MARKETPLACE_CHANNEL")
           fi
           ./gradlew :public-plugin:publishPlugin --stacktrace "${CHANNEL_ARGUMENT[@]}"
+
+      - name: Create Sentry release
+        if: env.SENTRY_AUTH_TOKEN != '' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/beta-v'))
+        uses: getsentry/action-release@v3
+        env:
+          SENTRY_ORG: damian-kwasniak-consulting
+          SENTRY_PROJECT: golden-diff-plugin
+        with:
+          environment: ${{ env.MARKETPLACE_CHANNEL == 'beta' && 'beta' || 'stable' }}
+          release: golden-diff-plugin@${{ env.PLUGIN_VERSION }}
+          set_commits: auto

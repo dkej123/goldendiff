@@ -175,7 +175,7 @@ private fun GoldenGrid(state: AppState, focusRequester: FocusRequester) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     GoldenCard(state, item, cardWidth) {
                         focusRequester.requestFocus()
-                        state.select(item.file)
+                        state.select(item.file, "grid")
                     }
                 }
             }
