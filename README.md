@@ -55,19 +55,10 @@ point the plugin at the golden directory.
 Compatible with JetBrains IDEs based on IntelliJ Platform **2024.1 and newer (build 241+)**,
 including compatible Android Studio releases.
 
-### Standalone macOS app via Homebrew
+### Standalone macOS beta via Homebrew
 
-The desktop application can be installed and upgraded with Homebrew:
-
-```bash
-brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git
-brew install --cask dkej123/goldendiff/golden-diff
-```
-
-Later releases are picked up by the usual `brew update` and
-`brew upgrade --cask golden-diff`. The app includes its Java runtime, so no JDK is required.
-
-Preview releases use a separate, conflicting cask. Copy and run:
+The standalone desktop app is currently available **only as a beta**. There is no Stable desktop cask
+yet; Stable currently refers to the IDE plugin release channel. Copy and run:
 
 ```bash
 brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
@@ -82,7 +73,6 @@ quarantine attribute after installation:
 xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 ```
 
-If the stable cask is already installed, run `brew uninstall --cask golden-diff` first.
 Use `brew upgrade --cask golden-diff@beta` for later beta builds.
 
 ## Use

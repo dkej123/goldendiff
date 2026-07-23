@@ -50,38 +50,10 @@ If you have a `golden-diff-<version>.zip` (for example a build you produced your
 3. Select the zip file.
 4. Restart the IDE.
 
-## Install the standalone macOS app with Homebrew
+## Install the standalone macOS beta with Homebrew
 
-The desktop application is distributed as a Homebrew Cask. Add this repository as a tap once, then
-install the app:
-
-```bash
-brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git
-brew install --cask dkej123/goldendiff/golden-diff
-```
-
-Homebrew installs `Golden Diff.app` in `/Applications`. To update or remove it later:
-
-```bash
-brew upgrade --cask golden-diff
-brew uninstall --cask golden-diff
-```
-
-The DMG includes the Java runtime; users do not need to install a JDK. The explicit repository URL in
-the `brew tap` command is required because this repository predates Homebrew's `homebrew-<tap>` GitHub
-naming convention. The current build is ad-hoc signed but not notarized; if macOS blocks its first
-launch, allow **Golden Diff** in **System Settings → Privacy & Security** and open it again.
-
-### Install the Homebrew beta
-
-The beta and stable casks both install `Golden Diff.app`, so Homebrew intentionally treats them as
-conflicting. If Stable is installed, remove it first:
-
-```bash
-brew uninstall --cask golden-diff
-```
-
-Then copy and run the beta installation command:
+The standalone desktop app is currently available **only as a beta**. There is no Stable desktop cask
+yet; Stable currently refers to the IDE plugin release channel. Copy and run:
 
 ```bash
 brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
@@ -98,12 +70,12 @@ If you trust this repository, remove only Golden Diff's quarantine attribute aft
 xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 ```
 
-Update or leave the beta channel with:
+The DMG includes the Java runtime, so users do not need to install a JDK. Update or remove the beta
+with:
 
 ```bash
 brew upgrade --cask golden-diff@beta
 brew uninstall --cask golden-diff@beta
-brew install --cask dkej123/goldendiff/golden-diff
 ```
 
 ## Install the internal Figma add-on (team only)
