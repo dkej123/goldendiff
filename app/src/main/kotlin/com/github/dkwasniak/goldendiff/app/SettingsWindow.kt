@@ -129,6 +129,11 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        Text(
+                            "Golden Diff ${AppTelemetry.appVersion}",
+                            color = tokens.textFaint,
+                            fontSize = Type.small,
+                        )
                         Spacer(Modifier.weight(1f))
                         GhostButton("Cancel", onClose)
                         PrimaryButton("Done", onClick = onClose)

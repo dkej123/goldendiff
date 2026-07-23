@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.3] - 2026-07-23
+
+### Added
+- The desktop Settings footer now shows the exact installed Golden Diff version.
+
 ## [1.5.0-beta.2] - 2026-07-23
 
 ### Added
