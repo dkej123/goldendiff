@@ -1,6 +1,6 @@
 cask "golden-diff@beta" do
   version "1.5.0-beta.1"
-  sha256 "dd20ea14957c2f7f8de510fef68411aa24754a41306fd335cd748552963b0f87"
+  sha256 "73a97ec32978651632992422f92e1d1e9c83c84c89b93dac6639d42291179157"
 
   url "https://github.com/dkej123/goldendiff/releases/download/app-beta-v#{version}/Golden-Diff-#{version}.dmg"
   name "Golden Diff Beta"
@@ -17,7 +17,12 @@ cask "golden-diff@beta" do
   caveats <<~EOS
     This cask follows the Golden Diff beta channel.
 
-    Golden Diff is currently ad-hoc signed and not notarized. If macOS blocks the first launch,
-    allow Golden Diff in System Settings > Privacy & Security, then open it again.
+    Golden Diff is currently ad-hoc signed and not notarized. Homebrew verifies the release checksum,
+    but Gatekeeper still quarantines the app. If you trust this repository, run after installation:
+
+      xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
+
+    Why this is needed:
+    https://github.com/dkej123/goldendiff/blob/beta/docs/installation.md#install-the-homebrew-beta
   EOS
 end

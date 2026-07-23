@@ -75,11 +75,27 @@ launch, allow **Golden Diff** in **System Settings → Privacy & Security** and 
 ### Install the Homebrew beta
 
 The beta and stable casks both install `Golden Diff.app`, so Homebrew intentionally treats them as
-conflicting. Remove the stable cask before opting into beta:
+conflicting. If Stable is installed, remove it first:
 
 ```bash
-brew uninstall --cask golden-diff # skip when stable is not installed
-brew install --cask dkej123/goldendiff/golden-diff@beta
+brew uninstall --cask golden-diff
+```
+
+Then copy and run the beta installation command:
+
+```bash
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
+```
+
+Golden Diff is currently ad-hoc signed and not notarized because the project does not use a paid Apple
+Developer ID certificate. Homebrew verifies the immutable DMG against the SHA-256 checksum stored in
+the cask, but Gatekeeper does not treat that checksum as an Apple developer identity. macOS therefore
+quarantines the downloaded application and can block its first launch.
+
+If you trust this repository, remove only Golden Diff's quarantine attribute after installation:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 ```
 
 Update or leave the beta channel with:

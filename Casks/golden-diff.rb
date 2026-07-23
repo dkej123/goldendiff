@@ -15,7 +15,12 @@ cask "golden-diff" do
   zap trash: "~/.config/golden-diff"
 
   caveats <<~EOS
-    Golden Diff is currently ad-hoc signed and not notarized. If macOS blocks the first launch,
-    allow Golden Diff in System Settings > Privacy & Security, then open it again.
+    Golden Diff is currently ad-hoc signed and not notarized. Homebrew verifies the release checksum,
+    but Gatekeeper still quarantines the app. If you trust this repository, run after installation:
+
+      xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
+
+    Why this is needed:
+    https://github.com/dkej123/goldendiff/blob/beta/docs/installation.md#install-the-homebrew-beta
   EOS
 end
