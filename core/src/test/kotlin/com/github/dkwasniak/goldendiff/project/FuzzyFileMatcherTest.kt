@@ -25,6 +25,20 @@ class FuzzyFileMatcherTest {
     }
 
     @Test
+    fun `camel case initials find a screen`() {
+        val candidates = listOf(
+            "core/src/main/LocationDetails.kt",
+            "presentation/src/main/LocationDetailsScreen.kt",
+            "presentation/src/main/LocationDetailsViewModel.kt",
+        )
+
+        assertEquals(
+            "presentation/src/main/LocationDetailsScreen.kt",
+            FuzzyFileMatcher.search(candidates, "LDS").first().path,
+        )
+    }
+
+    @Test
     fun `exact file name wins`() {
         assertEquals("app/src/main/kotlin/LoginScreen.kt", best("LoginScreen.kt"))
     }

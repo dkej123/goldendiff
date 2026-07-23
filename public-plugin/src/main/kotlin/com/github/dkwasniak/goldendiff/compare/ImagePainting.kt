@@ -32,6 +32,9 @@ object ImagePainting {
     fun bottomRect(imgW: Int, imgH: Int, scale: Double, area: Rectangle): Rectangle =
         ImageLayout.bottomRect(imgW, imgH, scale, area.toLayout()).toAwt()
 
+    fun centeredRect(imgW: Int, imgH: Int, scale: Double, area: Rectangle): Rectangle =
+        ImageLayout.centeredRect(imgW, imgH, scale, area.toLayout()).toAwt()
+
     fun fitRect(imgW: Int, imgH: Int, areaW: Int, areaH: Int): Rectangle =
         ImageLayout.fitRect(imgW, imgH, areaW, areaH).toAwt()
 
@@ -61,7 +64,7 @@ object ImagePainting {
 
     /**
      * Draw [image] to fill [rect] exactly. Callers always pass a rect already at the image's aspect
-     * ratio (from [renderRect] / [bottomRect]), so filling it directly avoids a second aspect-fit whose
+     * ratio (from [renderRect], [bottomRect], or [centeredRect]), so filling it directly avoids a second aspect-fit whose
      * independent rounding could leave the image ~1px short of [rect] — which let the checkerboard,
      * painted on the full [rect], peek out as a thin sliver on one edge.
      */

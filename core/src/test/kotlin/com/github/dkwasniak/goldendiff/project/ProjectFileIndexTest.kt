@@ -50,6 +50,25 @@ class ProjectFileIndexTest {
     }
 
     @Test
+    fun `all dot-prefixed directories are hidden from the index`() {
+        write("src/Keep.kt")
+        write(".agents/config.md")
+        write("feature/.generated/Hidden.kt")
+        write(".github/workflows/build.yml")
+
+        assertEquals(listOf("src/Keep.kt"), ProjectFileIndex.scan(root).paths)
+    }
+
+    @Test
+    fun `dot-prefixed files are hidden from the index`() {
+        write("src/Keep.kt")
+        write("src/.editorconfig")
+        write(".env")
+
+        assertEquals(listOf("src/Keep.kt"), ProjectFileIndex.scan(root).paths)
+    }
+
+    @Test
     fun `a directory named like a skipped one but nested is still skipped`() {
         write("modules/feature/build/Generated.kt")
         write("modules/feature/src/Real.kt")

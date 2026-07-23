@@ -30,7 +30,7 @@ comparison source, the comparison is skipped and you just get a single preview l
   output mode.
 - Offers side-by-side, swipe, onion-skin, and pixel-diff comparison modes.
 - Keeps screenshot directories project-local.
-- Supports IntelliJ Platform 2025.1 (build 251). Compose/Jewel compatibility is bounded to `251.*`.
+- Supports IntelliJ Platform 2024.1 and newer (build 241+) with no upper build limit.
 
 ## Works with any screenshot tool
 It only needs PNG goldens committed to git, whose paths contain the method, class, or file name. That
@@ -42,13 +42,39 @@ point the plugin at the golden directory.
 - In the IDE: **Settings → Plugins → Marketplace**, search for **Golden Diff**, click **Install**.
 - Or from the web: [plugins.jetbrains.com/plugin/32662-golden-diff](https://plugins.jetbrains.com/plugin/32662-golden-diff).
 
+**Beta channel:**
+1. Open **Settings → Plugins → ⚙ → Manage Plugin Repositories…** and add
+   `https://plugins.jetbrains.com/plugins/beta/32662`.
+2. Return to **Marketplace**, search for **Golden Diff**, and install or update it.
+
 **From a local zip:**
 1. Build the plugin (see below) or grab `public-plugin/build/distributions/golden-diff-<ver>.zip`.
 2. **Settings → Plugins → ⚙ → Install Plugin from Disk…** → select the zip.
 3. Restart Android Studio.
 
-Compatible with JetBrains IDEs based on IntelliJ Platform **2025.1 (build 251)**, including Android
-Studio Narwhal releases on that platform line.
+Compatible with JetBrains IDEs based on IntelliJ Platform **2024.1 and newer (build 241+)**,
+including compatible Android Studio releases.
+
+### Standalone macOS app via Homebrew
+
+The desktop application can be installed and upgraded with Homebrew:
+
+```bash
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git
+brew install --cask dkej123/goldendiff/golden-diff
+```
+
+Later releases are picked up by the usual `brew update` and
+`brew upgrade --cask golden-diff`. The app includes its Java runtime, so no JDK is required.
+
+Preview releases use a separate, conflicting cask:
+
+```bash
+brew uninstall --cask golden-diff # only if stable is currently installed
+brew install --cask dkej123/goldendiff/golden-diff@beta
+```
+
+Use `brew upgrade --cask golden-diff@beta` for later beta builds.
 
 ## Use
 1. Open the **Golden Diff** tool window (right edge).

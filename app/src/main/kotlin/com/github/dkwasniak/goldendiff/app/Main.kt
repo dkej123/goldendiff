@@ -16,39 +16,61 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.github.dkwasniak.goldendiff.app.generated.resources.Res
+import com.github.dkwasniak.goldendiff.app.generated.resources.app_icon
 import com.github.dkwasniak.goldendiff.platform.Os
+import org.jetbrains.compose.resources.painterResource
 
-fun main() = application {
-    val scope = rememberCoroutineScope()
-    val state = remember { AppState(scope) }
-
-    LaunchedEffect(Unit) {
-        AppConfig.lastProject()?.let(state::openProject)
+fun main() {
+    // Read before AWT starts: the native window chrome takes its appearance from this property once,
+    // at initialisation, so setting it later would leave a dark title bar over a light window.
+    val preferences = UiPreferences.load()
+    if (Os.current == Os.MAC) {
+        System.setProperty(
+            "apple.awt.application.appearance",
+            if (preferences.useDarkTheme) "NSAppearanceNameDarkAqua" else "NSAppearanceNameAqua",
+        )
     }
+    application {
+        val scope = rememberCoroutineScope()
+        val state = remember { AppState(scope, preferences) }
 
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = "Golden Diff",
-        state = rememberWindowState(size = DpSize(1400.dp, 900.dp)),
-        onPreviewKeyEvent = { event ->
-            // Previewed at the window rather than bound to a component, so the shortcut works wherever
-            // focus happens to be - the tree, the list, or nothing at all.
-            when {
-                event.type != KeyEventType.KeyDown -> false
-                Shortcuts.isQuickOpen(event) -> {
-                    state.quickOpenQuery = ""
-                    state.quickOpenVisible = true
-                    true
+        LaunchedEffect(Unit) {
+            AppConfig.lastProject()?.let(state::openProject)
+        }
+
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "Golden Diff",
+            icon = painterResource(Res.drawable.app_icon),
+            state = rememberWindowState(size = DpSize(1400.dp, 900.dp)),
+            onPreviewKeyEvent = { event ->
+                // Previewed at the window rather than bound to a component, so the shortcut works wherever
+                // focus happens to be - the tree, the list, or nothing at all.
+                when {
+                    event.type != KeyEventType.KeyDown -> false
+                    Shortcuts.isQuickOpen(event) -> {
+                        state.quickOpenQuery = ""
+                        state.quickOpenVisible = true
+                        true
+                    }
+                    event.key == Key.Escape && state.quickOpenVisible -> {
+                        state.quickOpenVisible = false
+                        true
+                    }
+                    else -> false
                 }
-                event.key == Key.Escape && state.quickOpenVisible -> {
-                    state.quickOpenVisible = false
-                    true
-                }
-                else -> false
-            }
-        },
-    ) {
-        GoldenDiffWindow(state)
+            },
+        ) {
+            GoldenDiffWindow(state)
+        }
+
+        // A real second window rather than an overlay, so the comparison stays visible while the
+        // golden directories are being set up.
+        if (state.settingsVisible) SettingsWindow(state) { state.settingsVisible = false }
+
+        // The compare pane detached into its own window; follows the live selection.
+        if (state.compareWindowVisible) ComparisonWindow(state) { state.compareWindowVisible = false }
     }
 }
 

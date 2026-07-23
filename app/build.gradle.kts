@@ -25,6 +25,7 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material)
+    implementation(compose.components.resources)
     // Unlike the plugin - which must take Compose from the IDE - the app ships its own runtime, so
     // the Kotlin stdlib has to be a real dependency here (the root disables it by default for the
     // plugin modules).
@@ -59,7 +60,25 @@ compose.desktop {
             // change here.
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Golden Diff"
-            packageVersion = providers.gradleProperty("pluginVersion").get()
+            // jpackage maps this to native package metadata, which must remain numeric on macOS.
+            // Prerelease labels stay in pluginVersion and are used by release assets/Homebrew.
+            packageVersion = providers.gradleProperty("appPackageVersion")
+                .orElse(providers.gradleProperty("pluginVersion"))
+                .get()
+
+            macOS {
+                iconFile.set(project.file("src/main/resources/app-icon.icns"))
+            }
+            windows {
+                iconFile.set(project.file("src/main/resources/app-icon.ico"))
+            }
+            linux {
+                iconFile.set(project.file("src/main/resources/app-icon.png"))
+            }
         }
     }
+}
+
+compose.resources {
+    packageOfResClass = "com.github.dkwasniak.goldendiff.app.generated.resources"
 }

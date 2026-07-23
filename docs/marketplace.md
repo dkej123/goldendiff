@@ -28,7 +28,7 @@ Screenshot Testing, Shot, and similar screenshot-test tools.
   output files to an already selected golden in Test output mode.
 - Review changes in side-by-side, swipe, and onion-skin modes.
 - Zoom and scroll large screenshots.
-- Works with IntelliJ Platform 2025.1 (build 251 / `251.*`).
+- Works with IntelliJ Platform 2024.1 and newer (build 241+).
 
 ## Suggested Tags
 - Android
@@ -57,9 +57,23 @@ plugin), then the token-based workflow can take over:
 Screenshots/GIF are still worth adding to the listing if not present yet.
 
 ## Automated Publishing
-Pushing a `v*` tag now triggers **both** workflows: `Release` (GitHub Release with the built zip) and
-`Publish Plugin` (upload to JetBrains Marketplace). `Publish Plugin` can also still be run manually via
-**Actions → Publish Plugin → Run workflow**.
+
+Stable and beta builds retain the same Marketplace listing and plugin ID:
+
+| Channel | Tag | Marketplace repository |
+|---|---|---|
+| Stable | `v<version>` | Default repository |
+| Beta | `beta-v<version>` | `https://plugins.jetbrains.com/plugins/beta/32662` |
+
+Pushing a stable `v*` tag triggers **both** workflows: `Release` (GitHub Release with the built zip)
+and `Publish Plugin` (upload to the default JetBrains Marketplace channel). Pushing
+`beta-v*` triggers only `Publish Plugin`, with `marketplaceChannel=beta`. In both cases the tag version
+must exactly match `pluginVersion` in `gradle.properties`.
+
+`Publish Plugin` can also be run manually via **Actions → Publish Plugin → Run workflow**, with an
+explicit Stable/Beta channel choice. Beta users must add the repository above in the IDE. JetBrains
+currently gives a custom channel precedence over Stable, so when a beta becomes stable, publish the
+stable artifact to both channels before ending the beta line.
 
 Required repository secret:
 
@@ -82,3 +96,18 @@ The token is generated from the JetBrains Marketplace profile page under **My To
   ```
 - Pushing the tag triggers both the `Release` and `Publish Plugin` workflows automatically.
 - Confirm the GitHub Release attaches the ZIP and that `Publish Plugin` succeeded.
+
+## Beta Release Checklist
+
+- Work on the `beta` branch and use a unique prerelease version such as `1.5.0-beta.1`.
+- Update `pluginVersion`, `CHANGELOG.md`, and the Marketplace change notes.
+- Run the same tests, ZIP inspection, and Plugin Verifier checks as for Stable.
+- Create the beta tag and push the branch and tag:
+  ```bash
+  git push -u origin beta
+  git tag beta-v1.5.0-beta.1
+  git push origin beta-v1.5.0-beta.1
+  ```
+- Confirm the update appears in the `beta` channel rather than Stable.
+- When promoting the build, merge `beta` into `main`, use a stable version such as `1.5.0`, and publish
+  it to Stable and Beta so existing beta subscribers receive it.

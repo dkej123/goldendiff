@@ -50,6 +50,13 @@ object FuzzyFileMatcher {
         val prefix = candidate.startsWith(query, ignoreCase = true)
         if (prefix) return 700 - candidate.length.coerceAtMost(200)
 
+        // Initials of CamelCase words are a first-class match: LDS should find
+        // LocationDetailsScreen.kt, just like IntelliJ's Go to File.
+        val acronym = camelHumpAcronym(candidate)
+        if (acronym.startsWith(query, ignoreCase = true)) {
+            return 800 - candidate.length.coerceAtMost(200)
+        }
+
         val contains = candidate.contains(query, ignoreCase = true)
         if (contains) return 500 - candidate.length.coerceAtMost(200)
 
@@ -93,6 +100,13 @@ object FuzzyFileMatcher {
         val prev = text[index - 1]
         if (!prev.isLetterOrDigit()) return true
         return c.isUpperCase() && !prev.isUpperCase()
+    }
+
+    private fun camelHumpAcronym(candidate: String): String {
+        val name = candidate.substringAfterLast('/').substringBeforeLast('.')
+        return buildString {
+            name.indices.filter { isHump(name, it) }.forEach { append(name[it]) }
+        }
     }
 
     private fun Char.equalsIgnoreCase(other: Char): Boolean =

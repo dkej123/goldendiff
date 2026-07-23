@@ -71,13 +71,14 @@ class ProjectFileIndex private constructor(
             val children = dir.listFiles() ?: return
             for (child in children) {
                 if (child.isDirectory) {
-                    if (child.name in skipped) continue
+                    if (child.name.startsWith('.') || child.name in skipped) continue
                     // Symlinked directories are not descended into at all. Following them risks an
                     // infinite loop - a link to any ancestor is enough - and source trees rarely
                     // depend on them for reachability.
                     if (Files.isSymbolicLink(child.toPath())) continue
                     collect(root, child, skipped, into)
                 } else {
+                    if (child.name.startsWith('.')) continue
                     into.add(child.relativeTo(root).path.replace(File.separatorChar, '/'))
                 }
             }

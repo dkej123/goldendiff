@@ -1,9 +1,7 @@
-// Comparison views in Compose, shared by the standalone app and (once its UI migrates) the plugin.
+// Comparison views in Compose, used exclusively by the standalone desktop app.
 //
-// Compose is `compileOnly` on purpose. The two hosts obtain it differently: the standalone app ships
-// its own runtime, while an IntelliJ plugin MUST take Compose, Skiko and Jewel from the platform -
-// bundling a second copy puts the same classes on two classloaders inside one process and breaks.
-// Declaring it `implementation` here would quietly drag Compose into the plugin ZIP.
+// Compose is `compileOnly` on purpose: the app supplies the runtime. Keeping the runtime out of this
+// library also makes the module boundary explicit and prevents accidental dependency leakage.
 plugins {
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.kotlin.plugin.compose")

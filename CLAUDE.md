@@ -9,9 +9,9 @@ output directories.
 
 ## Fast facts
 - **Five Gradle modules.** `:core` (tool-agnostic logic — matching, git, pixel diff, file index; **no
-  IntelliJ, no UI**), `:core-ui` (comparison canvases in Compose, **Compose is `compileOnly`**),
-  `:public-plugin`, `:internal-plugin`, `:app` (standalone desktop application). The plugins and the
-  app share `:core`; the app is built and supported on **macOS only** for now, with Windows/Linux
+  IntelliJ, no UI**), `:core-ui` (app-only comparison canvases in Compose, **Compose is `compileOnly`**),
+  `:public-plugin` (Swing UI), `:internal-plugin`, `:app` (Compose desktop application). The plugins
+  and app share `:core`; the app is built and supported on **macOS only** for now, with Windows/Linux
   branches written but unverified.
 - **Two Gradle modules → two plugins.** `:public-plugin` = **Golden Diff**
   (`com.github.dkwasniak.goldendiff`, zip `golden-diff-<ver>.zip`), published to Marketplace.
@@ -21,11 +21,9 @@ output directories.
   internal plugin contributes its comparison source through the public plugin's `comparisonSource`
   extension point. (Golden Diff was "Screenshot Compare" / `…screenshotcompare` — re-listed as a new
   Marketplace plugin under the new ID; new numeric ID assigned on first upload.)
-- Target platform: **IntelliJ Platform 2025.1 only (build 251, `251.*`)**. 251 is the floor because
-  Jewel and the Compose platform modules first ship bundled with the platform there; it is also the
-  upper bound because Jewel has no binary-compatibility guarantee across platform branches. Moving to
-  a newer branch means aligning the bundled modules, rebuilding and testing both plugins, then moving
-  `sinceBuild` and `untilBuild` together. Never name a future branch that does not exist.
+- Plugin target platform: **IntelliJ Platform 2024.1+ (build 241+)**, compiled against 2024.1 with no
+  upper build limit. Plugin classes and packaged `core.jar` emit Java 17 bytecode; the Compose app and
+  `:core-ui` remain on Java 21.
 - Toolchain: **JDK 21** (bytecode 21 — 2025.1+ runs on JBR 21), **Gradle 9.6.1**, Kotlin **2.2.20**,
   IntelliJ Platform Gradle Plugin **2.17.0**, Compose Multiplatform **1.8.2**.
 
@@ -50,6 +48,11 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   `./distribution/publish.sh` is only the local fallback. The team installs it once from the custom
   repo (see [docs/installation.md](docs/installation.md)) and then auto-updates.
 - **Public plugin — Marketplace.** Tag `v<ver>` to trigger `release.yml` / `publish-plugin.yml`.
+- **Public plugin beta — Marketplace.** Work on `beta`; tag `beta-v<ver>` to publish the same plugin
+  ID to the Marketplace `beta` channel. Testers add
+  `https://plugins.jetbrains.com/plugins/beta/32662`.
+- **Desktop app.** `app-v<ver>` publishes Stable and updates `golden-diff`; `app-beta-v<ver>` creates
+  a GitHub prerelease and updates `golden-diff@beta`. Both casks live on `main`.
 - Details: [docs/build-and-run.md](docs/build-and-run.md#distributing-the-internal-plugin).
 
 ## Before you touch anything, read
@@ -71,13 +74,10 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   resolves core classes through the public plugin's classloader (its parent). Getting this wrong
   compiles fine and only fails at runtime — check with
   `unzip -l public-plugin/build/distributions/golden-diff-*.zip`.
-- **Compose is `compileOnly` in `:core-ui`.** The app ships its own runtime; a plugin must take
-  Compose/Skiko/Jewel from the platform, and a second copy in one process breaks the classloaders.
-- The tool window uses the platform-bundled **Compose + Jewel** modules, which are experimental and
-  branch-specific; both plugin descriptors therefore stay bounded to the platform line they were
-  compiled and visually tested against. Compose/Skiko/Jewel must come from `bundledModule` +
-  `<module>`, never plugin-bundled jars. The remaining IDE integration uses stable platform APIs plus
-  Kotlin PSI and Git4Idea; do not add Kotlin Analysis API calls, so K2 support remains valid.
+- **Compose is `compileOnly` in app-only `:core-ui`.** The app ships its own runtime; neither plugin
+  may depend on `:core-ui` or package Compose/Skiko/Jewel.
+- The plugin tool window is Swing and its open-ended 241+ range relies on stable platform APIs plus
+  Kotlin PSI and Git4Idea. Do not add Kotlin Analysis API calls, so K2 support remains valid.
 - After any build, **read the Gradle log for `BUILD SUCCESSFUL/FAILED`** — do not trust a piped exit
   code (see gotchas: `| tail` hides the real status).
 - Commit messages and release notes must not mention AI tools or assistants, including Codex or Claude.

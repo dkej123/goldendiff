@@ -3,8 +3,7 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 // Single source of truth for the compatibility floor: consumed both by `ideaVersion` below and by the
 // `<idea-version>` element that `generateUpdatePluginsXml` writes. These used to drift apart, which is
 // invisible at build time and only surfaces as a bad offer in the custom plugin repository.
-val pluginSinceBuild = "251"
-val pluginUntilBuild = "251.*"
+val pluginSinceBuild = "241"
 
 plugins {
     id("java")
@@ -70,9 +69,8 @@ intellijPlatform {
         ideaVersion {
             // Must not be lower than the public plugin's: this one <depends> on it, so offering it to
             // an IDE that cannot install the public plugin would strand the user. The upper bound
-            // must match too, because the parent plugin's Compose/Jewel UI is branch-specific.
             sinceBuild = pluginSinceBuild
-            untilBuild = pluginUntilBuild
+            untilBuild = provider { null }
         }
     }
 }
@@ -81,7 +79,12 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Bytecode 21: IntelliJ 2025.1+ runs on JBR 21. See the matching note in public-plugin/build.gradle.kts.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
+}
 
 tasks.named<Zip>("buildPlugin") {
     archiveBaseName.set("golden-diff-figma")
@@ -106,11 +109,9 @@ tasks.register("generateUpdatePluginsXml") {
     val zipFile = buildPlugin.flatMap { it.archiveFile }
     val outputFile = layout.buildDirectory.file("distributions/updatePlugins.xml")
     val sinceBuild = pluginSinceBuild
-    val untilBuild = pluginUntilBuild
     inputs.property("version", pluginVersion)
     inputs.property("baseUrl", baseUrl)
     inputs.property("sinceBuild", sinceBuild)
-    inputs.property("untilBuild", untilBuild)
     outputs.file(outputFile)
     doLast {
         val zipName = zipFile.get().asFile.name
@@ -122,7 +123,7 @@ tasks.register("generateUpdatePluginsXml") {
               <plugin id="$pluginId" url="${baseUrl.get().trimEnd('/')}/$zipName" version="$pluginVersion">
                 <name>$pluginName</name>
                 <vendor>$vendor</vendor>
-                <idea-version since-build="$sinceBuild" until-build="$untilBuild"/>
+                <idea-version since-build="$sinceBuild"/>
                 <depends>$dependsOnId</depends>
                 <description><![CDATA[Adds a Figma reference comparison source to the Golden Diff plugin.]]></description>
               </plugin>

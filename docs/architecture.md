@@ -1,17 +1,16 @@
 # Architecture
 
-Kotlin. The comparison logic is a plain JVM library; on top of it sit two IntelliJ plugins and a
-standalone desktop application. The public plugin and app share the Compose comparison canvases;
-the plugin wraps its tool window in Jewel so it follows the IDE LaF. Project settings intentionally
-remain Swing to keep the internal Figma plugin independent of Compose.
+Kotlin. The comparison logic is a plain JVM library; on top of it sit two Swing-based IntelliJ
+plugins and a standalone Compose desktop application. The hosts share logic through `:core`, but
+intentionally keep separate UI layers. `:core-ui` contains Compose canvases for the app only.
 
 ## Modules
 
 | Module | What it is | May depend on |
 |---|---|---|
 | `:core` | All tool-agnostic logic: golden matching, git access, pixel diff, change scanning, project file index, config. | JDK only — **never** IntelliJ, Swing or Compose |
-| `:core-ui` | Comparison canvases in Compose. Compose is `compileOnly`. | `:core` |
-| `:public-plugin` | Golden Diff — Compose/Jewel tool window, Kotlin PSI, Swing settings, VCS. | `:core` and `:core-ui` (`implementation`) |
+| `:core-ui` | Compose comparison canvases for the desktop app. Compose is `compileOnly`. | `:core` |
+| `:public-plugin` | Golden Diff — Swing tool window/settings, Kotlin PSI, VCS. | `:core` (`implementation`) |
 | `:internal-plugin` | Golden Diff — Figma. | `:core` (`compileOnly`), `:public-plugin` |
 | `:app` | Standalone desktop app. macOS only for now. | `:core`, `:core-ui` |
 
@@ -63,11 +62,10 @@ never a fork of the public plugin.
 `internal-plugin/src/main/kotlin/…/compare/Figma*`)
 
 - **`toolwindow/`** — UI entry point and the list side.
-  - `ScreenshotToolWindowFactory` — registers the right-anchored tool window (`plugin.xml`) and hosts
-    its content in `JewelComposePanel`.
-  - `ScreenshotToolWindow` — the complete Compose/Jewel tool window: header, adaptive thumbnail grid,
-    draggable split and the shared `:core-ui` canvases. It also owns refresh state and the editor
-    listener and implements `Disposable`. The **Scope** control switches between
+  - `ScreenshotToolWindowFactory` — Java `ToolWindowFactory` that installs `ScreenshotPanel`.
+  - `ScreenshotPanel` — the complete Swing tool window: header, wrapping thumbnail list, draggable
+    split and comparison view. It owns refresh state and the editor listener and implements
+    `Disposable`. The **Scope** control switches between
     current-file matching and a **Project changes** view: working-copy changes come from
     `git status --porcelain` (status derived directly from the porcelain code, no per-file HEAD read);
     test-output changes index the generated tree once and classify goldens with parallel HEAD reads.
@@ -92,17 +90,16 @@ never a fork of the public plugin.
   - `GeneratedImageSource` — resolves the test-output counterpart for a selected golden. It filters
     generated files with the configured regex, uses the first capture group as the golden basename,
     prefers the same relative directory under generated-output roots, and falls back to a full scan.
-  - Rendering is in `:core-ui` (`TwoUpView`, `SwipeView`, `OnionSkinView`, `SingleImageView`). The
-    plugin supplies IDE state, converts `BufferedImage` at the edge and adds controls, labels and
-    scrolling around those shared canvases.
-  - `ImagePainting` — legacy AWT-shaped adapters retained for the public Figma seam and geometry tests;
-    the tool-window renderer does not use its Swing painting helpers.
+  - `CompareView` hosts the Swing `TwoUpPanel`, `SwipePanel`, `OnionSkinPanel`, `DiffPanel` and
+    `SingleImagePanel`, with shared zoom controls. Geometry, transparent borders and pixel-diff data
+    come from `:core` (`ImageLayout`, `TransparentBorder`, `PixelDiff`).
+  - `ImagePainting` adapts the core geometry for Swing painting and remains part of the public Figma seam.
 - **`settings/`** — configuration.
   - `ScreenshotSettings` — project-level `PersistentStateComponent`, holds the list of golden dirs.
   - `ScreenshotConfigurable` — Settings → Tools → Golden Diff (edit the dir list).
 
 ## Data flow
-1. Editor selection changes → `ScreenshotToolWindow.scheduleRefresh()` (debounced ~300 ms).
+1. Editor selection changes → `ScreenshotPanel.scheduleRefresh()` (debounced ~300 ms).
 2. `refresh()` → in **Current file** scope: `CurrentScreen.compute()` (read action, using the
    configured annotation regex) → `GoldenFinder.find()` (using configured golden filename patterns) on
    a pooled thread → `populate()` on the EDT fills the list and picks an initial selection. In
@@ -110,8 +107,8 @@ never a fork of the public plugin.
    or the indexed generated tree (test output) on a pooled thread.
 3. Grid selection → `loadComparison(file)` on a pooled thread: HEAD bytes vs the selected source.
    Source defaults to the working-copy golden, or can be switched to test-generated output.
-   - Bytes equal → a single shared Compose canvas with "No changes vs HEAD".
-   - Otherwise → a Compose comparison state with the four shared modes.
+   - Bytes equal → the Swing single-image panel with "No changes vs HEAD".
+   - Otherwise → the Swing comparison view with all four modes.
 
 ## Threading
 PSI reads via `ReadAction.compute`; scanning / git / image decode on

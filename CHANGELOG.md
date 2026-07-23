@@ -2,17 +2,29 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.1] - 2026-07-23
+
 ### Added
 - **Golden Diff as a standalone desktop application** (macOS). Opens a project directory and compares
   goldens without an IDE: changed-golden list from git, a project file list, IntelliJ's Go to File
   shortcut (`⇧⌘O`), and all four comparison modes. Distributed as a `.dmg` with an embedded Java
   runtime — no JDK required. Windows and Linux are prepared for but not yet built or supported.
+- **Homebrew Cask distribution** for the standalone macOS app. App release tags publish a permanent
+  DMG asset, calculate its checksum and update the Cask automatically.
+- **Beta distribution channels** for both hosts: the IDE plugin can be published to the JetBrains
+  Marketplace `beta` channel, and macOS prereleases are available through the separate
+  `golden-diff@beta` Homebrew Cask.
 
 ### Changed
-- **Minimum IDE version is now 2025.1 (build 251)**; Android Studio Narwhal or newer. Required for the
-  Compose and Jewel platform modules the shared comparison UI will use. Plugin bytecode moves to Java 21.
+- The standalone application keeps its Compose UI, while the IDE plugins use Swing and support
+  IntelliJ Platform 2024.1 and newer (build 241+) without an upper build limit. Plugin code and the
+  packaged core emit Java 17 bytecode; the app remains on Java 21.
 - The comparison logic now lives in a platform-independent `core` module shared by the plugins and the
   application, so both report identical results for the same repository.
+
+### Fixed
+- The standalone app's Onion Skin opacity slider now has a dedicated row below the canvas instead of
+  covering the bottom of the compared screenshot.
 
 ## [1.4.3] - 2026-07-22
 

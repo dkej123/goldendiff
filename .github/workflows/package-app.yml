@@ -6,11 +6,15 @@
 # since the OS-specific branches are already written.
 name: Package app
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
     tags:
       - 'app-v*'
+      - 'app-beta-v*'
 
 jobs:
   package:
@@ -34,6 +38,80 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - run: ./gradlew :app:${{ matrix.task }}
+
+      - name: Prepare macOS release asset
+        if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))
+        shell: bash
+        run: |
+          APP_VERSION="$(awk -F '=' '/^pluginVersion/ { gsub(/[[:space:]]/, "", $2); print $2 }' gradle.properties)"
+          PACKAGE_VERSION="$(awk -F '=' '/^appPackageVersion/ { gsub(/[[:space:]]/, "", $2); print $2 }' gradle.properties)"
+          PACKAGE_VERSION="${PACKAGE_VERSION:-$APP_VERSION}"
+
+          if [[ "$GITHUB_REF_NAME" == app-beta-v* ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#app-beta-v}"
+            APP_CHANNEL="beta"
+            APP_RELEASE_NAME="Golden Diff Desktop ${APP_VERSION} (beta)"
+          else
+            TAG_VERSION="${GITHUB_REF_NAME#app-v}"
+            APP_CHANNEL="stable"
+            APP_RELEASE_NAME="Golden Diff Desktop ${APP_VERSION}"
+          fi
+
+          if [[ "$TAG_VERSION" != "$APP_VERSION" ]]; then
+            echo "Tag version $TAG_VERSION does not match pluginVersion $APP_VERSION" >&2
+            exit 1
+          fi
+
+          SOURCE_DMG="app/build/compose/binaries/main/dmg/Golden Diff-${PACKAGE_VERSION}.dmg"
+          ASSET_DMG="Golden-Diff-${APP_VERSION}.dmg"
+          cp "$SOURCE_DMG" "$ASSET_DMG"
+
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "APP_CHANNEL=$APP_CHANNEL" >> "$GITHUB_ENV"
+          echo "APP_RELEASE_NAME=$APP_RELEASE_NAME" >> "$GITHUB_ENV"
+          echo "APP_DMG=$ASSET_DMG" >> "$GITHUB_ENV"
+          echo "APP_DMG_SHA256=$(shasum -a 256 "$ASSET_DMG" | awk '{ print $1 }')" >> "$GITHUB_ENV"
+
+      - name: Publish macOS app release
+        if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.APP_RELEASE_NAME }}
+          files: ${{ env.APP_DMG }}
+          generate_release_notes: true
+          make_latest: false
+          prerelease: ${{ env.APP_CHANNEL == 'beta' }}
+
+      - name: Update Homebrew Cask
+        if: matrix.task == 'packageDmg' && (startsWith(github.ref, 'refs/tags/app-v') || startsWith(github.ref, 'refs/tags/app-beta-v'))
+        shell: bash
+        run: |
+          ./distribution/update-homebrew-cask.sh "$APP_VERSION" "$APP_DMG_SHA256" "$APP_CHANNEL"
+
+          if [[ "$APP_CHANNEL" == "beta" ]]; then
+            CASK_FILE="Casks/golden-diff@beta.rb"
+          else
+            CASK_FILE="Casks/golden-diff.rb"
+          fi
+
+          UPDATED_CASK="$RUNNER_TEMP/$(basename "$CASK_FILE")"
+          cp "$CASK_FILE" "$UPDATED_CASK"
+          git restore "$CASK_FILE"
+
+          git fetch origin main
+          git checkout main
+          mkdir -p Casks
+          cp "$UPDATED_CASK" "$CASK_FILE"
+
+          if [[ -z "$(git status --porcelain -- "$CASK_FILE")" ]]; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CASK_FILE"
+          git commit -m "Update Homebrew ${APP_CHANNEL} Cask to ${APP_VERSION}"
+          git push origin main
 
       - uses: actions/upload-artifact@v4
         with:

@@ -83,8 +83,8 @@ counterpart.
 - **Side by side** — HEAD | selected comparison source, each fit into its half, labeled.
 - **Swipe** — both drawn in the same rect; drag the vertical divider to reveal HEAD on the left and
   the selected comparison source on the right, with labels over the image.
-- **Onion skin** — selected comparison source overlaid on HEAD; a slider blends opacity and the view
-  labels the base/overlay roles.
+- **Onion skin** — selected comparison source overlaid on HEAD; a dedicated control row below the
+  canvas blends opacity without covering the screenshot, and the view labels the base/overlay roles.
 - **Diff** — pixel heatmap (`PixelDiff` → `DiffPanel`): unchanged pixels dimmed to grayscale context,
   changed pixels highlighted in magenta (opacity scales with the per-pixel change), plus a
   "% pixels changed" readout. When both images exist but have different dimensions, both are

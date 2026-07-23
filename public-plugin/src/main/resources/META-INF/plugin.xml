@@ -30,22 +30,14 @@
         preview is shown.</li>
       </ul>
 
-      <p>Works with IntelliJ Platform 2025.1 (build 251), including Android Studio Narwhal releases
-      based on that platform line.</p>
+      <p>Works with IntelliJ Platform 2024.1 and newer (build 241+), including compatible Android
+      Studio releases.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.lang</depends>
     <depends>org.jetbrains.kotlin</depends>
     <depends>Git4Idea</depends>
-
-    <dependencies>
-        <module name="intellij.platform.jewel.foundation"/>
-        <module name="intellij.platform.jewel.ui"/>
-        <module name="intellij.platform.jewel.ideLafBridge"/>
-        <module name="intellij.libraries.compose.foundation.desktop"/>
-        <module name="intellij.libraries.skiko"/>
-    </dependencies>
 
     <!-- We only traverse Kotlin PSI (no Analysis API / resolve), so we support the K2 mode that
          recent Android Studio versions use by default. -->

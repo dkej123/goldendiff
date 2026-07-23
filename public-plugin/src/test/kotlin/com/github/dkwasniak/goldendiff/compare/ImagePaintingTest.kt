@@ -66,6 +66,14 @@ class ImagePaintingTest {
     }
 
     @Test
+    fun `centeredRect centers on both axes`() {
+        val area = Rectangle(10, 20, 200, 100)
+        val rect = ImagePainting.centeredRect(50, 25, 2.0, area)
+
+        assertEquals(Rectangle(60, 45, 100, 50), rect)
+    }
+
+    @Test
     fun `boundingSize takes the larger bounds so relative scale is preserved`() {
         val (w, h) = ImagePainting.boundingSize(image(100, 40), image(80, 60))
         assertEquals(100, w)

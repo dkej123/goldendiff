@@ -30,8 +30,25 @@ enum class CompareMode(val label: String) {
     DIFF("Pixel diff"),
 }
 
-private val CHECKER_LIGHT = Color(0xFF5A5A5A)
-private val CHECKER_DARK = Color(0xFF4A4A4A)
+/**
+ * The colours a host paints comparisons with.
+ *
+ * Passed in rather than hard-coded because the standalone app has a light theme: a mid-grey
+ * checkerboard that reads as "transparent" on a dark panel reads as "grey content" on a white one.
+ * The defaults reproduce the previous dark-only appearance, so the plugin needs no changes.
+ */
+data class CompareColors(
+    val checkerLight: Color = Color(0xFF5A5A5A),
+    val checkerDark: Color = Color(0xFF4A4A4A),
+    /** The swipe divider and its drag knob. */
+    val divider: Color = Color(0xFFFF00FF),
+    /** The hairline splitting the two halves in side-by-side. */
+    val splitter: Color = Color(0x40FFFFFF),
+) {
+    companion object {
+        val Default = CompareColors()
+    }
+}
 
 /**
  * Draws the checkerboard that marks transparent areas.
@@ -39,7 +56,7 @@ private val CHECKER_DARK = Color(0xFF4A4A4A)
  * Without it a transparent golden is indistinguishable from a white one, which matters constantly:
  * screenshot tools pad images with transparency, and "did the padding change" is a real question.
  */
-fun DrawScope.drawCheckerboard(rect: IntRect) {
+fun DrawScope.drawCheckerboard(rect: IntRect, colors: CompareColors = CompareColors.Default) {
     if (rect.isEmpty) return
     val tile = ImageLayout.CHECKER_TILE
     clipRect(
@@ -55,7 +72,7 @@ fun DrawScope.drawCheckerboard(rect: IntRect) {
             var x = rect.x
             while (x < rect.x + rect.width) {
                 drawRect(
-                    color = if ((row + col) % 2 == 0) CHECKER_LIGHT else CHECKER_DARK,
+                    color = if ((row + col) % 2 == 0) colors.checkerLight else colors.checkerDark,
                     topLeft = Offset(x.toFloat(), y.toFloat()),
                     size = Size(tile.toFloat(), tile.toFloat()),
                 )
@@ -120,11 +137,12 @@ fun OnionSkinView(
     zoom: Double,
     opacity: Float,
     modifier: Modifier = Modifier.fillMaxSize(),
+    colors: CompareColors = CompareColors.Default,
 ) {
     Canvas(modifier) {
         val (oldRect, newRect) = pairLayout(zoom, old, new, size.width.toInt(), size.height.toInt())
         if (old != null) {
-            drawCheckerboard(oldRect)
+            drawCheckerboard(oldRect, colors)
             drawImageIn(old, oldRect)
         }
         if (new != null) {
@@ -150,6 +168,7 @@ fun SwipeView(
     new: ImageBitmap?,
     zoom: Double,
     modifier: Modifier = Modifier.fillMaxSize(),
+    colors: CompareColors = CompareColors.Default,
 ) {
     var fraction by remember { mutableStateOf(0.5f) }
     var width by remember { mutableStateOf(1) }
@@ -165,22 +184,24 @@ fun SwipeView(
             width = size.width.toInt()
             val (oldRect, newRect) = pairLayout(zoom, old, new, size.width.toInt(), size.height.toInt())
             if (new != null) {
-                drawCheckerboard(newRect)
+                drawCheckerboard(newRect, colors)
                 drawImageIn(new, newRect)
             }
             if (old != null) {
                 clipRect(left = 0f, top = 0f, right = size.width * fraction, bottom = size.height) {
-                    drawCheckerboard(oldRect)
+                    drawCheckerboard(oldRect, colors)
                     drawImageIn(old, oldRect)
                 }
             }
             val x = size.width * fraction
             drawLine(
-                color = Color(0xFFFF00FF),
+                color = colors.divider,
                 start = Offset(x, 0f),
                 end = Offset(x, size.height),
                 strokeWidth = 2f,
             )
+            // The knob marks the divider as draggable; without it the line reads as a decoration.
+            drawCircle(color = colors.divider, radius = 9f, center = Offset(x, size.height / 2f))
         }
     }
 }
@@ -197,6 +218,7 @@ fun TwoUpView(
     new: ImageBitmap?,
     zoom: Double,
     modifier: Modifier = Modifier.fillMaxSize(),
+    colors: CompareColors = CompareColors.Default,
 ) {
     Canvas(modifier) {
         val halfWidth = (size.width / 2).toInt()
@@ -210,16 +232,16 @@ fun TwoUpView(
 
         old?.let {
             val rect = ImageLayout.bottomRect(it.width, it.height, scale, IntRect(0, 0, halfWidth, height))
-            drawCheckerboard(rect)
+            drawCheckerboard(rect, colors)
             drawImageIn(it, rect)
         }
         new?.let {
             val rect = ImageLayout.bottomRect(it.width, it.height, scale, IntRect(halfWidth, 0, halfWidth, height))
-            drawCheckerboard(rect)
+            drawCheckerboard(rect, colors)
             drawImageIn(it, rect)
         }
         drawLine(
-            color = Color(0x40FFFFFF),
+            color = colors.splitter,
             start = Offset(halfWidth.toFloat(), 0f),
             end = Offset(halfWidth.toFloat(), size.height),
             strokeWidth = 1f,
@@ -233,11 +255,12 @@ fun SingleImageView(
     image: ImageBitmap?,
     zoom: Double,
     modifier: Modifier = Modifier.fillMaxSize(),
+    colors: CompareColors = CompareColors.Default,
 ) {
     Canvas(modifier) {
         if (image == null) return@Canvas
         val rect = ImageLayout.renderRect(zoom, image.width, image.height, size.width.toInt(), size.height.toInt())
-        drawCheckerboard(rect)
+        drawCheckerboard(rect, colors)
         drawImageIn(image, rect)
     }
 }

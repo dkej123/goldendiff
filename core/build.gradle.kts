@@ -32,3 +32,14 @@ dependencies {
 kotlin {
     jvmToolchain(21)
 }
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+// The core JAR is packaged inside the public plugin, whose compatibility floor (build 241) runs on
+// Java 17. Keep using the JDK 21 toolchain, but emit bytecode that every supported plugin host loads.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}

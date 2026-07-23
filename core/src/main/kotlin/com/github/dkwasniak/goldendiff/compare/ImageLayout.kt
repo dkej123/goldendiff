@@ -67,6 +67,19 @@ object ImageLayout {
         )
     }
 
+    /** Draw rectangle for a single image at [scale], centered within [area] on both axes. */
+    fun centeredRect(imgW: Int, imgH: Int, scale: Double, area: IntRect): IntRect {
+        if (imgW <= 0 || imgH <= 0) return IntRect(area.x, area.y, 0, 0)
+        val w = (imgW * scale).toInt().coerceAtLeast(1)
+        val h = (imgH * scale).toInt().coerceAtLeast(1)
+        return IntRect(
+            area.x + (area.width - w).coerceAtLeast(0) / 2,
+            area.y + (area.height - h).coerceAtLeast(0) / 2,
+            w,
+            h,
+        )
+    }
+
     /** Rectangle inside [areaW]x[areaH] that fits [imgW]x[imgH] preserving aspect ratio, centered. */
     fun fitRect(imgW: Int, imgH: Int, areaW: Int, areaH: Int): IntRect {
         if (imgW <= 0 || imgH <= 0 || areaW <= 0 || areaH <= 0) return IntRect.EMPTY

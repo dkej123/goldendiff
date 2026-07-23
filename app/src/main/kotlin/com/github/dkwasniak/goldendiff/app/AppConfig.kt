@@ -1,6 +1,7 @@
 package com.github.dkwasniak.goldendiff.app
 
 import com.github.dkwasniak.goldendiff.match.MatchMode
+import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
 import java.io.File
@@ -44,6 +45,9 @@ object AppConfig {
             generatedFileRegex = props.getProperty("generatedFileRegex")
                 ?.takeIf { it.isNotBlank() } ?: GoldenDiffDefaults.GENERATED_FILE_REGEX,
             matchMode = MatchMode.fromName(props.getProperty("matchMode").orEmpty()),
+            annotatedFunctionRegex = props.getProperty("annotatedFunctionRegex")
+                ?.takeIf { it.isNotBlank() } ?: MatchingDefaults.ANNOTATION_NAME_REGEX,
+            goldenFilePatterns = list("goldenFilePatterns").ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS },
             excludedSuffixes = list("excludedSuffixes").ifEmpty { GoldenDiffDefaults.EXCLUDED_SUFFIXES },
             trimTransparentPadding = props.getProperty("trimTransparentPadding").toBoolean(),
         )
@@ -55,6 +59,8 @@ object AppConfig {
             setProperty("generatedPaths", config.generatedPaths.joinToString(","))
             setProperty("generatedFileRegex", config.generatedFileRegex)
             setProperty("matchMode", config.matchMode.name)
+            setProperty("annotatedFunctionRegex", config.annotatedFunctionRegex)
+            setProperty("goldenFilePatterns", config.goldenFilePatterns.joinToString(","))
             setProperty("excludedSuffixes", config.excludedSuffixes.joinToString(","))
             setProperty("trimTransparentPadding", config.trimTransparentPadding.toString())
         }

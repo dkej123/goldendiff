@@ -4,7 +4,17 @@ on:
   push:
     tags:
       - "v*"
+      - "beta-v*"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: JetBrains Marketplace release channel
+        required: true
+        type: choice
+        default: beta
+        options:
+          - beta
+          - stable
 
 permissions:
   contents: read
@@ -27,7 +37,40 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Resolve Marketplace channel
+        shell: bash
+        run: |
+          PLUGIN_VERSION="$(awk -F '=' '/^pluginVersion/ { gsub(/[[:space:]]/, "", $2); print $2 }' gradle.properties)"
+
+          if [[ "$GITHUB_REF" == refs/tags/beta-v* ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#beta-v}"
+            MARKETPLACE_CHANNEL="beta"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            MARKETPLACE_CHANNEL=""
+          else
+            TAG_VERSION="$PLUGIN_VERSION"
+            if [[ "${{ inputs.channel }}" == "beta" ]]; then
+              MARKETPLACE_CHANNEL="beta"
+            else
+              MARKETPLACE_CHANNEL=""
+            fi
+          fi
+
+          if [[ "$TAG_VERSION" != "$PLUGIN_VERSION" ]]; then
+            echo "Tag version $TAG_VERSION does not match pluginVersion $PLUGIN_VERSION" >&2
+            exit 1
+          fi
+
+          echo "MARKETPLACE_CHANNEL=$MARKETPLACE_CHANNEL" >> "$GITHUB_ENV"
+
       - name: Publish plugin
         env:
           ORG_GRADLE_PROJECT_intellijPlatformPublishingToken: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
-        run: ./gradlew :public-plugin:publishPlugin --stacktrace
+        shell: bash
+        run: |
+          CHANNEL_ARGUMENT=()
+          if [[ -n "$MARKETPLACE_CHANNEL" ]]; then
+            CHANNEL_ARGUMENT+=("-PmarketplaceChannel=$MARKETPLACE_CHANNEL")
+          fi
+          ./gradlew :public-plugin:publishPlugin --stacktrace "${CHANNEL_ARGUMENT[@]}"

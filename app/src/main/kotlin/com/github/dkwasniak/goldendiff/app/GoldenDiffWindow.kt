@@ -1,9 +1,13 @@
 package com.github.dkwasniak.goldendiff.app
 
+import androidx.compose.foundation.ContextMenuArea
+import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,15 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.darkColors
+import androidx.compose.material.lightColors
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,345 +31,289 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.github.dkwasniak.goldendiff.compare.ImageLayout
-import com.github.dkwasniak.goldendiff.naming.shortGoldenName
+import com.github.dkwasniak.goldendiff.app.ui.CloseIcon
+import com.github.dkwasniak.goldendiff.app.ui.DarkTokens
+import com.github.dkwasniak.goldendiff.app.ui.Dimens
+import com.github.dkwasniak.goldendiff.app.ui.EmptyState
+import com.github.dkwasniak.goldendiff.app.ui.DropdownButton
+import com.github.dkwasniak.goldendiff.app.ui.HairLine
+import com.github.dkwasniak.goldendiff.app.ui.LegendItem
+import com.github.dkwasniak.goldendiff.app.ui.LightTokens
+import com.github.dkwasniak.goldendiff.app.ui.LocalTokens
+import com.github.dkwasniak.goldendiff.app.ui.ToolButton
+import com.github.dkwasniak.goldendiff.app.ui.Type
+import com.github.dkwasniak.goldendiff.app.ui.VerticalHairLine
+import com.github.dkwasniak.goldendiff.app.ui.hoverWash
+import com.github.dkwasniak.goldendiff.app.ui.tokens
+import com.github.dkwasniak.goldendiff.platform.Os
+import com.github.dkwasniak.goldendiff.platform.RevealInFileManager
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
-import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
-import com.github.dkwasniak.goldendiff.ui.CompareMode
-import com.github.dkwasniak.goldendiff.ui.OnionSkinView
-import com.github.dkwasniak.goldendiff.ui.SingleImageView
-import com.github.dkwasniak.goldendiff.ui.SwipeView
-import com.github.dkwasniak.goldendiff.ui.TwoUpView
-import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
+import java.awt.Cursor
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.JOptionPane
 
-private val Background = Color(0xFF2B2D30)
-private val Panel = Color(0xFF1E1F22)
-private val Border = Color(0xFF393B40)
-private val TextPrimary = Color(0xFFDFE1E5)
-private val TextMuted = Color(0xFF9DA0A8)
-private val Accent = Color(0xFF3574F0)
-private val StatusModified = Color(0xFFD36A75)
-private val StatusNew = Color(0xFF57A869)
-
+/**
+ * The main window: a toolbar, a legend, and three floating panes.
+ *
+ * The window's own title bar is the native macOS one — the design mocks it up because a browser has
+ * none, but reproducing it in Compose would mean an undecorated window and hand-rolled traffic
+ * lights that behave subtly unlike the real ones.
+ */
 @Composable
 fun GoldenDiffWindow(state: AppState) {
-    MaterialTheme(colors = darkColors(background = Background, surface = Panel, primary = Accent)) {
-        Box(Modifier.fillMaxSize().background(Background)) {
-            Column(Modifier.fillMaxSize()) {
-                Header(state)
-                Row(Modifier.fillMaxWidth().weight(1f)) {
-                    LeftPane(state, Modifier.width(320.dp).fillMaxHeight())
-                    VerticalDivider()
-                    GoldenList(state, Modifier.width(280.dp).fillMaxHeight())
-                    VerticalDivider()
-                    ComparePane(state, Modifier.weight(1f).fillMaxHeight())
-                }
-                StatusBar(state)
+    val palette = if (state.ui.useDarkTheme) DarkTokens else LightTokens
+    CompositionLocalProvider(LocalTokens provides palette) {
+        val materialColors = if (palette.dark) {
+            darkColors(background = palette.background, surface = palette.panelHeader, primary = palette.accent)
+        } else {
+            lightColors(background = palette.background, surface = palette.panel, primary = palette.accent)
+        }
+        MaterialTheme(colors = materialColors) {
+            Column(Modifier.fillMaxSize().background(palette.background)) {
+                Toolbar(state)
+                HairLine()
+                LegendRow(state)
+                HairLine()
+                if (state.openTabs.isNotEmpty()) TabStrip(state)
+                Body(state, Modifier.weight(1f))
             }
-            if (state.quickOpenVisible) QuickOpen(state)
+            if (state.quickOpenVisible) QuickOpenDialog(state)
         }
     }
 }
 
 @Composable
-private fun VerticalDivider() {
-    Box(Modifier.width(1.dp).fillMaxHeight().background(Border))
-}
-
-@Composable
-private fun Header(state: AppState) {
+private fun Toolbar(state: AppState) {
+    val hasProject = state.projectRoot != null
     Row(
-        Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().height(Dimens.toolbarHeight).background(tokens.panelHeader)
+            .horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Button("Open project…") { chooseDirectory()?.let(state::openProject) }
-        Text(
-            state.projectRoot?.absolutePath ?: "No project open",
-            color = TextMuted,
-            fontSize = 12.sp,
-            modifier = Modifier.weight(1f),
-        )
-        Toggle("Working copy", state.source == BuiltInSource.WORKING_COPY) {
-            state.source = BuiltInSource.WORKING_COPY
-            state.refresh()
+        if (!hasProject) {
+            ToolButton("Open project…") { chooseDirectory("Select project directory")?.let(state::openProject) }
         }
-        Toggle("Test output", state.source == BuiltInSource.GENERATED) {
-            state.source = BuiltInSource.GENERATED
-            state.refresh()
+        ToolButton("Settings", enabled = hasProject) { state.settingsVisible = true }
+        ToolButton("Refresh", enabled = hasProject) { state.forceRefresh() }
+        VerticalHairLine(20.dp)
+        DropdownButton("Scope", state.browse, Browse.entries.toList(), Browse::label, hasProject) { state.selectBrowse(it) }
+        if (state.browse == Browse.FILES) {
+            ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
+                state.quickOpenQuery = ""
+                state.quickOpenVisible = true
+            }
         }
-        Button("Refresh") { state.refresh() }
+        DropdownButton(
+            "Compare",
+            state.source,
+            BuiltInSource.entries.toList(),
+            ::sourceLabel,
+            hasProject,
+        ) { state.selectSource(it) }
+        Spacer(Modifier.weight(1f))
     }
 }
 
+/** Window-level strip of opened project files, between the legend and the panes. */
 @Composable
-private fun LeftPane(state: AppState, modifier: Modifier) {
-    Column(modifier.background(Panel)) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Browse.entries.forEach { mode ->
-                Toggle(mode.label, state.browse == mode) { state.browse = mode }
-            }
-        }
-        when (state.browse) {
-            Browse.CHANGED -> GoldenDirectories(state)
-            Browse.FILES -> FileTree(state)
-        }
-    }
-}
-
-@Composable
-private fun GoldenDirectories(state: AppState) {
-    Column(Modifier.padding(8.dp)) {
-        Text("Golden directories", color = TextMuted, fontSize = 11.sp)
-        Spacer(Modifier.height(6.dp))
-        state.config.goldenPaths.forEach { Text(it, color = TextPrimary, fontSize = 12.sp) }
-        Spacer(Modifier.height(6.dp))
-        Button("Add golden directory…") {
-            val root = state.projectRoot ?: return@Button
-            chooseDirectory()?.let { dir ->
-                val relative = dir.relativeToOrNull(root)?.path ?: dir.absolutePath
-                state.updateConfig(state.config.copy(goldenPaths = state.config.goldenPaths + relative))
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Text("Generated output", color = TextMuted, fontSize = 11.sp)
-        Spacer(Modifier.height(6.dp))
-        state.config.generatedPaths.forEach { Text(it, color = TextPrimary, fontSize = 12.sp) }
-        Spacer(Modifier.height(6.dp))
-        Button("Add generated directory…") {
-            val root = state.projectRoot ?: return@Button
-            chooseDirectory()?.let { dir ->
-                val relative = dir.relativeToOrNull(root)?.path ?: dir.absolutePath
-                state.updateConfig(state.config.copy(generatedPaths = state.config.generatedPaths + relative))
-            }
-        }
-    }
-}
-
-@Composable
-private fun FileTree(state: AppState) {
-    val index = state.fileIndex
-    if (index == null) {
-        Text("Indexing…", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(index.paths) { path ->
-            Text(
-                path,
-                color = TextPrimary,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { state.selectSourceFile(path) }
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun GoldenList(state: AppState, modifier: Modifier) {
-    Column(modifier.background(Panel)) {
-        state.blocker?.let { blocker ->
-            Text(
-                when (blocker) {
-                    Blocker.NoGit -> "git was not found on your PATH. Golden Diff needs it to read " +
-                        "committed versions. Install git (on macOS: xcode-select --install) and refresh."
-                    Blocker.NotARepository -> "This folder is not a git repository, so there is nothing " +
-                        "to compare against."
-                    Blocker.NoGoldenDirectories -> "Add at least one golden directory to get started."
-                },
-                color = TextMuted,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(10.dp),
-            )
-            return@Column
-        }
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(state.items) { item ->
-                val isSelected = state.selected == item.file
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(if (isSelected) Accent.copy(alpha = 0.25f) else Color.Transparent)
-                        .clickable { state.select(item.file) }
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "●",
-                        color = when (item.status) {
-                            ExtraComparisonItemStatus.MODIFIED -> StatusModified
-                            ExtraComparisonItemStatus.NEW -> StatusNew
-                            ExtraComparisonItemStatus.UNCHANGED -> TextMuted
-                        },
-                        fontSize = 11.sp,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(shortGoldenName(item.title), color = TextPrimary, fontSize = 12.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ComparePane(state: AppState, modifier: Modifier) {
-    var mode by remember { mutableStateOf(CompareMode.TWO_UP) }
-    var zoom by remember { mutableStateOf(ImageLayout.FIT) }
-    var opacity by remember { mutableStateOf(0.5f) }
-    val comparison = state.comparison
-
-    Column(modifier) {
-        Row(
-            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            CompareMode.entries.forEach { m -> Toggle(m.label, mode == m) { mode = m } }
-            Spacer(Modifier.weight(1f))
-            Toggle("Fit", zoom == ImageLayout.FIT) { zoom = ImageLayout.FIT }
-            listOf(1.0, 2.0, 4.0).forEach { z ->
-                Toggle("${(z * 100).toInt()}%", zoom == z) { zoom = z }
-            }
-        }
-        Text(
-            comparison?.statusText ?: "Select a golden",
-            color = TextMuted,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-        )
-        Box(Modifier.fillMaxSize()) {
-            when {
-                comparison == null -> Unit
-                comparison.identical || comparison.old == null || comparison.new == null ->
-                    SingleImageView(comparison.new ?: comparison.old, zoom)
-                mode == CompareMode.TWO_UP -> TwoUpView(comparison.old, comparison.new, zoom)
-                mode == CompareMode.SWIPE -> SwipeView(comparison.old, comparison.new, zoom)
-                mode == CompareMode.ONION -> OnionSkinView(comparison.old, comparison.new, zoom, opacity)
-                mode == CompareMode.DIFF -> SingleImageView(comparison.diff, zoom)
-            }
-            if (mode == CompareMode.ONION && comparison?.identical == false) {
-                Row(Modifier.align(Alignment.BottomCenter).padding(10.dp)) {
-                    listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { value ->
-                        Toggle("${(value * 100).toInt()}%", opacity == value) { opacity = value }
-                    }
-                }
-            }
-            if (mode == CompareMode.DIFF && comparison?.diff != null) {
-                Text(
-                    "%.2f%% pixels changed".format(comparison.changedRatio * 100),
-                    color = TextPrimary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusBar(state: AppState) {
+private fun TabStrip(state: AppState) {
     Row(
-        Modifier.fillMaxWidth().background(Panel).padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().background(tokens.panelHeader).horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(if (state.busy) "Working…" else state.status, color = TextMuted, fontSize = 11.sp)
-        Spacer(Modifier.weight(1f))
-        Text("${Shortcuts.quickOpenLabel} to find a file", color = TextMuted, fontSize = 11.sp)
+        state.openTabs.forEach { path ->
+            Tab(
+                label = File(path).name,
+                active = state.selectedSourcePath == path,
+                onClick = { state.selectSourceFile(path) },
+                onClose = { state.closeTab(path) },
+            )
+        }
     }
+    HairLine()
 }
 
 @Composable
-private fun QuickOpen(state: AppState) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
-        Column(
-            Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 120.dp)
-                .width(620.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Panel)
-                .padding(12.dp),
-        ) {
-            BasicTextField(
-                value = state.quickOpenQuery,
-                onValueChange = { state.quickOpenQuery = it },
-                singleLine = true,
-                textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
-                cursorBrush = SolidColor(TextPrimary),
-                modifier = Modifier.fillMaxWidth().padding(6.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(Modifier.height(320.dp)) {
-                itemsIndexed(state.quickOpenResults) { index, path ->
-                    Text(
-                        path,
-                        color = if (index == 0) TextPrimary else TextMuted,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                state.quickOpenVisible = false
-                                state.browse = Browse.FILES
-                                state.selectSourceFile(path)
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                    )
-                }
+private fun Tab(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val accentColor = tokens.accent
+    Row(
+        Modifier.height(32.dp)
+            .background(if (active) tokens.panel else Color.Transparent)
+            .drawBehind {
+                // A 2px accent lid on the active tab, matching the New-UI editor tabs.
+                if (active) drawRect(accentColor, size = Size(size.width, 2.dp.toPx()))
             }
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            label,
+            color = if (active) tokens.text else tokens.textDim,
+            fontSize = 11.5.sp,
+            fontFamily = Type.Mono,
+            maxLines = 1,
+        )
+        Box(
+            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).hoverWash()
+                .clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            CloseIcon(tokens.textFaint)
+        }
+    }
+    VerticalHairLine(32.dp)
+}
+
+@Composable
+private fun LegendRow(state: AppState) {
+    Row(
+        Modifier.fillMaxWidth().height(Dimens.legendHeight).background(tokens.panelHeader)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        LegendItem(tokens.changed, "Changed vs HEAD")
+        LegendItem(tokens.new, "New in working copy")
+        Spacer(Modifier.weight(1f))
+        state.blockerText()?.let { Text(it, color = tokens.changed, fontSize = Type.small) }
+    }
+}
+
+private fun AppState.blockerText(): String? = when (blocker) {
+    Blocker.NoGit -> "git was not found on PATH — Golden Diff needs it to read committed versions."
+    Blocker.NotARepository -> "This folder is not a git repository, so there is nothing to compare against."
+    Blocker.NoGoldenDirectories -> "Open Settings and add at least one golden directory."
+    null -> null
+}
+
+@Composable
+private fun Body(state: AppState, modifier: Modifier) {
+    when {
+        state.projectRoot == null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(
+                title = "No project open",
+                body = "Open a project to start comparing screenshot goldens against Git HEAD.",
+                actionLabel = "Open Project…",
+                onAction = { chooseDirectory("Select project directory")?.let(state::openProject) },
+            )
+        }
+        state.blocker != null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EmptyState(
+                title = "Nothing to compare yet",
+                body = state.blockerText().orEmpty(),
+                actionLabel = "Open Settings",
+                onAction = { state.settingsVisible = true },
+            )
+        }
+        else -> PaneRow(state, modifier)
+    }
+}
+
+/** The three floating panes, with draggable splitters between them. */
+@Composable
+private fun PaneRow(state: AppState, modifier: Modifier) {
+    BoxWithConstraints(modifier.fillMaxSize().padding(Dimens.panePadding)) {
+        val available = maxWidth
+        val maxProjectWidth = (available * 0.4f).coerceAtLeast(Dimens.leftPaneWidth)
+        var projectWidth by remember(available) {
+            mutableStateOf(Dimens.leftPaneWidth.coerceAtMost(maxProjectWidth))
+        }
+        val collapsed = state.ui.leftPaneCollapsed
+        val usedByProject = if (collapsed) 24.dp else projectWidth
+        val maxGoldensWidth = (available - usedByProject - 420.dp).coerceAtLeast(340.dp)
+        var goldensWidth by remember(available) {
+            mutableStateOf((available * 0.28f).coerceIn(340.dp, maxGoldensWidth))
+        }
+
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(Dimens.paneGap)) {
+            if (collapsed) {
+                CollapsedProjectEdge(state, Modifier.fillMaxHeight())
+            } else {
+                ProjectPane(state, Modifier.width(projectWidth).fillMaxHeight())
+                Splitter { projectWidth = (projectWidth + it).coerceIn(Dimens.leftPaneWidth, maxProjectWidth) }
+            }
+            GoldensPane(state, Modifier.width(goldensWidth.coerceAtMost(maxGoldensWidth)).fillMaxHeight())
+            Splitter { goldensWidth = (goldensWidth + it).coerceIn(340.dp, maxGoldensWidth) }
+            ComparePane(state, Modifier.weight(1f).fillMaxHeight())
         }
     }
 }
 
+/** A 4px hit zone in the pane gap; it highlights accent while hovered. */
 @Composable
-private fun Button(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        color = TextPrimary,
-        fontSize = 12.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(Border)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+private fun Splitter(onDrag: (Dp) -> Unit) {
+    var active by remember { mutableStateOf(false) }
+    Box(
+        Modifier.width(4.dp).fillMaxHeight()
+            .background(if (active) tokens.accent.copy(alpha = 0.4f) else Color.Transparent)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { active = true },
+                    onDragEnd = { active = false },
+                    onDragCancel = { active = false },
+                ) { _, drag -> onDrag(drag.toDp()) }
+            },
     )
 }
 
+/** Show in Finder / Copy Absolute Path / Delete, on tree rows and golden cards alike. */
 @Composable
-private fun Toggle(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        color = if (active) Color.White else TextMuted,
-        fontSize = 12.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(if (active) Accent else Border)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 4.dp),
+fun FileContextMenu(state: AppState, file: File, canDelete: Boolean, content: @Composable () -> Unit) {
+    ContextMenuArea(
+        items = {
+            buildList {
+                add(ContextMenuItem(showInFileManagerLabel()) { RevealInFileManager.reveal(file) })
+                add(ContextMenuItem("Copy Absolute Path") { copyToClipboard(file.absolutePath) })
+                if (canDelete && file.isFile) {
+                    add(ContextMenuItem("Delete") {
+                        val answer = JOptionPane.showConfirmDialog(
+                            null,
+                            "Delete ${file.name} from disk?",
+                            "Delete Golden File",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE,
+                        )
+                        if (answer == JOptionPane.YES_OPTION) state.deleteFile(file)
+                    })
+                }
+            }
+        },
+        content = content,
     )
 }
 
-/**
- * Swing's directory chooser, used deliberately.
- *
- * Compose Desktop has no native folder picker, and this is the same AWT/Swing interop the toolkit
- * already runs on — it is not a leftover from the plugin's UI.
- */
-private fun chooseDirectory(): File? {
+private fun showInFileManagerLabel(): String = when (Os.current) {
+    Os.MAC -> "Show in Finder"
+    Os.WINDOWS -> "Show in Explorer"
+    Os.LINUX -> "Show in File Manager"
+}
+
+internal fun chooseDirectory(title: String): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "Select project directory"
+        dialogTitle = title
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
