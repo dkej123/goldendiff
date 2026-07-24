@@ -106,6 +106,16 @@ object UpdateInstaller {
     }
 
     /**
+     * Strips the macOS quarantine flag from the freshly-installed bundle so Gatekeeper lets it open.
+     * The app is ad-hoc signed and not notarized, so an updated bundle is re-quarantined and would
+     * otherwise refuse to launch. Returns true when xattr exits cleanly.
+     */
+    fun removeQuarantine(): Boolean = runCatching {
+        ProcessBuilder("/usr/bin/xattr", "-dr", "com.apple.quarantine", INSTALLED_APP_PATH)
+            .redirectErrorStream(true).start().waitFor() == 0
+    }.getOrDefault(false)
+
+    /**
      * Relaunches the freshly-installed app through LaunchServices, then quits this instance so the new
      * build takes over. `open -n -a` finds the updated bundle by name wherever the cask installed it.
      */
@@ -113,4 +123,7 @@ object UpdateInstaller {
         runCatching { ProcessBuilder("/usr/bin/open", "-n", "-a", "Golden Diff").start() }
         exitProcess(0)
     }
+
+    /** Where the Homebrew cask installs the app; also the path in the quarantine caveat. */
+    private const val INSTALLED_APP_PATH = "/Applications/Golden Diff.app"
 }

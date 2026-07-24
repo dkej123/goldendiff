@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- After a Homebrew update, the standalone app now offers to remove the macOS quarantine flag and
+  relaunch in one click, with a plain restart as the alternative, so the updated build opens without
+  a manual Terminal step.
+
 ## [1.5.0-beta.5] - 2026-07-23
 
 ### Added
