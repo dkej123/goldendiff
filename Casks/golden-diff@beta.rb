@@ -1,6 +1,6 @@
 cask "golden-diff@beta" do
-  version "1.5.0-beta.5"
-  sha256 "20c7f849252eaa399a74a34ce05d04c87ef2b088bd1162faa8588cabb67a78ea"
+  version "1.5.0-beta.6"
+  sha256 "3b1e9729936aae7b674f16e5aaa844d3ff501d4cbe7efd851a44daaa43588c16"
 
   url "https://github.com/dkej123/goldendiff/releases/download/app-beta-v#{version}/Golden-Diff-#{version}.dmg"
   name "Golden Diff Beta"
