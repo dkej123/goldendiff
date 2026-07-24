@@ -73,7 +73,7 @@ object EventCatalog {
             "feature" to setOf(
                 "quick_open", "detached_comparison", "copy_path", "reveal_in_file_manager",
                 "left_pane_toggle", "tab_open", "tab_close", "update_open",
-                "update_download", "update_homebrew", "update_restart",
+                "update_download", "update_homebrew", "update_restart", "update_dequarantine",
             ),
         ),
         "product.scan_completed" to definition(

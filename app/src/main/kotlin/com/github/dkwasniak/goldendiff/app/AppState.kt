@@ -269,6 +269,23 @@ class AppState(
         UpdateInstaller.restart()
     }
 
+    /**
+     * Remove the macOS quarantine flag from the updated bundle, then relaunch. The app is not
+     * notarized, so a freshly-installed build is re-quarantined and may refuse to open; this runs the
+     * `xattr` fix for the user instead of leaving it as a manual step.
+     */
+    fun removeQuarantineAndRestart() {
+        if (updateBusy) return
+        updateBusy = true
+        updateStatus = "Removing quarantine…"
+        scope.launch {
+            featureUsed("update_dequarantine")
+            DevLog.record("update", "xattr -dr com.apple.quarantine, then restart")
+            withContext(Dispatchers.IO) { UpdateInstaller.removeQuarantine() }
+            UpdateInstaller.restart()
+        }
+    }
+
     /** Hide the launch banner and remember not to show it again for this version. */
     fun dismissUpdateBanner() {
         updateBannerVisible = false
@@ -306,8 +323,7 @@ class AppState(
                 }
                 DevLog.record("update", "brew finished with exit code $exit")
                 if (exit == 0) {
-                    updateStatus = "Updated — restart to finish. If it will not open, " +
-                        "run: xattr -dr com.apple.quarantine \"/Applications/Golden Diff.app\""
+                    updateStatus = "Updated — restart to finish."
                     updateCompleted = true
                 } else {
                     updateStatus = "Homebrew update failed — opening the release page."

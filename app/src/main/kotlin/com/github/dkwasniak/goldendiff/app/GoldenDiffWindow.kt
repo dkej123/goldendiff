@@ -285,30 +285,47 @@ private fun UpdateBanner(state: AppState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            "Golden Diff ${update.version} is available.",
-            color = tokens.text,
-            fontSize = Type.body,
-        )
-        // Once an in-place update has finished, the primary button becomes a one-click restart into
-        // the new build; until then it triggers the install.
         if (state.updateCompleted) {
-            UpdateActionButton("Restart now", enabled = true) { state.restartApp() }
+            // After an in-place update the new bundle is re-quarantined (not notarized), so offer to
+            // clear it and relaunch in one click, with a plain restart as the alternative.
+            Text("Golden Diff ${update.version} installed.", color = tokens.text, fontSize = Type.body)
+            UpdateActionButton("Remove quarantine & restart", enabled = !state.updateBusy) {
+                state.removeQuarantineAndRestart()
+            }
+            Text(
+                "Just restart",
+                color = tokens.accent,
+                fontSize = Type.body,
+                modifier = Modifier
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickable { state.restartApp() },
+            )
+            if (state.updateBusy) {
+                UpdateProgress(state.updateStatus ?: "…")
+            } else {
+                Text(
+                    "macOS quarantines updated apps; this clears it so Golden Diff opens.",
+                    color = tokens.textDim,
+                    fontSize = Type.small,
+                    maxLines = 1,
+                )
+            }
         } else {
+            Text("Golden Diff ${update.version} is available.", color = tokens.text, fontSize = Type.body)
             UpdateActionButton(actionLabel, enabled = !state.updateBusy) { state.installUpdate() }
-        }
-        Text(
-            "Details",
-            color = tokens.accent,
-            fontSize = Type.body,
-            modifier = Modifier
-                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                .clickable { state.openUpdatePage() },
-        )
-        if (state.updateBusy) {
-            UpdateProgress(state.updateStatus ?: "Updating…")
-        } else {
-            state.updateStatus?.let { Text(it, color = tokens.textDim, fontSize = Type.body, maxLines = 1) }
+            Text(
+                "Details",
+                color = tokens.accent,
+                fontSize = Type.body,
+                modifier = Modifier
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickable { state.openUpdatePage() },
+            )
+            if (state.updateBusy) {
+                UpdateProgress(state.updateStatus ?: "Updating…")
+            } else {
+                state.updateStatus?.let { Text(it, color = tokens.textDim, fontSize = Type.body, maxLines = 1) }
+            }
         }
         Spacer(Modifier.weight(1f))
         Box(
