@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.7] - 2026-07-27
+
+### Added
+- A first-run setup walkthrough in the standalone app that guides you through picking a project and
+  configuring golden directories and matching, and can hand off to (or resume from) the CLI agent.
+- A headless configuration CLI for the standalone app (`configure`, `show`, `validate`, `guide`)
+  writing the same config the GUI uses, so an AI agent or a script can set up a project without
+  opening a window — plus a copy-ready agent prompt in the app and bundled framework setup guides.
+- An always-visible project control in the app toolbar with a menu of recently opened projects for
+  one-click switching and a picker for any other directory.
+- Golden directories can now be given as regexes (`regex:` prefix) matched against project-relative
+  paths, so a single entry can cover many modules.
+
+### Changed
+- Effective defaults in the standalone settings (annotation regex, file/class patterns, generated-file
+  regex, and excluded suffixes) are now explicit editable values instead of misleading grey
+  placeholders or implicit runtime fallbacks.
+- Annotated-method matching now requires a matching annotation; unannotated `test*` functions no
+  longer become candidates solely because of their name.
+- The CLI now supports help after a command and rejects unknown options instead of silently ignoring
+  them.
+- CLI validation accepts representative `--source-file` entries and runs the real source-to-golden
+  matcher for each one; directory-only checks now require an explicit opt-out.
+
 ## [1.5.0-beta.6] - 2026-07-24
 
 ### Changed

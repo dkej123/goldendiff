@@ -1,10 +1,13 @@
 package com.github.dkwasniak.goldendiff.match
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GenericScreenExtractorTest {
+
+    private val previewOrTest = ".*Preview.*|Test"
 
     private fun extract(fileName: String, text: String) = GenericScreenExtractor.extract(fileName, text)
 
@@ -75,5 +78,86 @@ class GenericScreenExtractorTest {
     fun `plain variables are not treated as components`() {
         val text = "const count = 42; let title = 'hello';"
         assertEquals(emptyList<String>(), extract("misc.ts", text).functionNames)
+    }
+
+    @Test
+    fun `annotated mode keeps only functions with matching annotations`() {
+        val text = """
+            @Preview
+            fun LoginScreenPreview() { }
+
+            @Composable
+            fun LoginScreen() { }
+
+            fun buildFakeData() { }
+
+            fun testLogin() { }
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("LoginScreen.kt", text, previewOrTest).functionNames
+        assertTrue(functions.toString(), "LoginScreenPreview" in functions)
+        assertFalse(functions.toString(), "testLogin" in functions)
+        assertFalse(functions.toString(), "LoginScreen" in functions)
+        assertFalse(functions.toString(), "buildFakeData" in functions)
+    }
+
+    @Test
+    fun `annotated mode drops unannotated swift test methods`() {
+        val text = """
+            final class LoginSnapshotTests: XCTestCase {
+                override func setUp() { }
+                func test_login_default() { assertSnapshot(of: view) }
+                func makeSut() -> Sut { Sut() }
+            }
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("LoginSnapshotTests.swift", text, previewOrTest).functionNames
+        assertFalse(functions.toString(), "test_login_default" in functions)
+        assertFalse(functions.toString(), "setUp" in functions)
+        assertFalse(functions.toString(), "makeSut" in functions)
+    }
+
+    @Test
+    fun `annotated mode drops non-function test titles and assigned components`() {
+        val text = """
+            const LoginScreen = () => null
+            test("login", () => {})
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("Login.ts", text, previewOrTest).functionNames
+        assertFalse(functions.toString(), "LoginScreen" in functions)
+        assertFalse(functions.toString(), "login" in functions)
+    }
+
+    @Test
+    fun `annotated mode keeps functions whose annotation matches the regex`() {
+        val text = """
+            @Test
+            func login_snapshot() { }
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("Tests.swift", text, previewOrTest).functionNames
+        assertTrue(functions.toString(), "login_snapshot" in functions)
+    }
+
+    @Test
+    fun `an inline annotation does not leak onto the following function`() {
+        val text = """
+            @Preview fun AlphaPreview() { }
+            fun beta() { }
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("Screens.kt", text, previewOrTest).functionNames
+        assertTrue(functions.toString(), "AlphaPreview" in functions)
+        assertFalse(functions.toString(), "beta" in functions)
+    }
+
+    @Test
+    fun `a null regex keeps every function (unchanged behaviour)`() {
+        val text = """
+            fun helperOnly() { }
+        """.trimIndent()
+
+        assertTrue("helperOnly" in GenericScreenExtractor.extract("F.kt", text, null).functionNames)
     }
 }

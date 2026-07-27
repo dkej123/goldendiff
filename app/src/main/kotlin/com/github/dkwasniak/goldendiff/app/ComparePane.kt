@@ -3,6 +3,8 @@ package com.github.dkwasniak.goldendiff.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +38,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,6 +70,8 @@ import com.github.dkwasniak.goldendiff.ui.SingleImageView
 import com.github.dkwasniak.goldendiff.ui.SwipeView
 import com.github.dkwasniak.goldendiff.ui.TwoUpView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.awt.Cursor
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
@@ -71,6 +79,17 @@ private val ZoomSteps = listOf(ImageLayout.FIT, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 
 private val ZoomLabels = listOf("Fit", "25%", "50%", "75%", "100%", "150%", "200%", "400%")
 private const val FIT_INDEX = 0
 private val HUNDRED_INDEX = ZoomSteps.indexOf(1.0)
+
+/**
+ * Index of the first explicit zoom step strictly larger than [scale].
+ *
+ * Used when zooming in from Fit: "+" must enlarge the image relative to whatever size Fit is currently
+ * showing it at, not jump to a fixed 25% that is often smaller than the fitted size.
+ */
+private fun firstZoomIndexAbove(scale: Double): Int {
+    for (i in 1..ZoomSteps.lastIndex) if (ZoomSteps[i] > scale) return i
+    return ZoomSteps.lastIndex
+}
 
 /** Right pane: the selected golden's HEAD-vs-working-copy comparison. */
 @Composable
@@ -124,6 +143,9 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
     var zoomIndex by remember { mutableIntStateOf(FIT_INDEX) }
     var opacity by remember { mutableStateOf(0.5f) }
     var pendingZoomAction by remember { mutableStateOf<String?>(null) }
+    // The scale Fit is currently rendering the image at, reported up from the canvas. Zooming in from
+    // Fit steps up from this, so "+" always enlarges relative to what is on screen.
+    var fitScale by remember { mutableStateOf(1.0) }
     val comparison = state.comparison
     val selected = state.selected
 
@@ -191,8 +213,14 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
                         compact = true,
                     )
                 }
-                comparison.hasDiff -> DiffBody(state, comparison, mode, ZoomSteps[zoomIndex], opacity)
-                else -> ScrollableCanvas(ZoomSteps[zoomIndex], CompareMode.TWO_UP, comparison.new ?: comparison.old, null) { canvas ->
+                comparison.hasDiff -> DiffBody(state, comparison, mode, ZoomSteps[zoomIndex], opacity) { fitScale = it }
+                else -> ScrollableCanvas(
+                    ZoomSteps[zoomIndex],
+                    CompareMode.TWO_UP,
+                    comparison.new ?: comparison.old,
+                    null,
+                    onFitScale = { fitScale = it },
+                ) { canvas ->
                     SingleImageView(comparison.new ?: comparison.old, ZoomSteps[zoomIndex], canvas, compareColors())
                 }
             }
@@ -213,7 +241,9 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
                         pendingZoomAction = "hundred"
                     },
                     onIn = {
-                        zoomIndex = (zoomIndex + 1).coerceAtMost(ZoomSteps.lastIndex)
+                        zoomIndex =
+                            if (zoomIndex == FIT_INDEX) firstZoomIndexAbove(fitScale)
+                            else (zoomIndex + 1).coerceAtMost(ZoomSteps.lastIndex)
                         pendingZoomAction = "zoom_in"
                     },
                     canZoomOut = zoomIndex > 0,
@@ -251,6 +281,7 @@ private fun DiffBody(
     mode: CompareMode,
     zoom: Double,
     opacity: Float,
+    onFitScale: (Double) -> Unit,
 ) {
     val colors = compareColors()
     val labelTop = 26.dp
@@ -259,6 +290,7 @@ private fun DiffBody(
         mode,
         if (mode == CompareMode.DIFF) comparison.diff else comparison.old,
         if (mode == CompareMode.DIFF) null else comparison.new,
+        onFitScale = onFitScale,
     ) { canvas ->
         when (mode) {
             CompareMode.TWO_UP -> TwoUpView(comparison.old, comparison.new, zoom, canvas.padding(top = labelTop), colors)
@@ -413,12 +445,43 @@ private fun ScrollableCanvas(
     mode: CompareMode,
     old: ImageBitmap?,
     new: ImageBitmap?,
+    onFitScale: ((Double) -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val canvasModifier = canvasSizeModifier(zoom, mode, old, new, maxWidth, maxHeight)
         val horizontalScroll = rememberScrollState()
         val verticalScroll = rememberScrollState()
+        val dragScope = rememberCoroutineScope()
+        // Left-button drag pans the zoomed image; only meaningful once there is scroll range, i.e. not
+        // in Fit. Dragging moves the image with the cursor, which is the opposite sign of the scroll
+        // offset, hence the negation.
+        val panModifier = if (zoom == ImageLayout.FIT) Modifier else Modifier
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.MOVE_CURSOR)))
+            .pointerInput(mode, old, new) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    dragScope.launch {
+                        horizontalScroll.scrollBy(-dragAmount.x)
+                        verticalScroll.scrollBy(-dragAmount.y)
+                    }
+                }
+            }
+        if (onFitScale != null) {
+            val density = LocalDensity.current
+            val areaWidth = maxWidth
+            val areaHeight = maxHeight
+            LaunchedEffect(mode, old, new, areaWidth, areaHeight) {
+                val boundW = maxOf(old?.width ?: 0, new?.width ?: 0)
+                val boundH = maxOf(old?.height ?: 0, new?.height ?: 0)
+                val areaWidthPx = with(density) { areaWidth.toPx().toInt() }
+                    .let { if (mode == CompareMode.TWO_UP) it / 2 else it }
+                val areaHeightPx = with(density) { areaHeight.toPx().toInt() }
+                onFitScale(
+                    ImageLayout.scaleForBounding(ImageLayout.FIT, boundW, boundH, areaWidthPx, areaHeightPx),
+                )
+            }
+        }
         LaunchedEffect(zoom, mode, old, new) {
             if (zoom == ImageLayout.FIT) {
                 horizontalScroll.scrollTo(0)
@@ -428,7 +491,7 @@ private fun ScrollableCanvas(
         // Keep the two scroll axes on separate layout nodes. Putting horizontalScroll and
         // verticalScroll on one Box makes Compose measure its child with unbounded constraints in
         // both directions, which can shrink/crop the Fit canvas and leave no usable scroll range.
-        Box(Modifier.fillMaxSize().verticalScroll(verticalScroll)) {
+        Box(Modifier.fillMaxSize().then(panModifier).verticalScroll(verticalScroll)) {
             Box(Modifier.fillMaxWidth().horizontalScroll(horizontalScroll)) {
                 Box(canvasModifier) { content(Modifier.fillMaxSize()) }
             }

@@ -106,9 +106,9 @@ fun DrawScope.drawImageIn(image: ImageBitmap, rect: IntRect) {
 /**
  * Shared placement for a pair of images on one canvas.
  *
- * Both are scaled by the SAME factor derived from their bounding box, then bottom-anchored. Scaling
- * each to fit its own area independently would make a taller image look the same size as a shorter
- * one and hide exactly the regression the tool exists to show.
+ * Both are scaled by the SAME factor derived from their bounding box, then centered vertically.
+ * Scaling each to fit its own area independently would make a taller image look the same size as a
+ * shorter one and hide exactly the regression the tool exists to show.
  */
 fun pairLayout(
     zoom: Double,
@@ -124,8 +124,8 @@ fun pairLayout(
     if (boundW <= 0 || boundH <= 0) return IntRect.EMPTY to IntRect.EMPTY
     val scale = ImageLayout.scaleForBounding(zoom, boundW, boundH, areaW, areaH)
     val area = IntRect(0, 0, areaW, areaH)
-    val oldRect = old?.let { ImageLayout.bottomRect(it.width, it.height, scale, area) } ?: IntRect.EMPTY
-    val newRect = new?.let { ImageLayout.bottomRect(it.width, it.height, scale, area) } ?: IntRect.EMPTY
+    val oldRect = old?.let { ImageLayout.centeredRect(it.width, it.height, scale, area) } ?: IntRect.EMPTY
+    val newRect = new?.let { ImageLayout.centeredRect(it.width, it.height, scale, area) } ?: IntRect.EMPTY
     return oldRect to newRect
 }
 
@@ -231,12 +231,12 @@ fun TwoUpView(
         val scale = ImageLayout.scaleForBounding(zoom, boundW, boundH, halfWidth, height)
 
         old?.let {
-            val rect = ImageLayout.bottomRect(it.width, it.height, scale, IntRect(0, 0, halfWidth, height))
+            val rect = ImageLayout.centeredRect(it.width, it.height, scale, IntRect(0, 0, halfWidth, height))
             drawCheckerboard(rect, colors)
             drawImageIn(it, rect)
         }
         new?.let {
-            val rect = ImageLayout.bottomRect(it.width, it.height, scale, IntRect(halfWidth, 0, halfWidth, height))
+            val rect = ImageLayout.centeredRect(it.width, it.height, scale, IntRect(halfWidth, 0, halfWidth, height))
             drawCheckerboard(rect, colors)
             drawImageIn(it, rect)
         }

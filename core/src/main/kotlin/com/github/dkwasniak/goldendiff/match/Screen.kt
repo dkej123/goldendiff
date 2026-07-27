@@ -15,7 +15,7 @@ package com.github.dkwasniak.goldendiff.match
  * first built for a file; producers without a caret leave it null.
  */
 data class Screen(
-    /** Function names selected from configured screenshot annotations and test naming. */
+    /** Function names selected from configured screenshot annotations. */
     val functionNames: List<String>,
     /** Class names declared in the current file. */
     val classNames: List<String>,

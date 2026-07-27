@@ -35,7 +35,7 @@ object CurrentScreen {
                     val fileName = FileDocumentManager.getInstance().getFile(document)
                         ?.name?.substringBeforeLast('.')
                         ?: return@runReadAction null
-                    return@runReadAction GenericScreenExtractor.extract(fileName, document.text)
+                    return@runReadAction GenericScreenExtractor.extract(fileName, document.text, annotationNameRegex)
                 }
 
             val annotationPattern = runCatching { Regex(annotationNameRegex) }
@@ -47,7 +47,7 @@ object CurrentScreen {
                 .filter { it.isNotBlank() }
                 .distinct()
 
-            // Preview / test functions in the file. Plain @Composable helpers and PreviewParameter
+            // Annotated screenshot functions in the file. Plain @Composable helpers and PreviewParameter
             // arguments are intentionally ignored because small helper names create noisy false
             // positives.
             val functionNames = PsiTreeUtil.findChildrenOfType(psiFile, KtNamedFunction::class.java)
@@ -72,7 +72,7 @@ object CurrentScreen {
                 ?: return@any false
             AnnotationNameMatcher.matches(annotationName, annotationPattern.pattern)
         }
-        return annotated || function.name?.startsWith("test") == true
+        return annotated
     }
 
     private fun enclosingFunction(element: com.intellij.psi.PsiElement): KtNamedFunction? {

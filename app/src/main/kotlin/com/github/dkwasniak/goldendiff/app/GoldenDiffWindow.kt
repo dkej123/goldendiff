@@ -3,6 +3,7 @@ package com.github.dkwasniak.goldendiff.app
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Divider
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.darkColors
@@ -41,15 +45,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.github.dkwasniak.goldendiff.app.ui.BuildBadges
 import com.github.dkwasniak.goldendiff.app.ui.CloseIcon
+import com.github.dkwasniak.goldendiff.app.ui.Chevron
 import com.github.dkwasniak.goldendiff.app.ui.DarkTokens
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
+import com.github.dkwasniak.goldendiff.app.ui.Direction
 import com.github.dkwasniak.goldendiff.app.ui.EmptyState
 import com.github.dkwasniak.goldendiff.app.ui.DropdownButton
+import com.github.dkwasniak.goldendiff.app.ui.FolderIcon
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
 import com.github.dkwasniak.goldendiff.app.ui.LegendItem
 import com.github.dkwasniak.goldendiff.app.ui.LightTokens
@@ -63,6 +72,8 @@ import com.github.dkwasniak.goldendiff.platform.Os
 import com.github.dkwasniak.goldendiff.platform.RevealInFileManager
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
 import java.awt.Cursor
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.JOptionPane
@@ -112,9 +123,8 @@ private fun Toolbar(state: AppState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (!hasProject) {
-            ToolButton("Open project…") { chooseDirectory("Select project directory")?.let { state.openProject(it) } }
-        }
+        ProjectMenuButton(state)
+        VerticalHairLine(20.dp)
         ToolButton("Settings", enabled = hasProject) { state.settingsVisible = true }
         ToolButton("Refresh", enabled = hasProject) { state.forceRefresh() }
         VerticalHairLine(20.dp)
@@ -134,6 +144,73 @@ private fun Toolbar(state: AppState) {
             hasProject,
         ) { state.selectSource(it) }
         Spacer(Modifier.weight(1f))
+    }
+}
+
+/**
+ * Always-visible project control at the far left of the toolbar: the current project name, a menu of
+ * recently opened projects for a one-click switch, and a picker for any other directory. Replaces the
+ * old "Open project…" button that vanished once a project was open, stranding the user on one project.
+ */
+@Composable
+private fun ProjectMenuButton(state: AppState) {
+    var expanded by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    val current = state.projectRoot
+    // Read from disk only while the menu is open; the list is short and rarely changes.
+    val recents = remember(expanded, current) { if (expanded) AppConfig.recentProjects() else emptyList() }
+    Box {
+        Row(
+            Modifier.clip(shape).border(1.dp, tokens.border, shape).hoverWash(shape = shape)
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FolderIcon(tokens.textFaint)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                current?.name ?: "Open project…",
+                color = tokens.text,
+                fontSize = Type.body,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(5.dp))
+            Chevron(Direction.DOWN, tokens.textFaint)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            recents.forEach { project ->
+                val isCurrent = project.absolutePath == current?.absolutePath
+                DropdownMenuItem(onClick = {
+                    expanded = false
+                    if (!isCurrent) state.openProject(project)
+                }) {
+                    Column {
+                        Text(
+                            project.name,
+                            color = if (isCurrent) tokens.accent else tokens.text,
+                            fontSize = Type.body,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                        Text(
+                            project.absolutePath,
+                            color = tokens.textFaint,
+                            fontSize = Type.small,
+                            fontFamily = Type.Mono,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            if (recents.isNotEmpty()) Divider(color = tokens.border)
+            DropdownMenuItem(onClick = {
+                expanded = false
+                chooseDirectory("Select project directory")?.let(state::openProject)
+            }) {
+                Text("Open other project…", color = tokens.text, fontSize = Type.body)
+            }
+        }
     }
 }
 
@@ -469,7 +546,31 @@ private fun showInFileManagerLabel(): String = when (Os.current) {
     Os.LINUX -> "Show in File Manager"
 }
 
-internal fun chooseDirectory(title: String): File? {
+internal fun chooseDirectory(title: String): File? = when (Os.current) {
+    // The native NSOpenPanel in folder-only mode — no "File Format" row, no greyed-out files, just a
+    // clean directory picker. AWT exposes it through FileDialog once this Apple-only flag is set.
+    Os.MAC -> chooseDirectoryNativeMac(title)
+    // FileDialog cannot select directories on Windows/Linux, so fall back to Swing's chooser there.
+    else -> chooseDirectorySwing(title)
+}
+
+private fun chooseDirectoryNativeMac(title: String): File? {
+    val key = "apple.awt.fileDialogForDirectories"
+    val previous = System.getProperty(key)
+    System.setProperty(key, "true")
+    return try {
+        val dialog = FileDialog(null as Frame?, title, FileDialog.LOAD)
+        dialog.isVisible = true
+        val directory = dialog.directory ?: return null
+        val name = dialog.file ?: return null
+        File(directory, name)
+    } finally {
+        // Leave the process-wide flag as we found it, so ordinary file dialogs keep picking files.
+        if (previous == null) System.clearProperty(key) else System.setProperty(key, previous)
+    }
+}
+
+private fun chooseDirectorySwing(title: String): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         dialogTitle = title

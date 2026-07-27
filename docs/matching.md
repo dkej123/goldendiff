@@ -12,7 +12,7 @@ configure matching when the defaults don’t fit your project. For where each op
 Golden Diff finds screenshots in two steps:
 
 1. It reads the currently open Kotlin file and extracts names (class names, the file base name, and
-   the names of annotated / `test*` functions).
+   the names of functions carrying a matching screenshot annotation).
 2. It matches those names against the committed PNG goldens in the configured golden directories.
 
 Matching uses one of **two mutually exclusive modes**, chosen with a radio button in
@@ -31,9 +31,10 @@ example `swift-snapshot-testing`, or Roborazzi's relative-path strategy) therefo
 This is the default and needs no per-file configuration for most projects.
 
 The **Screenshot annotation name regex** decides which functions are screenshot functions. A function
-is a candidate when its annotation name matches the regex (default `.*Preview.*|Test`), or its name
-starts with `test`. `PreviewParameter` is always ignored even though it contains `Preview`, because it
-describes preview input data rather than a screenshot function.
+is a candidate only when its annotation name matches the regex (default `.*Preview.*|Test`).
+`PreviewParameter` is always ignored even though it contains `Preview`, because it describes preview
+input data rather than a screenshot function. Naming an unannotated function `test…` does not make it
+a candidate in this mode.
 
 A golden matches when its relative path **contains the function name** as a whole word or camel-case
 segment (case-insensitive). Because it is a "contains" match, variant suffixes such as `_dark`, `.1`,
@@ -50,7 +51,6 @@ part of the golden name:
 | Paparazzi | `com_example_ui_MyTest_emptyState.png` | `emptyState` |
 | Compose Preview | `com.sample.tests.GreetingPreview_3d8b_0.png` | `GreetingPreview` |
 | Shot / Dropshots | `com_example_MyTest_emptyState.png` | `emptyState` |
-| swift-snapshot-testing | `MyVCTests/testEmpty.png` | `testEmpty` |
 
 If your project uses a custom annotation, add it to the regex. For example, for `@ScreenshotTest`:
 
@@ -62,8 +62,8 @@ Then `@ScreenshotTest fun emptyLoginState()` becomes a candidate and `…emptyLo
 
 ## Mode: Match by file/class regex
 
-Use this when your screenshot functions are **not** annotated (so there is no method name to key off),
-and goldens are named after the file or the class instead.
+Use this when your screenshot functions are **not** annotated (for example XCTest methods named
+`test…`) and goldens are named after the file or the class.
 
 Add one regex per line in **Golden filename regex**. Each pattern is matched anywhere in the golden's
 relative path (case-insensitive). Patterns support two placeholders:

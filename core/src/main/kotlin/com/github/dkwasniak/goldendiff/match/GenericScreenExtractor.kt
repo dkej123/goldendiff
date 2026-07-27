@@ -14,15 +14,69 @@ package com.github.dkwasniak.goldendiff.match
  */
 object GenericScreenExtractor {
 
-    fun extract(fileName: String, text: String): Screen {
+    /**
+     * @param annotationNameRegex when non-blank, named functions are filtered to screenshot
+     * candidates the same way the plugin's Kotlin/PSI path does — kept only if preceded by an
+     * annotation whose name matches the regex (e.g. `@Preview`).
+     * When null/blank every named function is kept (the original, unfiltered behaviour).
+     */
+    fun extract(fileName: String, text: String, annotationNameRegex: String? = null): Screen {
         val classNames = CLASS_DECL.captures(text)
-        val functionNames = FUNCTION_DECLS.flatMap { it.captures(text) }.distinct()
+        val namedFunctions = if (annotationNameRegex.isNullOrBlank()) {
+            NAMED_FUNCTION_DECL.captures(text)
+        } else {
+            annotatedOrTestFunctions(text, annotationNameRegex)
+        }
+        // Assigned components and test/story titles have no declaration annotation we can associate
+        // reliably. They remain useful in the unfiltered extractor, but annotated-method mode must
+        // not smuggle them in as if they were annotated functions.
+        val otherCandidates = if (annotationNameRegex.isNullOrBlank()) {
+            OTHER_DECLS.flatMap { it.captures(text) }
+        } else {
+            emptyList()
+        }
         return Screen(
-            functionNames = functionNames,
+            functionNames = (namedFunctions + otherCandidates).distinct(),
             classNames = classNames,
             fileName = fileName,
             caretName = null,
         )
+    }
+
+    // Keeps only functions preceded by an annotation matching the regex. The annotated-method mode
+    // is deliberately literal: naming a function `test…` does not make it annotated.
+    private fun annotatedOrTestFunctions(text: String, annotationNameRegex: String): List<String> =
+        NAMED_FUNCTION_DECL.findAll(text)
+            .mapNotNull { match ->
+                val name = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val annotated = precedingAnnotations(text, match.range.first)
+                    .any { AnnotationNameMatcher.matches(it, annotationNameRegex) }
+                name.takeIf { annotated }
+            }
+            .distinct()
+            .toList()
+
+    // Annotation names sitting directly above (or inline before) a declaration. Scans backwards over
+    // the run of annotation / modifier / comment / blank lines and stops at the first line of real
+    // code, so annotations belonging to an earlier declaration don't leak onto this one.
+    private fun precedingAnnotations(text: String, declStart: Int): List<String> {
+        val lines = text.substring(0, declStart).split('\n')
+        val annotations = mutableListOf<String>()
+        for (i in lines.indices.reversed()) {
+            val line = lines[i].trim()
+            when {
+                line.isEmpty() -> continue
+                line.startsWith("@") -> {
+                    // An annotation sharing its line with another declaration belongs to that one.
+                    if (DECL_KEYWORD.containsMatchIn(line)) break
+                    ANNOTATION_NAME.findAll(line).forEach { annotations.add(it.groupValues[1]) }
+                }
+                line.startsWith("//") || line.startsWith("*") || line.startsWith("/*") -> continue
+                line.substringBefore(' ') in MODIFIERS -> continue
+                else -> break
+            }
+        }
+        return annotations
     }
 
     private fun Regex.captures(text: String): List<String> =
@@ -34,9 +88,10 @@ object GenericScreenExtractor {
     /** `class Foo`, `struct Foo`, `interface Foo`, `enum Foo`. */
     private val CLASS_DECL = Regex("""\b(?:class|struct|interface|enum)\s+($ID)""")
 
-    private val FUNCTION_DECLS = listOf(
-        // `function Foo`, `func foo` (Swift), `fun foo`.
-        Regex("""\b(?:function|func|fun)\s+($ID)"""),
+    /** `function Foo`, `func foo` (Swift), `fun foo`. */
+    private val NAMED_FUNCTION_DECL = Regex("""\b(?:function|func|fun)\s+($ID)""")
+
+    private val OTHER_DECLS = listOf(
         // Assigned function / arrow / React component / styled-component:
         //   const Foo = () => …, let bar = function …, const Baz = styled.div`…`, memo/forwardRef(…).
         Regex(
@@ -45,5 +100,14 @@ object GenericScreenExtractor {
         ),
         // Single-token test / spec / story titles: it('primary'), test("Disabled"), describe(`Card`).
         Regex("""\b(?:describe|test|it|story)\s*\(\s*['"`]([^'"`\n]+)['"`]"""),
+    )
+
+    private val ANNOTATION_NAME = Regex("@($ID)")
+
+    private val DECL_KEYWORD = Regex("""\b(?:fun|func|function|class|struct|interface|enum|val|var|let|const)\b""")
+
+    private val MODIFIERS = setOf(
+        "private", "public", "internal", "protected", "open", "override", "suspend", "inline",
+        "abstract", "final", "static", "export", "default", "async",
     )
 }

@@ -30,15 +30,30 @@ object AppConfig {
 
     fun load(projectRoot: File): GoldenDiffConfig {
         val file = fileFor(projectRoot)
-        if (!file.isFile) return GoldenDiffConfig()
+        if (!file.isFile) return EMPTY
         val props = Properties()
-        runCatching { file.inputStream().use(props::load) }.getOrElse { return GoldenDiffConfig() }
+        runCatching { file.inputStream().use(props::load) }.getOrElse { return EMPTY }
 
-        fun list(key: String): List<String> =
-            props.getProperty(key).orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        fun list(key: String): List<String> {
+            val count = props.getProperty("$key.count")?.toIntOrNull()
+            if (count != null) return (0 until count).mapNotNull { props.getProperty("$key.$it") }
+            return props.getProperty(key).orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        }
 
-        // Blank or missing values fall back to the defaults rather than being taken literally - this
-        // file is hand-editable, so an empty regex must not disable matching outright.
+        val excludedSuffixes = list("excludedSuffixes").let { values ->
+            // New configs store a count, including zero when the user deliberately clears the list.
+            // Legacy blank values came from untouched placeholder-only settings, so migrate those to
+            // the real default instead of silently behaving as "exclude nothing".
+            if (values.isNotEmpty() || props.containsKey("excludedSuffixes.count")) {
+                values
+            } else {
+                GoldenDiffDefaults.EXCLUDED_SUFFIXES
+            }
+        }
+
+        // Structural matching defaults are real, visible settings rather than implicit runtime
+        // fallbacks. Older configs stored them blank, so migrate those reads to the same values shown
+        // by the UI and returned by the CLI.
         return GoldenDiffConfig(
             goldenPaths = list("goldenPaths"),
             generatedPaths = list("generatedPaths"),
@@ -47,22 +62,36 @@ object AppConfig {
             matchMode = MatchMode.fromName(props.getProperty("matchMode").orEmpty()),
             annotatedFunctionRegex = props.getProperty("annotatedFunctionRegex")
                 ?.takeIf { it.isNotBlank() } ?: MatchingDefaults.ANNOTATION_NAME_REGEX,
-            goldenFilePatterns = list("goldenFilePatterns").ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS },
-            excludedSuffixes = list("excludedSuffixes").ifEmpty { GoldenDiffDefaults.EXCLUDED_SUFFIXES },
+            goldenFilePatterns = list("goldenFilePatterns")
+                .ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS },
+            excludedSuffixes = excludedSuffixes,
             trimTransparentPadding = props.getProperty("trimTransparentPadding").toBoolean(),
         )
     }
 
+    private val EMPTY = GoldenDiffConfig()
+
     fun save(projectRoot: File, config: GoldenDiffConfig) {
+        val effective = config.normalizedForMatching()
         val props = Properties().apply {
-            setProperty("goldenPaths", config.goldenPaths.joinToString(","))
-            setProperty("generatedPaths", config.generatedPaths.joinToString(","))
-            setProperty("generatedFileRegex", config.generatedFileRegex)
-            setProperty("matchMode", config.matchMode.name)
-            setProperty("annotatedFunctionRegex", config.annotatedFunctionRegex)
-            setProperty("goldenFilePatterns", config.goldenFilePatterns.joinToString(","))
-            setProperty("excludedSuffixes", config.excludedSuffixes.joinToString(","))
-            setProperty("trimTransparentPadding", config.trimTransparentPadding.toString())
+            setProperty("goldenPaths", effective.goldenPaths.joinToString(","))
+            setProperty("goldenPaths.count", effective.goldenPaths.size.toString())
+            effective.goldenPaths.forEachIndexed { index, path -> setProperty("goldenPaths.$index", path) }
+            setProperty("generatedPaths", effective.generatedPaths.joinToString(","))
+            setProperty("generatedFileRegex", effective.generatedFileRegex)
+            setProperty("matchMode", effective.matchMode.name)
+            setProperty("annotatedFunctionRegex", effective.annotatedFunctionRegex)
+            setProperty("goldenFilePatterns", effective.goldenFilePatterns.joinToString(","))
+            setProperty("goldenFilePatterns.count", effective.goldenFilePatterns.size.toString())
+            effective.goldenFilePatterns.forEachIndexed { index, pattern ->
+                setProperty("goldenFilePatterns.$index", pattern)
+            }
+            setProperty("excludedSuffixes", effective.excludedSuffixes.joinToString(","))
+            setProperty("excludedSuffixes.count", effective.excludedSuffixes.size.toString())
+            effective.excludedSuffixes.forEachIndexed { index, suffix ->
+                setProperty("excludedSuffixes.$index", suffix)
+            }
+            setProperty("trimTransparentPadding", effective.trimTransparentPadding.toString())
         }
         runCatching {
             configDir.mkdirs()
@@ -81,5 +110,70 @@ object AppConfig {
             configDir.mkdirs()
             File(configDir, "last-project").writeText(projectRoot.absolutePath)
         }
+        rememberRecentProject(projectRoot)
+    }
+
+    private const val MAX_RECENT_PROJECTS = 8
+
+    /**
+     * Recently opened projects, newest first, so the toolbar can offer a quick switch. Non-existent
+     * directories are dropped on read rather than persisted around — a stale entry is just noise.
+     */
+    fun recentProjects(): List<File> =
+        File(configDir, "recent-projects").takeIf { it.isFile }
+            ?.readLines().orEmpty()
+            .map(String::trim).filter { it.isNotEmpty() }
+            .map(::File).filter { it.isDirectory }
+            .distinctBy { it.absolutePath }
+            .take(MAX_RECENT_PROJECTS)
+
+    private fun rememberRecentProject(projectRoot: File) {
+        runCatching {
+            configDir.mkdirs()
+            val updated = (listOf(projectRoot) + recentProjects())
+                .distinctBy { it.absolutePath }
+                .take(MAX_RECENT_PROJECTS)
+            File(configDir, "recent-projects").writeText(updated.joinToString("\n") { it.absolutePath })
+        }
+    }
+
+    /** Whether the first-run setup walkthrough has already been completed on this machine. */
+    fun onboardingCompleted(): Boolean = File(configDir, "onboarding-done").isFile
+
+    fun markOnboardingCompleted() {
+        runCatching {
+            configDir.mkdirs()
+            File(configDir, "onboarding-done").writeText("1")
+        }
+    }
+
+    /**
+     * Cross-process hand-off from the CLI to a running setup window: the CLI writes it after it has
+     * finished configuring a project, and the onboarding walkthrough polls for it so it can pick up
+     * where the agent left off. A file is enough — both sides are the same user on the same machine —
+     * and the timestamp lets the reader ignore a stale signal from an earlier run.
+     */
+    data class CliSignal(val project: File, val timestamp: Long)
+
+    private val cliSignalFile: File get() = File(configDir, "cli-signal.properties")
+
+    fun writeCliSignal(projectRoot: File) {
+        val props = Properties().apply {
+            setProperty("project", projectRoot.absolutePath)
+            setProperty("timestamp", System.currentTimeMillis().toString())
+        }
+        runCatching {
+            configDir.mkdirs()
+            cliSignalFile.outputStream().use { props.store(it, "Golden Diff — CLI setup signal") }
+        }
+    }
+
+    fun readCliSignal(): CliSignal? {
+        val file = cliSignalFile.takeIf { it.isFile } ?: return null
+        val props = Properties()
+        runCatching { file.inputStream().use(props::load) }.getOrElse { return null }
+        val project = props.getProperty("project")?.trim()?.takeIf { it.isNotEmpty() }?.let(::File) ?: return null
+        val timestamp = props.getProperty("timestamp")?.trim()?.toLongOrNull() ?: return null
+        return CliSignal(project, timestamp)
     }
 }
