@@ -44,6 +44,13 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         // When true, fully transparent padding around an image's content is trimmed before it is shown
         // (comparison view and list thumbnails). Off by default so images are shown exactly as stored.
         var trimTransparentPadding: Boolean = false
+        // User-configured shell commands driving the screenshot tests. Free-form and framework-agnostic;
+        // blank means "not configured" (the corresponding toolbar action stays disabled). The *File
+        // commands may use the {file_name}/{class_name}/{file_path} placeholders CommandTemplate expands.
+        var generateAllCommand: String = ""
+        var generateFileCommand: String = ""
+        var verifyAllCommand: String = ""
+        var verifyFileCommand: String = ""
     }
 
     private var state = State()
@@ -93,6 +100,30 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
             state.trimTransparentPadding = value
         }
 
+    var generateAllCommand: String
+        get() = state.generateAllCommand
+        set(value) {
+            state.generateAllCommand = value
+        }
+
+    var generateFileCommand: String
+        get() = state.generateFileCommand
+        set(value) {
+            state.generateFileCommand = value
+        }
+
+    var verifyAllCommand: String
+        get() = state.verifyAllCommand
+        set(value) {
+            state.verifyAllCommand = value
+        }
+
+    var verifyFileCommand: String
+        get() = state.verifyFileCommand
+        set(value) {
+            state.verifyFileCommand = value
+        }
+
     var matchMode: MatchMode
         get() = MatchMode.fromName(state.matchMode)
         set(value) {
@@ -133,6 +164,10 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         goldenFilePatterns = goldenFilePatterns,
         excludedSuffixes = excludedSuffixes,
         trimTransparentPadding = trimTransparentPadding,
+        generateAllCommand = generateAllCommand,
+        generateFileCommand = generateFileCommand,
+        verifyAllCommand = verifyAllCommand,
+        verifyFileCommand = verifyFileCommand,
     )
 
     fun resolvedPaths(project: Project): List<File> =

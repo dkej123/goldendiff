@@ -43,6 +43,20 @@ or test plan as part of Golden Diff setup.
 ```
 Golden `__Snapshots__/<TestClass>/<name>.png` maps to generated `<dir>/<TestClass>/<name>.png` — exact, no `_actual` suffix.
 
+## GoldenDiff side — commands (examples)
+Configure the command templates so the tool-window Generate/Verify buttons work. XCTest snapshot tests
+run through the normal test flow, so **Verify** is just running the tests; scope a single file with
+`-only-testing:<Target>/<Class>`. Example (replace the scheme/target with the project's real names):
+```
+--verify-all-cmd  'xcodebuild test -scheme UnitTests -destination "platform=iOS Simulator,name=iPhone 15 Pro"'
+--verify-file-cmd 'xcodebuild test -scheme UnitTests -destination "platform=iOS Simulator,name=iPhone 15 Pro" -only-testing:SnapshotTests/{class_name}'
+```
+Recording is a **library toggle**, not a separate task: swift-snapshot-testing records when `record` is
+on (per call, or globally via `withSnapshotTesting(record: .all)`), then the same test run writes the
+goldens. There is no universal record command, so leave `--generate-all-cmd` / `--generate-file-cmd`
+unset unless the project has a wrapper (a lane or script) the user points them at. Remember the
+`TEST_RUNNER_SNAPSHOT_ARTIFACTS` requirement above still applies to whatever command runs the tests.
+
 ## Verify
 Do not change a view or run a writing snapshot test as part of automated configuration. Tell the user
 that they can later change a view so a snapshot differs, run its snapshot test, and confirm files

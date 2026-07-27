@@ -80,10 +80,11 @@ private enum class SettingsSection(val label: String) {
     MATCHING("Golden matching"),
     FILTERING("Filtering"),
     DISPLAY("Display"),
+    COMMANDS("Commands"),
     PRIVACY("Privacy");
 
-    /** The live match preview is meaningless for the appearance/trim controls. */
-    val showsPreview: Boolean get() = this != DISPLAY && this != PRIVACY
+    /** The live match preview is meaningless for the appearance/trim/command controls. */
+    val showsPreview: Boolean get() = this != DISPLAY && this != PRIVACY && this != COMMANDS
 }
 
 /**
@@ -148,6 +149,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                     SettingsSection.MATCHING -> MatchingSection(state)
                                     SettingsSection.FILTERING -> FilteringSection(state)
                                     SettingsSection.DISPLAY -> DisplaySection(state)
+                                    SettingsSection.COMMANDS -> CommandsSection(state)
                                     SettingsSection.PRIVACY -> PrivacySection()
                                 }
                             }

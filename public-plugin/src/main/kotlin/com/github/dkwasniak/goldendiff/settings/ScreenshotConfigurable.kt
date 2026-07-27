@@ -70,6 +70,10 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         margin = JBUI.insets(4, 6)
     }
     private val excludedSuffixesField = singleLineField()
+    private val generateAllCommandField = singleLineField()
+    private val generateFileCommandField = singleLineField()
+    private val verifyAllCommandField = singleLineField()
+    private val verifyFileCommandField = singleLineField()
     private val trimTransparentPaddingCheckbox =
         JCheckBox("Trim transparent padding around image content")
     private val analyticsCheckbox = JCheckBox("Share anonymous product analytics")
@@ -114,6 +118,9 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         panel.add(spacer())
         panel.add(sectionHeader("Display"))
         panel.add(displaySection())
+        panel.add(spacer())
+        panel.add(sectionHeader("Commands"))
+        panel.add(commandsSection())
         panel.add(spacer())
         panel.add(sectionHeader("Privacy"))
         panel.add(privacySection())
@@ -450,6 +457,38 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
             add(trimTransparentPaddingCheckbox, BorderLayout.CENTER)
         }
 
+    private fun commandsSection(): JPanel {
+        val placeholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+            .joinToString("  ·  ") { (token, meaning) -> "$token = $meaning" }
+        fun commandBlock(title: String, description: String, field: JTextField): JPanel =
+            JPanel(BorderLayout()).apply {
+                maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(80))
+                add(labelBlock(title, description), BorderLayout.NORTH)
+                add(field, BorderLayout.CENTER)
+            }
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(
+                labelBlock(
+                    "Screenshot test commands (optional):",
+                    "Shell commands run from the tool window. Leave blank to hide a button. The " +
+                        "\"current file\" commands may use placeholders: $placeholders.",
+                ),
+            )
+            generateFileCommandField.toolTipText =
+                "Example (Roborazzi): ./gradlew :screenshots:recordRoborazziDebug --tests '*{file_name}Kt*'"
+            verifyFileCommandField.toolTipText =
+                "Example (iOS): xcodebuild test -scheme UnitTests -only-testing:SnapshotTests/{class_name}"
+            add(commandBlock("Generate all goldens:", "Run for the whole project.", generateAllCommandField))
+            add(spacer())
+            add(commandBlock("Generate for current file:", "Regenerate only the open file's goldens.", generateFileCommandField))
+            add(spacer())
+            add(commandBlock("Verify all goldens:", "Run for the whole project.", verifyAllCommandField))
+            add(spacer())
+            add(commandBlock("Verify current file:", "Verify only the open file's goldens.", verifyFileCommandField))
+        }
+    }
+
     private fun singleLineField(): JTextField =
         JTextField().apply {
             margin = JBUI.insets(2, 6)
@@ -512,6 +551,10 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
             annotationRegexField.text != settings.annotatedFunctionRegex ||
             parsePatterns(goldenPatternsArea.text) != settings.goldenFilePatterns ||
             parseSuffixes(excludedSuffixesField.text) != settings.excludedSuffixes ||
+            generateAllCommandField.text != settings.generateAllCommand ||
+            generateFileCommandField.text != settings.generateFileCommand ||
+            verifyAllCommandField.text != settings.verifyAllCommand ||
+            verifyFileCommandField.text != settings.verifyFileCommand ||
             trimTransparentPaddingCheckbox.isSelected != settings.trimTransparentPadding ||
             analyticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().analyticsEnabled ||
             diagnosticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().diagnosticsEnabled ||
@@ -554,6 +597,10 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         settings.annotatedFunctionRegex = annotationRegex
         settings.goldenFilePatterns = goldenPatterns
         settings.excludedSuffixes = parseSuffixes(excludedSuffixesField.text)
+        settings.generateAllCommand = generateAllCommandField.text.trim()
+        settings.generateFileCommand = generateFileCommandField.text.trim()
+        settings.verifyAllCommand = verifyAllCommandField.text.trim()
+        settings.verifyFileCommand = verifyFileCommandField.text.trim()
         settings.trimTransparentPadding = trimTransparentPaddingCheckbox.isSelected
         val telemetrySettings = PluginTelemetrySettings.getInstance()
         telemetrySettings.analyticsEnabled = analyticsCheckbox.isSelected
@@ -602,6 +649,10 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         annotationRegexField.text = settings.annotatedFunctionRegex
         goldenPatternsArea.text = settings.goldenFilePatterns.joinToString("\n")
         excludedSuffixesField.text = settings.excludedSuffixes.joinToString(", ")
+        generateAllCommandField.text = settings.generateAllCommand
+        generateFileCommandField.text = settings.generateFileCommand
+        verifyAllCommandField.text = settings.verifyAllCommand
+        verifyFileCommandField.text = settings.verifyFileCommand
         trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding
         val telemetrySettings = PluginTelemetrySettings.getInstance()
         analyticsCheckbox.isSelected = telemetrySettings.analyticsEnabled

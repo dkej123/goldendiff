@@ -157,6 +157,11 @@ class ScreenshotPanel(
         isVisible = false
     }
     private val directoriesButton = JButton()
+    private val generateButton = JButton("Generate")
+    private val verifyButton = JButton("Verify")
+    // True while a Generate/Verify run is in flight, so the buttons stay disabled and the status line
+    // reports progress. The full output streams into IntelliJ's Run tool window (see CommandExecution).
+    private var commandRunning = false
     private val scopeCombo = ComboBox(Scope.entries.toTypedArray()).apply {
         selectedItem = Scope.CURRENT_FILE
         toolTipText = "Choose whether to show screenshots for the current file or all project golden changes"
@@ -360,6 +365,21 @@ class ScreenshotPanel(
                     clicked?.let { CopyPasteManager.getInstance().setContents(StringSelection(it.absolutePath)) }
                 },
             )
+            // Accept is only meaningful for verify output (Test output): it promotes the generated
+            // _actual over the golden. Generation already writes the golden in place, so it is hidden
+            // there. Enabled only when the selected golden has a generated counterpart.
+            if (selectedSource() == ComparisonSource.GENERATED && clicked != null) {
+                add(
+                    listAction(
+                        "Accept Generated Golden",
+                        com.github.dkwasniak.goldendiff.command.GoldenAccept.canAccept(
+                            clicked,
+                            settings.toConfig(),
+                            project.basePath?.let(::File),
+                        ),
+                    ) { acceptGeneratedGolden(clicked) },
+                )
+            }
             addSeparator()
             add(
                 listAction(
@@ -401,6 +421,33 @@ class ScreenshotPanel(
             )
         }
         scheduleRefresh()
+    }
+
+    private fun acceptGeneratedGolden(golden: File) {
+        val result = com.github.dkwasniak.goldendiff.command.GoldenAccept.accept(
+            golden,
+            settings.toConfig(),
+            project.basePath?.let(::File),
+        )
+        telemetry.event(
+            "product.feature_used",
+            mapOf("feature" to if (result.isSuccess) "accept_golden" else "accept_golden_failed"),
+        )
+        result.onSuccess { generated ->
+            // The generated file moved onto the golden — refresh both so neither the list nor the
+            // preview keeps showing a change that was just accepted.
+            LocalFileSystem.getInstance().refreshIoFiles(listOf(golden, generated))
+        }
+        result.onFailure { error ->
+            val message = when ((error as? com.github.dkwasniak.goldendiff.command.GoldenAccept.AcceptException)?.failure) {
+                is com.github.dkwasniak.goldendiff.command.GoldenAccept.Failure.NoGeneratedCounterpart ->
+                    "No generated output was found for ${golden.name}."
+                else -> "Could not accept ${golden.name}."
+            }
+            Messages.showErrorDialog(project, message, "Accept Generated Golden")
+        }
+        loadedFile = null
+        scheduleRefresh(force = true, trigger = "accept_golden")
     }
 
     private fun bindListKey(keyCode: Int, actionName: String, delta: Int) {
@@ -455,16 +502,21 @@ class ScreenshotPanel(
 
     private fun buildHeader(): JPanel {
         directoriesButton.addActionListener { onDirectoriesClicked() }
+        generateButton.addActionListener { showCommandMenu(generateButton, CommandKind.GENERATE) }
+        verifyButton.addActionListener { showCommandMenu(verifyButton, CommandKind.VERIFY) }
         val toolbar = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(4))).apply {
             add(directoriesButton)
             add(JButton("Refresh").apply {
                 addActionListener { scheduleRefresh(force = true, trigger = "manual_refresh") }
             })
+            add(generateButton)
+            add(verifyButton)
             add(JBLabel("Scope:"))
             add(scopeCombo)
             add(JBLabel("Compare:"))
             add(sourceCombo)
         }
+        updateCommandButtons()
 
         val statusPanel = JPanel(BorderLayout()).apply {
             add(statusLabel, BorderLayout.NORTH)
@@ -507,6 +559,7 @@ class ScreenshotPanel(
         if (settings.isConfigured) {
             ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
             updateHeader()
+            updateCommandButtons()
             scheduleRefresh(force = true, trigger = "config_change")
         } else {
             val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
@@ -526,6 +579,128 @@ class ScreenshotPanel(
     private fun updateScopeControls() {
         sourceCombo.isEnabled = true
     }
+
+    // region screenshot-test commands
+
+    private enum class CommandKind(val label: String) { GENERATE("Generate"), VERIFY("Verify") }
+
+    private fun commandFor(kind: CommandKind, perFile: Boolean): String {
+        val config = settings.toConfig()
+        return when (kind) {
+            CommandKind.GENERATE -> if (perFile) config.generateFileCommand else config.generateAllCommand
+            CommandKind.VERIFY -> if (perFile) config.verifyFileCommand else config.verifyAllCommand
+        }
+    }
+
+    /**
+     * Keeps the Generate/Verify buttons enabled only when at least one of their commands is set and no
+     * run is in flight; a disabled button explains how to turn it on. Called after settings changes.
+     */
+    private fun updateCommandButtons() {
+        fun sync(button: JButton, kind: CommandKind) {
+            val configured = commandFor(kind, perFile = false).isNotBlank() ||
+                commandFor(kind, perFile = true).isNotBlank()
+            button.isEnabled = configured && !commandRunning
+            button.toolTipText = when {
+                commandRunning -> "A screenshot command is already running."
+                !configured -> "Set a ${kind.label} command in Settings → Golden Diff → Commands."
+                else -> "${kind.label} screenshot goldens (whole project or current file)."
+            }
+        }
+        sync(generateButton, CommandKind.GENERATE)
+        sync(verifyButton, CommandKind.VERIFY)
+    }
+
+    private fun showCommandMenu(anchor: JButton, kind: CommandKind) {
+        val allCommand = commandFor(kind, perFile = false)
+        val fileCommand = commandFor(kind, perFile = true)
+        val screen = currentScreen
+        val fileName = screen?.fileName
+        val menu = javax.swing.JPopupMenu().apply {
+            add(
+                javax.swing.JMenuItem("Whole project").apply {
+                    isEnabled = allCommand.isNotBlank()
+                    toolTipText = if (allCommand.isBlank()) {
+                        "Set a whole-project ${kind.label} command in Settings."
+                    } else {
+                        allCommand
+                    }
+                    addActionListener { runScreenshotCommand(kind, allCommand, perFile = false) }
+                },
+            )
+            add(
+                javax.swing.JMenuItem(fileName?.let { "Current file: $it" } ?: "Current file").apply {
+                    isEnabled = fileCommand.isNotBlank() && screen != null
+                    toolTipText = when {
+                        fileCommand.isBlank() -> "Set a current-file ${kind.label} command in Settings."
+                        screen == null -> "Open a file in the editor first."
+                        else -> com.github.dkwasniak.goldendiff.command.CommandTemplate.expand(fileCommand, screen)
+                    }
+                    addActionListener {
+                        if (screen != null) {
+                            runScreenshotCommand(
+                                kind,
+                                com.github.dkwasniak.goldendiff.command.CommandTemplate.expand(fileCommand, screen),
+                                perFile = true,
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        menu.show(anchor, 0, anchor.height)
+    }
+
+    private fun runScreenshotCommand(kind: CommandKind, command: String, perFile: Boolean) {
+        if (commandRunning || command.isBlank()) return
+        val root = project.basePath?.let(::File) ?: run {
+            statusLabel.text = "No project directory to run the command in."
+            return
+        }
+        telemetry.event(
+            "product.feature_used",
+            mapOf("feature" to if (kind == CommandKind.GENERATE) "generate_run" else "verify_run"),
+        )
+        commandRunning = true
+        updateCommandButtons()
+        statusLabel.text = "${kind.label}${if (perFile) " (current file)" else ""} running…"
+        val started = CommandExecution.run(
+            project = project,
+            command = command,
+            workingDir = root,
+            title = "Golden Diff: ${kind.label}${if (perFile) " (current file)" else ""}",
+            onTerminated = { exitCode ->
+                ApplicationManager.getApplication().invokeLater {
+                    commandRunning = false
+                    updateCommandButtons()
+                    onScreenshotCommandFinished(kind, exitCode)
+                }
+            },
+        )
+        if (!started) {
+            commandRunning = false
+            updateCommandButtons()
+            statusLabel.text = "Could not start the ${kind.label} command."
+        }
+    }
+
+    private fun onScreenshotCommandFinished(kind: CommandKind, exitCode: Int?) {
+        // Surface the freshly written output: refresh VFS for the generated dirs, switch to Test
+        // output and rescan so the new comparison shows without a manual refresh.
+        LocalFileSystem.getInstance().refreshIoFiles(settings.resolvedGeneratedPaths(project))
+        statusLabel.text = when (exitCode) {
+            0 -> "${kind.label} finished."
+            null -> "${kind.label} could not be started."
+            else -> "${kind.label} failed (exit $exitCode) — see the Run window."
+        }
+        if (exitCode == 0 && kind == CommandKind.VERIFY) {
+            sourceCombo.selectedItem = ComparisonSource.GENERATED
+        }
+        loadedFile = null
+        scheduleRefresh(force = true, trigger = "command_finished")
+    }
+
+    // endregion
 
     private fun createThumbnailScaleButton(accessibleName: String, icon: Icon): JButton =
         JButton(icon).apply {

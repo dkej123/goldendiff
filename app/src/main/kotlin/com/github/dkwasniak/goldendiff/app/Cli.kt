@@ -112,6 +112,11 @@ object GoldenDiffCli {
         if (parsed.has("trim-transparent-padding")) config = config.copy(trimTransparentPadding = true)
         if (parsed.has("no-trim-transparent-padding")) config = config.copy(trimTransparentPadding = false)
 
+        parsed.value("generate-all-cmd")?.let { config = config.copy(generateAllCommand = it) }
+        parsed.value("generate-file-cmd")?.let { config = config.copy(generateFileCommand = it) }
+        parsed.value("verify-all-cmd")?.let { config = config.copy(verifyAllCommand = it) }
+        parsed.value("verify-file-cmd")?.let { config = config.copy(verifyFileCommand = it) }
+
         if (config.goldenPaths.isEmpty()) {
             System.err.println(
                 "Warning: no golden directories are configured — Golden Diff has nothing to compare " +
@@ -299,7 +304,13 @@ object GoldenDiffCli {
         println("  Generated file regex:  ${orDefault(config.generatedFileRegex, GoldenDiffDefaults.GENERATED_FILE_REGEX)}")
         println("  Excluded suffixes:     ${config.excludedSuffixes.ifEmpty { listOf("(none)") }.joinToString(", ")}")
         println("  Trim transparent pad:  ${config.trimTransparentPadding}")
+        println("  Generate all cmd:      ${orNone(config.generateAllCommand)}")
+        println("  Generate file cmd:     ${orNone(config.generateFileCommand)}")
+        println("  Verify all cmd:        ${orNone(config.verifyAllCommand)}")
+        println("  Verify file cmd:       ${orNone(config.verifyFileCommand)}")
     }
+
+    private fun orNone(value: String): String = value.ifBlank { "(none)" }
 
     private fun orDefault(value: String, default: String): String =
         if (value.isBlank()) "(not set — default: $default)" else value
@@ -318,6 +329,10 @@ object GoldenDiffCli {
         append(jsonField("generatedFileRegex", config.generatedFileRegex)).append(",")
         append(jsonArray("excludedSuffixes", config.excludedSuffixes)).append(",")
         append("\"trimTransparentPadding\":${config.trimTransparentPadding},")
+        append(jsonField("generateAllCommand", config.generateAllCommand)).append(",")
+        append(jsonField("generateFileCommand", config.generateFileCommand)).append(",")
+        append(jsonField("verifyAllCommand", config.verifyAllCommand)).append(",")
+        append(jsonField("verifyFileCommand", config.verifyFileCommand)).append(",")
         append("\"isConfigured\":${config.isConfigured}")
         append("}")
     }
@@ -437,6 +452,12 @@ object GoldenDiffCli {
               --golden-pattern <pattern>    Golden filename pattern (file-class mode). Repeatable.
               --generated-regex <regex>     Generated output filename regex.
               --exclude-suffix <suffix>     Golden suffix to hide. Repeatable.
+              --generate-all-cmd <cmd>      Shell command that records/generates all screenshots. Blank clears it.
+              --generate-file-cmd <cmd>     Command that generates one file's screenshots. Blank clears it.
+                                            May use {file_name}, {class_name}, {file_path} placeholders.
+              --verify-all-cmd <cmd>        Shell command that verifies all screenshots. Blank clears it.
+              --verify-file-cmd <cmd>       Command that verifies one file's screenshots. Blank clears it.
+                                            May use {file_name}, {class_name}, {file_path} placeholders.
               --trim-transparent-padding | --no-trim-transparent-padding
               --open                        Remember the project so the app reopens it.
               --signal                      Tell an open setup window that configuration is done.
@@ -511,6 +532,7 @@ object GoldenDiffCli {
             private val VALUE_OPTIONS = setOf(
                 "project", "golden-dir", "golden-dir-regex", "generated-dir", "match-mode", "annotation-regex",
                 "golden-pattern", "generated-regex", "exclude-suffix", "source-file",
+                "generate-all-cmd", "generate-file-cmd", "verify-all-cmd", "verify-file-cmd",
             )
             private val FLAG_OPTIONS = setOf(
                 "trim-transparent-padding", "no-trim-transparent-padding", "open", "signal",

@@ -76,6 +76,36 @@ class AppConfigTest {
     }
 
     @Test
+    fun `screenshot-test commands round trip`() {
+        val project = projectDir("commands-project")
+        val config = GoldenDiffConfig(
+            goldenPaths = listOf("screenshots"),
+            generateAllCommand = "./gradlew recordRoborazziDebug",
+            generateFileCommand = "./gradlew recordRoborazziDebug --tests '*{file_name}Kt*'",
+            verifyAllCommand = "./gradlew verifyRoborazziDebug",
+            verifyFileCommand = "xcodebuild test -only-testing:App/{class_name}",
+        )
+
+        AppConfig.save(project, config)
+
+        val loaded = AppConfig.load(project)
+        assertEquals(config.generateAllCommand, loaded.generateAllCommand)
+        assertEquals(config.generateFileCommand, loaded.generateFileCommand)
+        assertEquals(config.verifyAllCommand, loaded.verifyAllCommand)
+        assertEquals(config.verifyFileCommand, loaded.verifyFileCommand)
+    }
+
+    @Test
+    fun `unset commands load as blank`() {
+        val project = projectDir("no-commands")
+        AppConfig.save(project, GoldenDiffConfig(goldenPaths = listOf("screenshots")))
+
+        val loaded = AppConfig.load(project)
+        assertEquals("", loaded.generateAllCommand)
+        assertEquals("", loaded.verifyFileCommand)
+    }
+
+    @Test
     fun `golden directory regex with commas round trips unchanged`() {
         val project = projectDir("regex-project")
         val regex = GoldenDiffConfig.goldenDirectoryRegexEntry(".*/screenshots/[a-z]{1,3}")

@@ -36,11 +36,33 @@ data class GoldenDiffConfig(
     val excludedSuffixes: List<String> = GoldenDiffDefaults.EXCLUDED_SUFFIXES,
     /** Trim fully transparent padding around image content before showing it. */
     val trimTransparentPadding: Boolean = false,
+    /**
+     * Shell command run to (re)generate every golden in the project. Free-form and framework-agnostic
+     * — the tool never assumes Gradle, xcodebuild or any framework; blank means "not configured".
+     */
+    val generateAllCommand: String = "",
+    /**
+     * Shell command run to regenerate the goldens for the current file only. May contain the
+     * placeholders [com.github.dkwasniak.goldendiff.command.CommandTemplate] expands.
+     */
+    val generateFileCommand: String = "",
+    /** Shell command run to verify every golden in the project. Blank means "not configured". */
+    val verifyAllCommand: String = "",
+    /** Shell command run to verify the current file's goldens only. Supports the same placeholders. */
+    val verifyFileCommand: String = "",
 ) {
 
     val isConfigured: Boolean get() = goldenPaths.isNotEmpty()
 
     val hasGeneratedPaths: Boolean get() = generatedPaths.isNotEmpty()
+
+    val hasGenerateAllCommand: Boolean get() = generateAllCommand.isNotBlank()
+
+    val hasGenerateFileCommand: Boolean get() = generateFileCommand.isNotBlank()
+
+    val hasVerifyAllCommand: Boolean get() = verifyAllCommand.isNotBlank()
+
+    val hasVerifyFileCommand: Boolean get() = verifyFileCommand.isNotBlank()
 
     /**
      * Fills the structural matching defaults just for consumption, so a host that stores these fields
