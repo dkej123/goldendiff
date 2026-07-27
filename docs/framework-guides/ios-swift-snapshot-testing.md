@@ -25,10 +25,10 @@ So generated output reaches GoldenDiff only if this is set for the test run:
 export TEST_RUNNER_SNAPSHOT_ARTIFACTS="<dir>"   # <dir> absolute, e.g. <repo>/.golden-diff-generated
 ```
 
-**GoldenDiff cannot set this itself** — this is the one thing to raise with the user. Tell them the
-variable must be defined, then detect their shell from `$SHELL` (zsh → `~/.zshrc`, bash →
-`~/.bash_profile` or `~/.bashrc`) and **offer to append the `export` line for them**. If they decline,
-print the exact line to add themselves (or to set in CI). This is the only decision the guide leaves to the user.
+**GoldenDiff cannot set this itself.** Inspect the existing shell/CI environment read-only if useful.
+If the variable is absent, tell the user it must be defined and print the exact `export` line for
+their shell profile or CI configuration. Do not edit a shell profile, CI file, Xcode project, scheme,
+or test plan as part of Golden Diff setup.
 
 **Xcode ⌘U (GUI) — opt-in only.** Do not wire it unless the user explicitly asks. If they do: they set
 `SNAPSHOT_ARTIFACTS=<dir>` in the test plan / scheme (a committed change) or run
@@ -44,7 +44,8 @@ print the exact line to add themselves (or to set in CI). This is the only decis
 Golden `__Snapshots__/<TestClass>/<name>.png` maps to generated `<dir>/<TestClass>/<name>.png` — exact, no `_actual` suffix.
 
 ## Verify
-Change a view so a snapshot differs, run its snapshot test, confirm files appear at
-`<dir>/<TestClass>/<name>.png`, then open the source in GoldenDiff and switch the compare source to
-"generated". If files land in `…/CoreSimulator/…/tmp/…` instead, the env var did not reach the
-runner — recheck the `TEST_RUNNER_` prefix.
+Do not change a view or run a writing snapshot test as part of automated configuration. Tell the user
+that they can later change a view so a snapshot differs, run its snapshot test, and confirm files
+appear at `<dir>/<TestClass>/<name>.png`. They can then open the source in GoldenDiff and switch the
+compare source to "generated". If files land in `…/CoreSimulator/…/tmp/…` instead, the env var did not
+reach the runner — recheck the `TEST_RUNNER_` prefix.

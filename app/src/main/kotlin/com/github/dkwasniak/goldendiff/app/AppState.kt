@@ -356,8 +356,12 @@ class AppState(
         val root = projectRoot ?: return
         val old = config
         if (old == newConfig) return
+        AppConfig.save(root, newConfig).exceptionOrNull()?.let { error ->
+            val detail = error.message?.takeIf { it.isNotBlank() } ?: "unknown I/O error"
+            status = "Could not save settings: $detail"
+            return
+        }
         config = newConfig
-        AppConfig.save(root, newConfig)
         telemetry.event(
             "product.configuration_saved",
             mapOf(

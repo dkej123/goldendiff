@@ -119,9 +119,15 @@ object GoldenDiffCli {
             )
         }
 
-        AppConfig.save(root, config)
+        AppConfig.save(root, config).exceptionOrNull()?.let { error ->
+            return fail("Could not save Golden Diff settings: ${writeErrorMessage(error)}")
+        }
         if (parsed.has("open")) AppConfig.rememberProject(root)
-        if (parsed.has("signal")) AppConfig.writeCliSignal(root)
+        if (parsed.has("signal")) {
+            AppConfig.writeCliSignal(root).exceptionOrNull()?.let { error ->
+                return fail("Settings were saved, but the completion signal could not be written: ${writeErrorMessage(error)}")
+            }
+        }
 
         if (parsed.has("json")) println(configJson(root, config)) else printConfig(root, config)
         return EXIT_OK
@@ -274,6 +280,9 @@ object GoldenDiffCli {
     // endregion
 
     // region output
+
+    private fun writeErrorMessage(error: Throwable): String =
+        error.message?.takeIf { it.isNotBlank() } ?: error::class.simpleName.orEmpty().ifBlank { "unknown I/O error" }
 
     private fun printConfig(root: File, config: GoldenDiffConfig) {
         println("Golden Diff configured for ${root.absolutePath}")

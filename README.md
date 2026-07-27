@@ -37,6 +37,59 @@ It only needs PNG goldens committed to git, whose paths contain the method, clas
 covers **Roborazzi, Paparazzi, Compose Preview Screenshot Testing, Shot, Dropshots**, and similar — just
 point the plugin at the golden directory.
 
+## Requirements
+Golden Diff needs two things from the project:
+
+1. **PNG goldens committed to git**, with the method, class, or file name in each golden's path.
+2. **A stable directory for verify output.** To compare a golden against *fresh* test output (not just
+   your working copy), the screenshot tests must write their generated/verify images to a **fixed,
+   project-relative directory** you can point Golden Diff at — **not** a per-run temporary directory.
+   Configure that directory as Golden Diff's *generated* source and set the generated-file regex to
+   match the files that land there.
+
+### Example: Roborazzi (Android)
+Roborazzi records goldens into its `outputDir` and, on `verifyRoborazzi`, writes the freshly rendered
+image next to each golden as `<name>_actual.png` (plus a `_compare.png`). Both land in a stable,
+project-local directory, so no extra setup is needed — just give it a committed `outputDir`:
+
+```kotlin
+// screenshotTests/build.gradle.kts
+roborazzi {
+    outputDir.set(file("src/test/screenshots")) // committed goldens + *_actual.png verify output
+}
+```
+
+Golden Diff config:
+- **Golden directory**: `screenshotTests/src/test/screenshots`
+- **Generated directory**: the same directory
+- **Generated-file regex**: `_actual\.png$` (Roborazzi's verify suffix)
+- **Match**: by annotated preview method (annotation regex `Preview`) — goldens are named
+  `…ScreenKt.<Name>Preview.<qualifier>.png`
+
+Run `./gradlew verifyRoborazziDebug` (or `recordRoborazziDebug` to refresh goldens), then open the
+previewed file and switch the compare source to *generated*.
+
+### Example: iOS · swift-snapshot-testing (pointfree)
+This library writes a failing test's freshly rendered image to
+`$SNAPSHOT_ARTIFACTS/<TestFileName>/<name>.png`. **If `SNAPSHOT_ARTIFACTS` is unset it falls back to a
+volatile simulator temp dir Golden Diff cannot target**, so you must pin it to a stable directory.
+Under `xcodebuild test` the variable is only forwarded into the test runner when prefixed with
+`TEST_RUNNER_`:
+
+```sh
+# shell profile or CI — absolute path, e.g. inside the repo
+export TEST_RUNNER_SNAPSHOT_ARTIFACTS="<repo>/.golden-diff-generated"
+```
+
+Golden Diff config:
+- **Golden directory** (regex): `.*/__Snapshots__$` — the committed reference roots
+- **Generated directory**: the same absolute directory as above
+- **Generated-file regex**: `^(.+)\.png$` — pointfree keeps the golden's exact name (no `_actual` suffix)
+- **Match mode**: file/class — XCTest methods are unannotated, so goldens are matched by the test
+  class/file name
+
+A golden `__Snapshots__/<TestClass>/<name>.png` then maps to generated `<dir>/<TestClass>/<name>.png`.
+
 ## Install
 **From JetBrains Marketplace (recommended):**
 - In the IDE: **Settings → Plugins → Marketplace**, search for **Golden Diff**, click **Install**.

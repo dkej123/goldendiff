@@ -363,10 +363,11 @@ private fun LabeledDivider(label: String) {
 @Composable
 private fun CliAgentCard(state: AppState) {
     val cliPath = remember { resolveCliBinaryPath() }
+    val cliAvailable = remember(cliPath) { isInstalledCliAvailable(cliPath) }
     var awaitingAgent by remember { mutableStateOf(false) }
     val root = state.projectRoot
     val projectPath = root?.absolutePath ?: CLI_AGENT_PROMPT_PATH_PLACEHOLDER
-    val prompt = buildCliAgentPrompt(projectPath, cliPath)
+    val prompt = buildCliAgentPrompt(projectPath)
 
     Column(
         Modifier.widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -389,7 +390,7 @@ private fun CliAgentCard(state: AppState) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            AccentOutlineButton("Copy prompt", enabled = root != null) {
+            AccentOutlineButton("Copy prompt", enabled = root != null && cliAvailable) {
                 copyToClipboard(prompt)
                 awaitingAgent = true
             }
@@ -424,6 +425,13 @@ private fun CliAgentCard(state: AppState) {
             Text(
                 "Choose a project directory to fill in the prompt.",
                 color = tokens.textFaint,
+                fontSize = 11.sp,
+            )
+        } else if (!cliAvailable) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Install Golden Diff in /Applications before copying the agent prompt.",
+                color = tokens.changed,
                 fontSize = 11.sp,
             )
         }

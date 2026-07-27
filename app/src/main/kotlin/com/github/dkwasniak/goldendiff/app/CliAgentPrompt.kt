@@ -14,40 +14,46 @@ import java.io.File
 /** Shown in the prompt box before the user has picked a project directory. */
 const val CLI_AGENT_PROMPT_PATH_PLACEHOLDER = "<absolute path to your project>"
 
-/** Where an end user's installed app launcher lives; it forwards its arguments to [GoldenDiffCli]. */
-private const val DEFAULT_CLI_PATH = "/Applications/Golden Diff.app/Contents/MacOS/Golden Diff"
+/** The only launcher a configuration agent may use. Development/build copies are never exposed. */
+const val INSTALLED_CLI_PATH = "/Applications/Golden Diff.app/Contents/MacOS/Golden Diff"
 
 /**
- * The path an agent invokes. When running from the packaged app this is the app's own launcher, which
- * forwards its arguments to the same entry point [GoldenDiffCli] serves.
- *
- * Only that launcher is a self-contained command. A dev run (`./gradlew :app:run`) or a launch from an
- * IDE's bundled JRE reports a bare `java` executable instead — which is useless as a CLI, so we fall
- * back to the standard install location the prompt's reader will actually have.
+ * Always point the agent at the installed application. In particular, do not derive this from the
+ * current process: onboarding may itself be running from `app/build`, an IDE, or a Gradle dev run,
+ * and none of those copies is the user-facing CLI authority.
  */
-fun resolveCliBinaryPath(): String =
-    runCatching { ProcessHandle.current().info().command().orElse(null) }
-        .getOrNull()
-        ?.takeIf { it.endsWith("/Golden Diff") && File(it).exists() }
-        ?: DEFAULT_CLI_PATH
+fun resolveCliBinaryPath(): String = INSTALLED_CLI_PATH
 
-fun buildCliAgentPrompt(projectPath: String, cliPath: String): String =
-    """
+fun isInstalledCliAvailable(cliPath: String = resolveCliBinaryPath()): Boolean =
+    File(cliPath).let { it.isFile && it.canExecute() }
+
+fun buildCliAgentPrompt(projectPath: String): String {
+    val cliPath = INSTALLED_CLI_PATH
+    return """
     Configure Golden Diff — a screenshot-diff tool — for the project at $projectPath.
     Golden Diff compares committed "golden" screenshot PNGs against the Git working copy and freshly
     generated test output. Configure it non-interactively with its CLI; do NOT launch the app UI.
 
-    CLI (run it by its full path, quotes included): "$cliPath"
+    CLI (run this exact installed binary by its full path, quotes included): "$cliPath"
+    Use that exact path for EVERY Golden Diff command. Never use a Golden Diff binary from app/build,
+    the project checkout, Gradle, another application bundle, or PATH.
+
+    PROJECT ACCESS CONTRACT: inspect the project read-only. You may use read-only shell commands such
+    as git rev-parse, git status, rg, find, sed, and file listing to understand its configuration.
+    Do not create, edit, move, or delete project files; do not run formatters, generators, snapshot
+    record/update commands, or tests that can write project/build output. Do not edit shell profiles
+    or environment configuration. The only writes allowed in this task are Golden Diff's own settings
+    and completion signal, performed by the installed CLI above.
 
     Before the generic steps, check for a framework-specific guide: run `"$cliPath" guides`. If the
     project matches one of the listed frameworks (each row says how to detect it), run
     `"$cliPath" guide <name>` and follow it. A guide gives the exact PROJECT-side setup — e.g.
     environment variables the test run must export so freshly generated output lands in a stable
     directory GoldenDiff can read — AND the exact GoldenDiff options for that framework. Both take
-    precedence over the generic guidance below. Apply the guide's default project-side setup
-    non-interactively (without editing test sources); some frameworks do not work with GoldenDiff
-    until it is applied. Do NOT ask the user to choose between options — pick the guide's stated
-    default; only surface a decision if the guide explicitly leaves one to the user.
+    precedence over the generic guidance below. Analyze project-side setup read-only. If the guide
+    requires a project, shell, CI, or environment change, report the exact required change to the user
+    but do not apply it. Do NOT ask the user to choose between options unless the guide explicitly
+    leaves a decision to the user.
 
     1. Confirm the project. cd into $projectPath and verify it is a Git repository
        (git rev-parse --is-inside-work-tree). Use paths RELATIVE to this root everywhere below.
@@ -117,3 +123,4 @@ fun buildCliAgentPrompt(projectPath: String, cliPath: String): String =
        This preserves the settings you already applied and only writes the completion signal. Finally
        run "$cliPath" show --project "$projectPath" --json and share that configuration summary with me.
     """.trimIndent()
+}
