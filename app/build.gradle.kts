@@ -108,6 +108,10 @@ compose.desktop {
             // ignores formats foreign to the host it runs on, so adding a CI runner later needs no
             // change here.
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            // Compose's jdeps pass misses java.net.http even though UpdateChecker uses HttpClient.
+            // Without this explicit module the packaged app catches NoClassDefFoundError as an empty
+            // release list, while :app:run and tests keep working against their full JDK.
+            modules("java.net.http")
             packageName = "Golden Diff"
             // jpackage maps this to native package metadata, which must remain numeric on macOS.
             // Prerelease labels stay in pluginVersion and are used by release assets/Homebrew.

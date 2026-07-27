@@ -12,6 +12,9 @@ import java.time.Duration
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
+private val UPDATE_AVAILABLE_CACHE_TTL_MS = TimeUnit.HOURS.toMillis(24)
+private val UP_TO_DATE_CACHE_TTL_MS = TimeUnit.HOURS.toMillis(1)
+
 /**
  * Once-per-launch "is there a newer build?" check for the standalone app.
  *
@@ -29,7 +32,6 @@ object UpdateChecker {
         "https://api.github.com/repos/dkej123/goldendiff/releases?per_page=30"
     private const val STABLE_TAG_PREFIX = "app-v"
     private const val BETA_TAG_PREFIX = "app-beta-v"
-    private val CACHE_TTL_MS = TimeUnit.HOURS.toMillis(24)
 
     /** A newer build the user can install, with the page to get it from. */
     data class UpdateInfo(val version: String, val url: String)
@@ -59,7 +61,7 @@ object UpdateChecker {
     ): UpdateInfo? {
         if (channel == ReleaseChannel.DEV) return null
         val store = UpdateStore.load()
-        val latest = if (store.isFresh(channel, nowMs)) {
+        val latest = if (store.isFresh(channel, currentVersion, nowMs)) {
             store.latest()
         } else {
             newestForChannel(channel, fetch()).also { store.saveLatest(channel, it, nowMs) }
@@ -119,9 +121,22 @@ private object UpdateStore {
         private val channel = props.getProperty("channel").orEmpty()
         val dismissedVersion: String? = props.getProperty("dismissedVersion")
 
-        fun isFresh(channel: ReleaseChannel, nowMs: Long): Boolean =
-            this.channel == channel.wireValue &&
-                nowMs - lastCheckMs in 0..TimeUnit.HOURS.toMillis(24)
+        /**
+         * Missing results are retried on the next launch: an empty response can mean a transient
+         * network/API failure and must not suppress update checks for a day. A known release that is
+         * not newer than the running build gets a short cache; an available update keeps the longer
+         * cache so dismissing/restarting does not repeatedly hit GitHub.
+         */
+        fun isFresh(channel: ReleaseChannel, currentVersion: String, nowMs: Long): Boolean {
+            if (this.channel != channel.wireValue) return false
+            val latest = latest() ?: return false
+            val ttl = if (UpdateChecker.isNewer(latest.version, currentVersion)) {
+                UPDATE_AVAILABLE_CACHE_TTL_MS
+            } else {
+                UP_TO_DATE_CACHE_TTL_MS
+            }
+            return nowMs - lastCheckMs in 0..ttl
+        }
 
         fun latest(): UpdateChecker.UpdateInfo? {
             val version = props.getProperty("latestVersion").orEmpty().ifBlank { return null }

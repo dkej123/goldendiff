@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.file.Files
+import java.util.concurrent.TimeUnit
 
 class UpdateCheckerTest {
 
@@ -66,5 +68,67 @@ class UpdateCheckerTest {
         )
         assertNull(result)
         assertFalse("A developer build must return before any network access", fetched)
+    }
+
+    @Test fun emptyResultIsRetriedOnTheNextLaunch() = withTemporaryHome {
+        var fetchCount = 0
+        val first = UpdateChecker.check(
+            currentVersion = "1.5.0-beta.7",
+            channel = ReleaseChannel.BETA,
+            nowMs = 1_000,
+            fetch = {
+                fetchCount += 1
+                emptyList()
+            },
+        )
+        val second = UpdateChecker.check(
+            currentVersion = "1.5.0-beta.7",
+            channel = ReleaseChannel.BETA,
+            nowMs = 1_001,
+            fetch = {
+                fetchCount += 1
+                listOf(UpdateChecker.Release("app-beta-v1.5.0-beta.8", prerelease = true))
+            },
+        )
+
+        assertNull(first)
+        assertEquals("1.5.0-beta.8", second?.version)
+        assertEquals(2, fetchCount)
+    }
+
+    @Test fun upToDateResultUsesShorterCacheThanAvailableUpdate() = withTemporaryHome {
+        var fetchCount = 0
+        val beta7 = listOf(UpdateChecker.Release("app-beta-v1.5.0-beta.7", prerelease = true))
+        val beta8 = listOf(UpdateChecker.Release("app-beta-v1.5.0-beta.8", prerelease = true))
+
+        assertNull(
+            UpdateChecker.check("1.5.0-beta.7", ReleaseChannel.BETA, nowMs = 1_000) {
+                fetchCount += 1
+                beta7
+            },
+        )
+        val update = UpdateChecker.check(
+            "1.5.0-beta.7",
+            ReleaseChannel.BETA,
+            nowMs = 1_000 + TimeUnit.HOURS.toMillis(1) + 1,
+        ) {
+            fetchCount += 1
+            beta8
+        }
+
+        assertEquals("1.5.0-beta.8", update?.version)
+        assertEquals(2, fetchCount)
+    }
+
+    private fun withTemporaryHome(block: () -> Unit) {
+        val originalHome = System.getProperty("user.home")
+        val temporaryHome = Files.createTempDirectory("golden-diff-update-test").toFile()
+        try {
+            System.setProperty("user.home", temporaryHome.absolutePath)
+            block()
+        } finally {
+            System.setProperty("user.home", originalHome)
+            temporaryHome.deleteRecursively()
+        }
     }
 }

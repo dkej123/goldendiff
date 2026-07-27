@@ -80,6 +80,13 @@ exposed precisely so ordering can be tested against the comparator instead. `:co
 with a bare `'jpackage' is missing`. Pass `-PappJavaHome=<full JDK 21+>` or set `JAVA_HOME`. Also note
 jpackage cannot cross-compile: each platform's installer must be built on that platform.
 
+## Packaged runtime modules must include `java.net.http`
+Compose Desktop builds a trimmed runtime with `jlink`. Its module suggestion misses `java.net.http`
+even though the app's update checker directly uses `HttpClient`: tests and `:app:run` pass on a full
+JDK, but the packaged app gets `NoClassDefFoundError`. Keep `modules("java.net.http")` in
+`app/build.gradle.kts`. After packaging, verify that
+`app/build/compose/tmp/main/runtime/release` lists `java.net.http` in `MODULES`.
+
 ## Stable-APIs-only rule
 The open-ended compatibility range depends on keeping the plugin UI in Swing and using platform APIs
 available in 241 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevision`,
