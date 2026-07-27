@@ -71,7 +71,11 @@ object AppConfig {
 
     private val EMPTY = GoldenDiffConfig()
 
-    fun save(projectRoot: File, config: GoldenDiffConfig) {
+    /**
+     * Persists [config], returning the write failure to the caller instead of hiding it. The CLI
+     * relies on this result so it never reports an in-memory configuration as successfully saved.
+     */
+    fun save(projectRoot: File, config: GoldenDiffConfig): Result<Unit> {
         val effective = config.normalizedForMatching()
         val props = Properties().apply {
             setProperty("goldenPaths", effective.goldenPaths.joinToString(","))
@@ -93,7 +97,7 @@ object AppConfig {
             }
             setProperty("trimTransparentPadding", effective.trimTransparentPadding.toString())
         }
-        runCatching {
+        return runCatching {
             configDir.mkdirs()
             fileFor(projectRoot).outputStream().use { props.store(it, "Golden Diff — ${projectRoot.absolutePath}") }
         }
@@ -157,12 +161,12 @@ object AppConfig {
 
     private val cliSignalFile: File get() = File(configDir, "cli-signal.properties")
 
-    fun writeCliSignal(projectRoot: File) {
+    fun writeCliSignal(projectRoot: File): Result<Unit> {
         val props = Properties().apply {
             setProperty("project", projectRoot.absolutePath)
             setProperty("timestamp", System.currentTimeMillis().toString())
         }
-        runCatching {
+        return runCatching {
             configDir.mkdirs()
             cliSignalFile.outputStream().use { props.store(it, "Golden Diff — CLI setup signal") }
         }

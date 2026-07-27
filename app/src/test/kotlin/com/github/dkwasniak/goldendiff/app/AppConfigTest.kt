@@ -9,7 +9,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.PrintStream
 import java.nio.file.Files
 
 class AppConfigTest {
@@ -153,6 +155,32 @@ class AppConfigTest {
     }
 
     @Test
+    fun `CLI fails instead of reporting an in-memory config when settings cannot be written`() {
+        val project = projectDir("cli-unwritable-config")
+        File(tempHome, ".config").writeText("blocks creation of the config directory")
+        val stderr = ByteArrayOutputStream()
+        val originalErr = System.err
+
+        val exit = try {
+            System.setErr(PrintStream(stderr))
+            GoldenDiffCli.run(
+                arrayOf(
+                    "configure",
+                    "--project", project.absolutePath,
+                    "--golden-dir-regex", ".*/__Snapshots__",
+                    "--allow-non-git",
+                ),
+            )
+        } finally {
+            System.setErr(originalErr)
+        }
+
+        assertEquals(1, exit)
+        assertTrue(stderr.toString().contains("Could not save Golden Diff settings"))
+        assertTrue(AppConfig.load(project).goldenPaths.isEmpty())
+    }
+
+    @Test
     fun `CLI rejects an invalid golden directory regex`() {
         val project = projectDir("cli-invalid-regex")
 
@@ -171,16 +199,48 @@ class AppConfigTest {
 
     @Test
     fun `agent prompt configures validates and signals in that order`() {
-        val prompt = buildCliAgentPrompt("/project", "/golden-diff")
+        val prompt = buildCliAgentPrompt("/project")
 
-        val configure = prompt.indexOf("\"/golden-diff\" configure")
-        val validate = prompt.indexOf("\"/golden-diff\" validate")
+        val configure = prompt.indexOf("\"$INSTALLED_CLI_PATH\" configure")
+        val validate = prompt.indexOf("\"$INSTALLED_CLI_PATH\" validate")
         val signal = prompt.lastIndexOf("--signal")
         assertTrue(configure >= 0)
         assertTrue(validate > configure)
         assertTrue(signal > validate)
         assertTrue(prompt.contains("--golden-dir-regex"))
         assertTrue(prompt.contains("--source-file"))
+    }
+
+    @Test
+    fun `agent prompt always targets installed app and keeps project analysis read only`() {
+        assertEquals(
+            "/Applications/Golden Diff.app/Contents/MacOS/Golden Diff",
+            resolveCliBinaryPath(),
+        )
+
+        val prompt = buildCliAgentPrompt("/project")
+        assertTrue(prompt.contains("Use that exact path for EVERY Golden Diff command"))
+        assertTrue(prompt.contains("inspect the project read-only"))
+        assertTrue(prompt.contains("Do not create, edit, move, or delete project files"))
+        assertTrue(prompt.contains("do not apply it"))
+        assertTrue(prompt.contains("\"$INSTALLED_CLI_PATH\" guides"))
+        assertTrue(prompt.contains("\"$INSTALLED_CLI_PATH\" guide <name>"))
+        assertTrue(prompt.contains("\"$INSTALLED_CLI_PATH\" show --project"))
+        assertFalse(prompt.contains("\"/golden-diff\""))
+        assertFalse(prompt.contains("Apply the guide's default project-side setup"))
+    }
+
+    @Test
+    fun `swift snapshot guide reports environment change without applying it`() {
+        val guide = checkNotNull(
+            javaClass.classLoader.getResourceAsStream(
+                "framework-guides/ios-swift-snapshot-testing.md",
+            ),
+        ).bufferedReader().use { it.readText() }
+
+        assertTrue(guide.contains("Inspect the existing shell/CI environment read-only"))
+        assertTrue(guide.contains("Do not edit a shell profile"))
+        assertFalse(guide.contains("offer to append"))
     }
 
     @Test
