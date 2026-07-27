@@ -54,9 +54,13 @@ class AppTelemetrySettings private constructor(
     }
 
     companion object {
+        // Both consents default to ON (opt-out): until the user has actively chosen — i.e. there is no
+        // stored value yet — the toggles start enabled. A stored "false" is always honoured, so once
+        // the user turns something off it stays off. Developer builds are forced fully offline anyway
+        // (see AppTelemetry.effectiveConsent), so this default only affects release builds.
         fun load(): AppTelemetrySettings = AppTelemetrySettings(
-            analytics = AppTelemetryStore.get("consent.analytics").toBoolean(),
-            diagnostics = AppTelemetryStore.get("consent.diagnostics").toBoolean(),
+            analytics = AppTelemetryStore.get("consent.analytics")?.toBoolean() ?: true,
+            diagnostics = AppTelemetryStore.get("consent.diagnostics")?.toBoolean() ?: true,
             promptShown = AppTelemetryStore.get("consent.prompt_shown").toBoolean(),
         )
     }

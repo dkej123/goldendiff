@@ -80,7 +80,7 @@ never a fork of the public plugin.
     dependencies and keeps current-file matching tool-agnostic.
   - `GoldenFinder` — scans configured dirs for `*.png`. `find(roots, screen, mode, …)` matches each
     golden's path **relative to its root** using one of two `MatchMode`s: `ANNOTATED_METHOD` (path
-    contains an annotated/`test*` function name) or `FILE_CLASS_REGEX` (user regex with `{file_name}`
+    contains an annotated function name) or `FILE_CLASS_REGEX` (user regex with `{file_name}`
     / `{class_name}`). Excludes `_compare` / `_actual` by default.
   - `MatchMode` / `MatchingDefaults` / `AnnotationNameMatcher` — matching modes, default rules, and
     pure matching helpers used by tests.

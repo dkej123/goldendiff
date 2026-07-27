@@ -22,9 +22,9 @@ A **Scope** control in the header chooses what the list contains:
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
 - `CurrentScreen` builds caret-independent names. For **Kotlin** files (PSI): declared class names +
   the file base name + functions annotated with annotations matched by the configured annotation regex
-  (default `.*Preview.*|Test`, excluding `PreviewParameter`) + `test*` functions. Plain `@Composable`
-  helpers are intentionally ignored because small names such as `Stat` or `Content` create noisy false
-  positives.
+  (default `.*Preview.*|Test`, excluding `PreviewParameter`). Unannotated functions, including names
+  beginning with `test`, are not candidates in this mode. Plain `@Composable` helpers are intentionally
+  ignored because small names such as `Stat` or `Content` create noisy false positives.
 - For **any other file** (TypeScript, JavaScript, Swift, Java, plain text…) `GenericScreenExtractor`
   produces the same `Screen` from a language-neutral, text-based scan: the file base name + declared
   `class`/`struct`/`interface`/`enum` names + `function`/`func`/`fun` names + assigned React/arrow/
@@ -37,9 +37,7 @@ A **Scope** control in the header chooses what the list contains:
   **relative to its root** (with `/` separators), so layouts that nest the class or package as
   directories still match.
   - **Match by annotated method** (default): a golden matches when its relative path *contains* the
-    name of an annotated / `test*` function as a whole word or camel-case segment. This covers the
-    default naming of every major framework (Roborazzi, Paparazzi, Compose Preview, Shot), where the
-    method name is always part of the golden filename.
+    name of a function carrying a matching annotation as a whole word or camel-case segment.
   - **Match by file/class regex**: the user's regex patterns (one per line) are matched anywhere in
     the relative path. Patterns support `{file_name}` and `{class_name}` placeholders (values are
     regex-escaped before substitution; `{class_name}` expands to an alternation of the file's class
@@ -97,7 +95,10 @@ counterpart.
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level
 `PersistentStateComponent`). First run: a "Choose screenshots directory" button in the header for
 goldens. Later: Settings → Tools → Golden Diff, or the "Directories…" button. Multiple
-directories are supported for both lists. The generated-output regex, the golden matching mode, the
+directories are supported for both lists. The standalone app and its CLI also accept golden-directory
+regex entries (`regex:<pattern>` in storage, or `--golden-dir-regex` in the CLI), matched against complete
+project-relative directory paths. This lets one entry cover the same golden layout in many modules.
+The generated-output regex, the golden matching mode, the
 annotated-function regex, the file/class golden regex, and excluded golden suffixes (comma-separated;
 default `_compare, _actual`) are stored in the same project settings.
 

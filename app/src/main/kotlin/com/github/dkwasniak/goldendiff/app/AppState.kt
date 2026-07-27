@@ -13,6 +13,7 @@ import com.github.dkwasniak.goldendiff.compare.toBufferedImage
 import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.match.GenericScreenExtractor
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
+import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.project.FuzzyFileMatcher
 import com.github.dkwasniak.goldendiff.project.ProjectFileIndex
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
@@ -91,6 +92,7 @@ class AppState(
     var quickOpenVisible by mutableStateOf(false)
     var quickOpenQuery by mutableStateOf("")
     var settingsVisible by mutableStateOf(false)
+    var onboardingVisible by mutableStateOf(false)
     var compareWindowVisible by mutableStateOf(false)
     var diagnosticsVisible by mutableStateOf(false)
 
@@ -418,7 +420,8 @@ class AppState(
     private fun scanner(root: File): ChangeScanner {
         val git = GitCli(root)
         // Unlike the plugin, which uses the IDE's VCS layer for HEAD reads, the app has only the CLI.
-        return ChangeScanner(root, config, git, git)
+        // normalizedForMatching fills the structural defaults the settings leave blank on purpose.
+        return ChangeScanner(root, config.normalizedForMatching(), git, git)
     }
 
     fun selectBrowse(value: Browse) {
@@ -644,16 +647,21 @@ class AppState(
         mapOf("scope" to "current_file", "source" to requestedSource.wireValue()),
     ) {
         val file = File(root, relativePath)
+        // In annotated mode the regex filters which functions count as screenshot candidates, exactly
+        // like the plugin; other modes ignore function names, so the regex is only passed there.
+        val annotationRegex = config.normalizedForMatching()
+            .annotatedFunctionRegex.takeIf { config.matchMode == MatchMode.ANNOTATED_METHOD }
         val screen = GenericScreenExtractor.extract(
             file.nameWithoutExtension,
             runCatching { file.readText() }.getOrDefault(""),
+            annotationRegex,
         )
         val goldens = GoldenFinder.find(
             config.resolvedGoldenPaths(root),
             screen,
             config.matchMode,
             config.excludedSuffixes,
-            config.goldenFilePatterns,
+            config.normalizedForMatching().goldenFilePatterns,
         )
         scanner(root).itemsFor(goldens, requestedSource)
     }
@@ -738,7 +746,7 @@ class AppState(
                     golden = golden,
                     goldenRoots = config.resolvedGoldenPaths(root),
                     generatedRoots = config.resolvedGeneratedPaths(root),
-                    generatedFileRegex = config.generatedFileRegex,
+                    generatedFileRegex = config.normalizedForMatching().generatedFileRegex,
                     excludedSuffixes = config.excludedSuffixes,
                 )
             }

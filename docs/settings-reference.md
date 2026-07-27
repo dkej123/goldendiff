@@ -23,6 +23,16 @@ The folders that contain your committed golden PNGs. Add one or more with the **
 
 **Default:** empty.
 
+In the standalone app, the list can also contain directory regexes. **Add regex** stores an explicit
+regex entry, matched against the complete project-relative directory path with `/` separators. For
+example, `.*/src/test/snapshots` selects that directory in every module. The same setting is available
+from the CLI as `--golden-dir-regex`; literal and regex entries can be combined. The CLI's `validate`
+command expands every regex and verifies that each resolved directory exists and contains PNG files.
+Pass one or more representative source files with `validate --source-file <path>` to run the same
+source-to-golden matcher as the app; successful full validation requires every supplied source to
+match at least one golden. Directory-only validation must be requested explicitly with
+`--directories-only`.
+
 ## Generated test output directories
 > *Fresh screenshots produced by verification tests; used only when Compare is set to Test output.*
 
@@ -41,7 +51,8 @@ name. For example, `^(.+)_actual\.png$` maps `LoginScreen_actual.png` to the gol
 **Default:** `^(.+)_actual\.png$`
 
 This regex is **not** part of golden-list matching; it only maps a selected golden to its generated
-counterpart in *Test output* mode.
+counterpart in *Test output* mode. The default appears as an actual editable value, not grey
+placeholder text.
 
 ## Golden matching mode
 > *Match goldens either by the name of annotated screenshot functions, or by a file/class regex.*
@@ -49,7 +60,7 @@ counterpart in *Test output* mode.
 Two mutually exclusive radio buttons:
 
 - **Match by annotated method** *(default)* — a golden matches when its path contains the name of an
-  annotated / `test*` screenshot function.
+  annotated screenshot function.
 - **Match by file/class regex** — you write regex patterns over the golden path using `{file_name}` and
   `{class_name}` placeholders.
 
@@ -61,9 +72,10 @@ walkthrough and examples.
 > the function name.*
 
 *(Enabled in **Match by annotated method** mode.)* Decides which functions count as screenshot
-functions: a function is a candidate when its annotation name matches this regex, or its name starts
-with `test`. `PreviewParameter` is always ignored. To recognize a custom annotation such as
-`@ScreenshotTest`, add it, e.g. `.*Preview.*|Test|ScreenshotTest`.
+functions: a function is a candidate only when its annotation name matches this regex.
+`PreviewParameter` is always ignored. To recognize a custom annotation such as `@ScreenshotTest`, add
+it, e.g. `.*Preview.*|Test|ScreenshotTest`. The field contains the actual default
+`.*Preview.*|Test`; it is not an implicit placeholder.
 
 **Default:** `.*Preview.*|Test`
 
@@ -77,6 +89,9 @@ relative path. Placeholders: `{file_name}` = the current Kotlin file name (witho
 
 **Default:** `{file_name}` and `{class_name}` (one per line).
 
+Both defaults appear as actual editable values. Clearing the field restores them because an empty
+pattern list would otherwise trigger the same fallback inside the matcher.
+
 ## Excluded golden suffixes
 > *Files ending with these suffixes are hidden from the golden list, for example Roborazzi _actual and
 > _compare outputs.*
@@ -85,6 +100,9 @@ Comma-separated file-name suffixes (before the extension) to hide from the golde
 artifacts don’t appear as if they were goldens. Leave empty to exclude nothing.
 
 **Default:** `_compare, _actual`
+
+These suffixes appear as actual values in a fresh configuration. You can deliberately clear the field
+to exclude nothing; that explicit empty choice is persisted.
 
 ## Preview (live)
 > *Runs the current (unsaved) settings against the golden directories and the Kotlin file open in the

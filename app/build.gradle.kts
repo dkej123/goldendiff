@@ -55,15 +55,37 @@ val generateTelemetryResources = tasks.register<WriteProperties>("generateTeleme
     property("build.developer", developerBuild.toString())
 }
 
+// Framework setup guides (docs/framework-guides/*.md) are bundled onto the classpath under
+// `framework-guides/` so the CLI (`guide`/`guides`) can serve them to a configuration agent. Kept as
+// a single source of truth in docs/ — the build copies them in rather than duplicating the files.
+val bundledFrameworkGuides = layout.buildDirectory.dir("generated/framework-guides")
+val copyFrameworkGuides = tasks.register<Copy>("copyFrameworkGuides") {
+    from(rootProject.layout.projectDirectory.dir("docs/framework-guides")) { include("*.md") }
+    into(bundledFrameworkGuides.map { it.dir("framework-guides") })
+}
+
 sourceSets.main {
     resources.srcDir(generatedTelemetryResources)
+    resources.srcDir(bundledFrameworkGuides)
 }
 tasks.named("processResources") {
-    dependsOn(generateTelemetryResources)
+    dependsOn(generateTelemetryResources, copyFrameworkGuides)
 }
 
 kotlin {
     jvmToolchain(21)
+}
+
+// Runs the terminal CLI against the dev build (no packaged app needed), so the same headless
+// configure/show/validate an agent would invoke can be exercised locally:
+//   ./gradlew :app:goldenDiffCli -Pargs="configure --project /abs/repo --golden-dir app/... --signal"
+tasks.register<JavaExec>("goldenDiffCli") {
+    group = "application"
+    description = "Run the Golden Diff configuration CLI (pass -Pargs=\"…\")."
+    mainClass = "com.github.dkwasniak.goldendiff.app.MainKt"
+    classpath = sourceSets.main.get().runtimeClasspath
+    dependsOn("processResources")
+    args = providers.gradleProperty("args").getOrElse("").split(" ").filter { it.isNotBlank() }
 }
 
 compose.desktop {

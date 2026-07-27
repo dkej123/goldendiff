@@ -18,7 +18,10 @@ import java.io.File
  * realistic failure mode.
  */
 data class GoldenDiffConfig(
-    /** Directories holding golden files. Relative paths resolve against the project root. */
+    /**
+     * Directories holding golden files. Relative paths resolve against the project root; entries
+     * prefixed with [GOLDEN_DIRECTORY_REGEX_PREFIX] are regexes over project-relative directories.
+     */
     val goldenPaths: List<String> = emptyList(),
     /** Directories holding screenshots produced by verification tests. */
     val generatedPaths: List<String> = emptyList(),
@@ -39,7 +42,39 @@ data class GoldenDiffConfig(
 
     val hasGeneratedPaths: Boolean get() = generatedPaths.isNotEmpty()
 
-    fun resolvedGoldenPaths(projectRoot: File?): List<File> = goldenPaths.map { resolve(projectRoot, it) }
+    /**
+     * Fills the structural matching defaults just for consumption, so a host that stores these fields
+     * blank (the standalone app leaves them empty until the user sets them) still matches. Only the
+     * fields that would otherwise match nothing are filled: excluded suffixes are left untouched
+     * because blank there legitimately means "exclude nothing", and paths/mode are unchanged.
+     */
+    fun normalizedForMatching(): GoldenDiffConfig = copy(
+        generatedFileRegex = generatedFileRegex.ifBlank { GoldenDiffDefaults.GENERATED_FILE_REGEX },
+        annotatedFunctionRegex = annotatedFunctionRegex.ifBlank { MatchingDefaults.ANNOTATION_NAME_REGEX },
+        goldenFilePatterns = goldenFilePatterns.ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS },
+    )
+
+    fun resolvedGoldenPaths(projectRoot: File?): List<File> =
+        goldenPaths.flatMap { resolveGoldenPath(projectRoot, it) }
+            .distinctBy { it.normalize().path }
+
+    /**
+     * Resolves one literal or regex golden-directory entry. Regexes are matched against the complete
+     * project-relative directory path with `/` separators. Invalid regexes and regexes without a
+     * project root resolve to no directories; hosts should validate input before saving it.
+     */
+    fun resolveGoldenPath(projectRoot: File?, path: String): List<File> {
+        val pattern = goldenDirectoryRegex(path) ?: return listOf(resolve(projectRoot, path))
+        val root = projectRoot?.normalize()?.takeIf { it.isDirectory } ?: return emptyList()
+        val regex = runCatching { Regex(pattern) }.getOrNull() ?: return emptyList()
+        return root.walkTopDown()
+            .onEnter { directory -> directory == root || directory.name !in REGEX_SCAN_EXCLUDED_DIRECTORIES }
+            .filter { directory ->
+                directory.isDirectory &&
+                    regex.matches(directory.relativeTo(root).path.replace(File.separatorChar, '/').ifEmpty { "." })
+            }
+            .toList()
+    }
 
     fun resolvedGeneratedPaths(projectRoot: File?): List<File> = generatedPaths.map { resolve(projectRoot, it) }
 
@@ -49,5 +84,31 @@ data class GoldenDiffConfig(
         val file = File(path)
         if (file.isAbsolute || projectRoot == null) return file.normalize()
         return File(projectRoot, path).normalize()
+    }
+
+    companion object {
+        const val GOLDEN_DIRECTORY_REGEX_PREFIX = "regex:"
+
+        private val REGEX_SCAN_EXCLUDED_DIRECTORIES = setOf(
+            ".build",
+            ".git",
+            ".gradle",
+            ".idea",
+            ".swiftpm",
+            "Carthage",
+            "DerivedData",
+            "Pods",
+            "build",
+            "dist",
+            "node_modules",
+            "out",
+            "target",
+        )
+
+        fun goldenDirectoryRegex(path: String): String? =
+            path.takeIf { it.startsWith(GOLDEN_DIRECTORY_REGEX_PREFIX) }
+                ?.removePrefix(GOLDEN_DIRECTORY_REGEX_PREFIX)
+
+        fun goldenDirectoryRegexEntry(pattern: String): String = GOLDEN_DIRECTORY_REGEX_PREFIX + pattern
     }
 }

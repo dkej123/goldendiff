@@ -28,7 +28,7 @@ You can add more than one directory later from Settings; see the
 ## 3. Open a screen or test file
 
 Open the Kotlin file for the screen, preview, or test you are working on. Golden Diff reads the file,
-extracts the relevant names (class names, the file name, and annotated / `test*` function names), and
+extracts the relevant names (class names, the file name, and annotated screenshot-function names), and
 lists the goldens that match.
 
 - When goldens are found, the status reads **“N screenshot(s) found.”** and the list fills with

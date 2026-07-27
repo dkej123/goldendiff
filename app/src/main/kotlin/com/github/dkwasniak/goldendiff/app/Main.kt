@@ -25,7 +25,12 @@ import com.github.dkwasniak.goldendiff.platform.Os
 import kotlinx.coroutines.CoroutineExceptionHandler
 import org.jetbrains.compose.resources.painterResource
 
-fun main() {
+fun main(args: Array<String>) {
+    // Terminal front-end: when launched with arguments the app is a headless CLI, so hand off before
+    // any Compose/AWT/telemetry code runs and exit with its status. The GUI path below is unchanged.
+    if (args.isNotEmpty()) {
+        kotlin.system.exitProcess(GoldenDiffCli.run(args))
+    }
     // Read before AWT starts: the native window chrome takes its appearance from this property once,
     // at initialisation, so setting it later would leave a dark title bar over a light window.
     val preferences = UiPreferences.load()
@@ -49,6 +54,9 @@ fun main() {
 
         LaunchedEffect(Unit) {
             AppConfig.lastProject()?.let { state.openProject(it, restored = true) }
+            // First launch on this machine: guide the user through configuration instead of dropping
+            // them on an empty window. The walkthrough itself opens the project and fills in settings.
+            if (!AppConfig.onboardingCompleted()) state.onboardingVisible = true
             state.checkForUpdates()
         }
         DeferredWindowCloseEffect(mainWindowVisible) {
@@ -88,10 +96,14 @@ fun main() {
         // golden directories are being set up.
         if (state.settingsVisible) SettingsWindow(state) { state.settingsVisible = false }
 
+        // First-run setup walkthrough; while it is open it owns the telemetry-consent decision, so the
+        // standalone consent prompt below stays suppressed.
+        if (state.onboardingVisible) OnboardingWindow(state) { state.onboardingVisible = false }
+
         // The compare pane detached into its own window; follows the live selection.
         if (state.compareWindowVisible) ComparisonWindow(state) { state.compareWindowVisible = false }
         if (state.diagnosticsVisible) DiagnosticsWindow(state) { state.diagnosticsVisible = false }
-        if (AppTelemetry.consentPromptVisible) TelemetryConsentWindow()
+        if (AppTelemetry.consentPromptVisible && !state.onboardingVisible) TelemetryConsentWindow()
     }
 }
 
