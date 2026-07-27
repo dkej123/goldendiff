@@ -103,6 +103,7 @@ fun main(args: Array<String>) {
         // The compare pane detached into its own window; follows the live selection.
         if (state.compareWindowVisible) ComparisonWindow(state) { state.compareWindowVisible = false }
         if (state.diagnosticsVisible) DiagnosticsWindow(state) { state.diagnosticsVisible = false }
+        if (state.commandLogVisible) CommandLogWindow(state) { state.commandLogVisible = false }
         if (AppTelemetry.consentPromptVisible && !state.onboardingVisible) TelemetryConsentWindow()
     }
 }

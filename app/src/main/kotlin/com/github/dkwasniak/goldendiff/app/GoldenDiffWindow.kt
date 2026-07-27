@@ -2,6 +2,7 @@ package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Divider
@@ -128,6 +130,10 @@ private fun Toolbar(state: AppState) {
         ToolButton("Settings", enabled = hasProject) { state.settingsVisible = true }
         ToolButton("Refresh", enabled = hasProject) { state.forceRefresh() }
         VerticalHairLine(20.dp)
+        CommandMenuButton(state, AppState.CommandKind.GENERATE)
+        CommandMenuButton(state, AppState.CommandKind.VERIFY)
+        CommandStatusChip(state)
+        VerticalHairLine(20.dp)
         DropdownButton("Scope", state.browse, Browse.entries.toList(), Browse::label, hasProject) { state.selectBrowse(it) }
         if (state.browse == Browse.FILES) {
             ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
@@ -144,6 +150,93 @@ private fun Toolbar(state: AppState) {
             hasProject,
         ) { state.selectSource(it) }
         Spacer(Modifier.weight(1f))
+    }
+}
+
+/**
+ * A Generate/Verify button that drops a small menu of *Whole project* / *Current file*. Each option
+ * is enabled only when its command is configured (and, for the file option, a file is open); an
+ * unconfigured button stays disabled with a tooltip pointing at Settings so the feature is discoverable.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CommandMenuButton(state: AppState, kind: AppState.CommandKind) {
+    var expanded by remember { mutableStateOf(false) }
+    val hasProject = state.projectRoot != null
+    val hasAll = state.hasCommand(kind, perFile = false)
+    val hasFile = state.hasCommand(kind, perFile = true)
+    val enabled = hasProject && (hasAll || hasFile) && !state.commandRunning
+    Box {
+        if (enabled) {
+            ToolButton(kind.label) { expanded = true }
+        } else {
+            val tip = when {
+                !hasProject -> "Open a project first."
+                state.commandRunning -> "A screenshot command is already running."
+                else -> "Set a ${kind.label} command in Settings → Commands."
+            }
+            TooltipArea(tooltip = { TipBubble(tip) }) {
+                ToolButton(kind.label, enabled = false) {}
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                enabled = hasAll,
+                onClick = { expanded = false; state.runCommand(kind, perFile = false) },
+            ) { Text("Whole project", color = tokens.text, fontSize = Type.body) }
+            val fileName = state.selectedSourcePath?.let { File(it).name }
+            DropdownMenuItem(
+                enabled = hasFile && fileName != null,
+                onClick = { expanded = false; state.runCommand(kind, perFile = true) },
+            ) {
+                Text(
+                    fileName?.let { "Current file: $it" } ?: "Current file (open a file)",
+                    color = tokens.text,
+                    fontSize = Type.body,
+                )
+            }
+        }
+    }
+}
+
+/** Small tooltip bubble used for disabled command buttons. */
+@Composable
+private fun TipBubble(text: String) {
+    Box(
+        Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).background(tokens.panel)
+            .border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(text, color = tokens.textDim, fontSize = Type.small)
+    }
+}
+
+/** Toolbar chip showing the latest command status; click to open the full log window. */
+@Composable
+private fun CommandStatusChip(state: AppState) {
+    val label = state.commandLabel ?: return
+    Row(
+        Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).hoverWash()
+            .clickable { state.commandLogVisible = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (state.commandRunning) {
+            CircularProgressIndicator(
+                Modifier.size(12.dp),
+                color = tokens.accent,
+                strokeWidth = 1.5.dp,
+            )
+        }
+        Text(
+            "$label: ${state.commandStatus.orEmpty()}",
+            color = tokens.textDim,
+            fontSize = Type.small,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 260.dp),
+        )
+        Text("Log", color = tokens.accent, fontSize = Type.small)
     }
 }
 

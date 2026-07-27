@@ -7,3 +7,4 @@ both the project-side and GoldenDiff-side setup it lists.
 | name | detect when |
 |---|---|
 | `ios-swift-snapshot-testing` | project references `pointfreeco/swift-snapshot-testing`, imports `SnapshotTesting`, or has `__Snapshots__/` reference dirs |
+| `android-roborazzi` | project applies the `io.github.takahirom.roborazzi` Gradle plugin, has `recordRoborazzi*` / `verifyRoborazzi*` tasks, or keeps golden PNGs under a screenshot-test `screenshots` dir with `_actual`/`_compare` output |

@@ -66,6 +66,10 @@ object AppConfig {
                 .ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS },
             excludedSuffixes = excludedSuffixes,
             trimTransparentPadding = props.getProperty("trimTransparentPadding").toBoolean(),
+            generateAllCommand = props.getProperty("generateAllCommand").orEmpty(),
+            generateFileCommand = props.getProperty("generateFileCommand").orEmpty(),
+            verifyAllCommand = props.getProperty("verifyAllCommand").orEmpty(),
+            verifyFileCommand = props.getProperty("verifyFileCommand").orEmpty(),
         )
     }
 
@@ -96,6 +100,10 @@ object AppConfig {
                 setProperty("excludedSuffixes.$index", suffix)
             }
             setProperty("trimTransparentPadding", effective.trimTransparentPadding.toString())
+            setProperty("generateAllCommand", effective.generateAllCommand)
+            setProperty("generateFileCommand", effective.generateFileCommand)
+            setProperty("verifyAllCommand", effective.verifyAllCommand)
+            setProperty("verifyFileCommand", effective.verifyFileCommand)
         }
         return runCatching {
             configDir.mkdirs()

@@ -110,3 +110,14 @@ all reviewed and **intentionally accepted**:
 The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
 so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
 moves to newer verifier versions.
+
+## Screenshot-test commands run in the platform shell
+The four Generate/Verify commands are **user-supplied shell strings**, run at the project root through
+the platform shell: `/bin/bash -lc "<cmd>"` on macOS/Linux, `cmd /c "<cmd>"` on Windows (`CommandShell`
+in `:core`). `-l` loads the login profile so `PATH` and SDK/version managers match the user's own
+terminal — a bare shell often cannot find `./gradlew`'s JDK or `xcodebuild`. Nothing is hardcoded per
+framework and defaults are empty; the strings are the user's own configuration (no elevation).
+The plugin does **not** use `:core`'s `CommandRunner`: it runs commands through IntelliJ's execution
+layer (`GeneralCommandLine` + `OSProcessHandler` + `RunContentExecutor`, stable since 241) so output
+lands in the Run tool window with a Stop button. Only the standalone app uses `CommandRunner` plus its
+own log window. Keep that split — do not pull the IntelliJ execution API into `:core`.

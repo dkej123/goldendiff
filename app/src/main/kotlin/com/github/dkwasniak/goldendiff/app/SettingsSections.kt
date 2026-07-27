@@ -213,6 +213,42 @@ internal fun DisplaySection(state: AppState) {
 }
 
 @Composable
+internal fun CommandsSection(state: AppState) {
+    val placeholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+        .joinToString("   ") { (token, meaning) -> "$token = $meaning" }
+    SectionHeader(
+        "Commands",
+        "Shell commands run from the toolbar to (re)generate or verify screenshot goldens. Free-form " +
+            "and framework-agnostic — leave blank to disable a button. The \"current file\" commands may " +
+            "use placeholders: $placeholders.",
+    )
+    CommandField("Generate all goldens", "Run for the whole project.", state.config.generateAllCommand) {
+        state.updateConfig(state.config.copy(generateAllCommand = it))
+    }
+    CommandField(
+        "Generate for current file",
+        "Regenerate only the open file's goldens, e.g. ./gradlew record --tests '*{file_name}Kt*'.",
+        state.config.generateFileCommand,
+    ) { state.updateConfig(state.config.copy(generateFileCommand = it)) }
+    CommandField("Verify all goldens", "Run for the whole project.", state.config.verifyAllCommand) {
+        state.updateConfig(state.config.copy(verifyAllCommand = it))
+    }
+    CommandField(
+        "Verify current file",
+        "Verify only the open file's goldens, e.g. -only-testing:SnapshotTests/{class_name}.",
+        state.config.verifyFileCommand,
+    ) { state.updateConfig(state.config.copy(verifyFileCommand = it)) }
+}
+
+@Composable
+private fun CommandField(label: String, description: String, value: String, onValueChange: (String) -> Unit) {
+    FieldLabel(label)
+    Text(description, color = tokens.textDim, fontSize = 11.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+    MonoField(value = value, enabled = true, singleLine = true, onValueChange = onValueChange)
+    Spacer(Modifier.height(12.dp))
+}
+
+@Composable
 internal fun PrivacySection() {
     val settings = AppTelemetry.settings
     SectionHeader(

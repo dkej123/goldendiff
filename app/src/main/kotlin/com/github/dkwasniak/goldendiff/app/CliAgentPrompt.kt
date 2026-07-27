@@ -104,7 +104,24 @@ fun buildCliAgentPrompt(projectPath: String): String {
        Use one --golden-dir per literal directory or --golden-dir-regex per repeated layout; they may
        be combined. Leave Filtering, Display and Privacy at their defaults.
 
-    6. Verify what Golden Diff will actually use. Select representative source/test files whose
+    6. Configure the record/verify commands (optional but recommended). Using the same framework you
+       identified, determine how this project RECORDS (generates) its golden screenshots and how it
+       VERIFIES them, including how to scope a run to a SINGLE test file. Store those as command
+       templates so Golden Diff can offer them later:
+       "$cliPath" configure \
+         --project "$projectPath" \
+         [--generate-all-cmd '<command that regenerates all goldens>'] \
+         [--generate-file-cmd '<command scoped to one file>'] \
+         [--verify-all-cmd '<command that verifies all goldens>'] \
+         [--verify-file-cmd '<command scoped to one file>']
+       In the per-file variants use {file_name}, {class_name} and {file_path} where the framework needs
+       the edited file's name, its declaring class, or its project-relative path. If a framework guide
+       matched, use exactly the command examples it gives; otherwise derive them from the project's own
+       build/test configuration. Do NOT run these commands yourself — the project stays read-only; you
+       only WRITE them into Golden Diff's settings. If you cannot determine a command with confidence,
+       leave it unset rather than guessing.
+
+    7. Verify what Golden Diff will actually use. Select representative source/test files whose
        goldens you confirmed manually — at least one for every distinct module, target, or directory
        layout — and pass each one separately:
        "$cliPath" validate \
@@ -118,7 +135,7 @@ fun buildCliAgentPrompt(projectPath: String): String {
        again. Do not consider directory-only validation sufficient, and do not consider setup complete
        until all representative source files pass.
 
-    7. After successful validation, notify the open setup window:
+    8. After successful validation, notify the open setup window:
        "$cliPath" configure --project "$projectPath" --signal
        This preserves the settings you already applied and only writes the completion signal. Finally
        run "$cliPath" show --project "$projectPath" --json and share that configuration summary with me.

@@ -1,8 +1,12 @@
 package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.github.dkwasniak.goldendiff.command.CommandRunner
+import com.github.dkwasniak.goldendiff.command.CommandTemplate
+import com.github.dkwasniak.goldendiff.command.GoldenAccept
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
@@ -88,6 +92,20 @@ class AppState(
 
     var comparison by mutableStateOf<Comparison?>(null)
         private set
+
+    // Screenshot-test commands. `commandStatus` is the one-line summary shown in the toolbar/status
+    // bar; `commandLog` is the full streamed output the expandable log window renders.
+    var commandRunning by mutableStateOf(false)
+        private set
+    var commandLabel by mutableStateOf<String?>(null)
+        private set
+    var commandStatus by mutableStateOf<String?>(null)
+        private set
+    val commandLog = mutableStateListOf<String>()
+    var commandLogVisible by mutableStateOf(false)
+
+    @Volatile
+    private var commandCancelled = false
 
     var quickOpenVisible by mutableStateOf(false)
     var quickOpenQuery by mutableStateOf("")
@@ -391,6 +409,116 @@ class AppState(
         clearCaches()
         refresh("manual_refresh")
     }
+
+    // region screenshot-test commands
+
+    enum class CommandKind(val label: String) { GENERATE("Generate"), VERIFY("Verify") }
+
+    fun commandFor(kind: CommandKind, perFile: Boolean): String = when (kind) {
+        CommandKind.GENERATE -> if (perFile) config.generateFileCommand else config.generateAllCommand
+        CommandKind.VERIFY -> if (perFile) config.verifyFileCommand else config.verifyAllCommand
+    }
+
+    /** Whether a command is available (so the toolbar can enable the option). */
+    fun hasCommand(kind: CommandKind, perFile: Boolean): Boolean = commandFor(kind, perFile).isNotBlank()
+
+    /**
+     * Runs the Generate/Verify command for the whole project or the current file. The raw command is
+     * expanded with the open file's names for the per-file variant, streamed line by line into
+     * [commandLog], and followed by a rescan (switching to Test output after a successful Verify).
+     */
+    fun runCommand(kind: CommandKind, perFile: Boolean) {
+        if (commandRunning) return
+        val root = projectRoot ?: return
+        val template = commandFor(kind, perFile)
+        if (template.isBlank()) return
+        val relativePath = selectedSourcePath
+        val command = if (perFile) {
+            val file = relativePath?.let { File(root, it) } ?: return
+            val screen = GenericScreenExtractor.extract(
+                file.nameWithoutExtension,
+                runCatching { file.readText() }.getOrDefault(""),
+                config.normalizedForMatching().annotatedFunctionRegex,
+            )
+            CommandTemplate.expand(template, screen, relativePath.substringBeforeLast('.'))
+        } else {
+            template
+        }
+
+        commandCancelled = false
+        commandRunning = true
+        commandLabel = "${kind.label}${if (perFile) " (current file)" else ""}"
+        commandStatus = "Running…"
+        commandLog.clear()
+        commandLog.add("$ $command")
+        featureUsed(if (kind == CommandKind.GENERATE) "generate_run" else "verify_run")
+
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                CommandRunner.run(
+                    command = command,
+                    workingDir = root,
+                    isCancelled = { commandCancelled },
+                ) { line ->
+                    // Compose snapshot state must be mutated on the main thread.
+                    scope.launch(Dispatchers.Main) {
+                        commandLog.add(line)
+                        commandStatus = line
+                    }
+                }
+            }
+            commandRunning = false
+            commandStatus = when {
+                commandCancelled -> "${kind.label} cancelled."
+                result.succeeded -> "${kind.label} finished."
+                result.exitCode == null -> "${kind.label} could not start."
+                else -> "${kind.label} failed (exit ${result.exitCode})."
+            }
+            commandLog.add(commandStatus.orEmpty())
+            // Show the freshly written output without a manual refresh.
+            clearCaches()
+            if (result.succeeded && kind == CommandKind.VERIFY && source != BuiltInSource.GENERATED) {
+                selectSource(BuiltInSource.GENERATED)
+            } else {
+                refresh("command_finished")
+            }
+        }
+    }
+
+    fun cancelCommand() {
+        if (commandRunning) commandCancelled = true
+    }
+
+    /**
+     * Promotes the generated counterpart of [golden] to the committed golden (moves the generated
+     * file onto it), then refreshes so neither the list nor the preview keeps showing the accepted
+     * change. Only meaningful while viewing Test output.
+     */
+    fun acceptGenerated(golden: File) {
+        if (commandRunning) return
+        val root = projectRoot
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { GoldenAccept.accept(golden, config, root) }
+            featureUsed(if (result.isSuccess) "accept_golden" else "accept_golden_failed")
+            result.onFailure { error ->
+                val failure = (error as? GoldenAccept.AcceptException)?.failure
+                status = if (failure is GoldenAccept.Failure.NoGeneratedCounterpart) {
+                    "No generated output found for ${golden.name}."
+                } else {
+                    "Could not accept ${golden.name}."
+                }
+            }
+            if (selected == golden) {
+                selected = null
+                comparison = null
+                comparisonGeneration++
+            }
+            clearCaches()
+            refresh("accept_golden")
+        }
+    }
+
+    // endregion
 
     fun deleteFile(file: File) {
         val root = projectRoot ?: return

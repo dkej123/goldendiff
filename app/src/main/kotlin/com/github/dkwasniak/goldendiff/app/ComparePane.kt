@@ -111,6 +111,13 @@ fun ComparePane(state: AppState, modifier: Modifier) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // Accept only makes sense for verify output: it promotes the generated image onto the
+            // golden. Generation writes the golden directly, so it is not offered there.
+            if (selected != null && state.source == BuiltInSource.GENERATED && state.comparison?.hasDiff == true) {
+                com.github.dkwasniak.goldendiff.app.ui.ToolButton("Accept", enabled = !state.commandRunning) {
+                    state.acceptGenerated(selected)
+                }
+            }
             if (selected != null) {
                 IconButton(size = 26.dp, onClick = {
                     state.featureUsed("detached_comparison")
