@@ -79,14 +79,15 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
               <ul>
-              <li>Adds optional anonymous product analytics with a dedicated consent prompt and
-              independent controls for analytics and crash reporting in Settings.</li>
-              <li>Analytics is processed by Amplitude in its European data region; diagnostic
-              exceptions and privacy-safe performance spans remain in Sentry EU.</li>
-              <li>Telemetry never includes filenames, project paths, source code, image content or
-              identifiers from optional comparison-source extensions.</li>
-              <li>Fixes alignment and wrapping in the plugin's telemetry dialog and Privacy settings,
-              and shows the exact installed plugin version.</li>
+              <li>Adds Generate and Verify actions for whole-project or current-file screenshot tests,
+              with streamed output in the Run tool window and automatic refresh after success.</li>
+              <li>Adds automatic, debounced PNG watching and updates changed previews without
+              rebuilding or jumping the golden list.</li>
+              <li>Moves Accept beside the comparison modes and confirms generated-output promotion
+              in place.</li>
+              <li>Redesigns Settings with section navigation and a contextual live-match preview.</li>
+              <li>Adds golden-directory regex entries alongside literal directories for multi-module
+              projects.</li>
               </ul>
         """.trimIndent()
 

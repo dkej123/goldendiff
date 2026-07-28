@@ -43,6 +43,12 @@ class GoldenCellRenderer(private val project: Project) : ListCellRenderer<ExtraC
         iconCache.clear()
     }
 
+    /** Drops only one thumbnail after its generated output has been promoted onto the golden. */
+    fun clearFileCache(file: File) {
+        imageCache.keys.removeIf { it.path == file.path }
+        iconCache.keys.removeIf { it.key.path == file.path }
+    }
+
     fun cellHeight(items: List<ExtraComparisonItem>, cellWidth: Int): Int {
         val targetWidth = targetWidth(cellWidth)
         val padding = JBUI.scale(6)

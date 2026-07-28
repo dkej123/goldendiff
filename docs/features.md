@@ -18,6 +18,13 @@ A **Scope** control in the header chooses what the list contains:
   Variant-provided (extra) comparison sources are not available in this scope; selecting one falls back
   to Working copy.
 
+### Standalone app file tabs
+The standalone app opens project files in editor-style tabs. Their order and active tab are stored
+per project and restored when the app starts again; switching temporarily to **Project changes** hides
+the tabs without discarding that session. A remembered file that no longer exists stays in the tab
+strip as grey, struck-through text until the user closes it. Selecting such a tab shows an explicit
+missing-file state and does not run matching or per-file commands against the stale path.
+
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
 - `CurrentScreen` builds caret-independent names. For **Kotlin** files (PSI): declared class names +
@@ -113,6 +120,12 @@ placeholders that are expanded from the active file before the command runs:
 Commands are user-authored shell strings; defaults are empty and nothing about Roborazzi, Gradle,
 xcodebuild, iOS or Android is assumed (see [gotchas](gotchas.md) for how they are executed).
 
+The standalone CLI's `configure --signal` hand-off is live: when it targets the project currently
+open in the app, the app reloads the saved settings without reopening the project. Command-only
+changes update the toolbar immediately; directory, matching, filtering or display changes also clear
+the relevant caches and rescan. The onboarding walkthrough additionally advances past the setup steps
+completed by the CLI.
+
 ### Generate / Verify buttons
 The tool window (plugin) and toolbar (app) gain **Generate** and **Verify** buttons. Each offers
 *Whole project* / *Current file*, mapped to the matching configured command.
@@ -136,6 +149,18 @@ longer shows as changed.
 Accept is only offered while viewing the **Test output** source (verify output such as Roborazzi's
 `_actual` files). Generation frameworks overwrite the golden directly, so there is nothing to promote in
 that case.
+
+### Automatic PNG refresh
+Both hosts watch the configured golden and generated-output directories for PNG changes. A burst of
+filesystem events is debounced into one update. Rewriting an existing PNG invalidates only that
+golden's thumbnail, status and comparison; creating, deleting or moving a PNG performs an atomic
+soft-rescan that preserves the current list, selection and preview until the replacement state is
+ready. Generate/Verify runs suppress intermediate watcher refreshes and perform one update when the
+command finishes.
+
+The plugin uses IntelliJ's native VFS event stream. The standalone app uses the JDK's blocking
+`WatchService`, which performs no polling while idle. Non-PNG changes and paths outside the configured
+directories are ignored.
 
 ## Settings / directories
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level

@@ -7,6 +7,7 @@ import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.compare.PixelDiff
 import com.github.dkwasniak.goldendiff.compare.toArgbImage
+import com.github.dkwasniak.goldendiff.command.GoldenAccept
 import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
@@ -47,6 +48,10 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
@@ -71,6 +76,7 @@ import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.AbstractAction
 import javax.swing.BoxLayout
+import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.Icon
 import javax.swing.JButton
@@ -150,6 +156,11 @@ class ScreenshotPanel(
         onCopyPath = {
             telemetry.event("product.feature_used", mapOf("feature" to "copy_path"))
         },
+        onAccept = {
+            loadedFile
+                ?.takeIf { selectedSource() == ComparisonSource.GENERATED }
+                ?.let(::acceptGeneratedGolden)
+        },
     )
     private val statusLabel = JBLabel().apply { border = JBUI.Borders.empty(4, 6) }
     private val statusLegendLabel = JBLabel(STATUS_LEGEND_HTML).apply {
@@ -157,8 +168,8 @@ class ScreenshotPanel(
         isVisible = false
     }
     private val directoriesButton = JButton()
-    private val generateButton = JButton("Generate")
-    private val verifyButton = JButton("Verify")
+    private val generateCombo = createCommandCombo(CommandKind.GENERATE)
+    private val verifyCombo = createCommandCombo(CommandKind.VERIFY)
     // True while a Generate/Verify run is in flight, so the buttons stay disabled and the status line
     // reports progress. The full output streams into IntelliJ's Run tool window (see CommandExecution).
     private var commandRunning = false
@@ -245,6 +256,8 @@ class ScreenshotPanel(
 
     // Debounces list refreshes from editor/caret changes; fires once on the EDT after DEBOUNCE_MS.
     private val refreshTimer = Timer(DEBOUNCE_MS) { refresh() }.apply { isRepeats = false }
+    private val pngRefreshTimer = Timer(PNG_DEBOUNCE_MS) { applyPngVfsChanges() }.apply { isRepeats = false }
+    private val pendingPngChanges = mutableListOf<PngVfsChange>()
 
     // Names the list was last built from — used to avoid rebuilding when only the caret moves.
     private var lastNames: List<String>? = null
@@ -261,6 +274,12 @@ class ScreenshotPanel(
     private var currentScanStarted = 0L
     private var currentScanTrigger = "automatic"
     private var nextSelectionTrigger = "automatic"
+    private var pngUpdateGeneration = 0L
+    private val suppressedPngPaths = HashMap<String, Long>()
+    // Accepted rows remain in the current list so promotion never clears the grid or changes
+    // selection. The marker also restores the confirmation when the user clicks away and back.
+    private val acceptedGoldens = mutableSetOf<String>()
+    private var acceptingGolden: File? = null
     // Tracks tool-window visibility so we can refresh once it is reopened.
     private var wasVisible = toolWindow.isVisible
 
@@ -365,21 +384,6 @@ class ScreenshotPanel(
                     clicked?.let { CopyPasteManager.getInstance().setContents(StringSelection(it.absolutePath)) }
                 },
             )
-            // Accept is only meaningful for verify output (Test output): it promotes the generated
-            // _actual over the golden. Generation already writes the golden in place, so it is hidden
-            // there. Enabled only when the selected golden has a generated counterpart.
-            if (selectedSource() == ComparisonSource.GENERATED && clicked != null) {
-                add(
-                    listAction(
-                        "Accept Generated Golden",
-                        com.github.dkwasniak.goldendiff.command.GoldenAccept.canAccept(
-                            clicked,
-                            settings.toConfig(),
-                            project.basePath?.let(::File),
-                        ),
-                    ) { acceptGeneratedGolden(clicked) },
-                )
-            }
             addSeparator()
             add(
                 listAction(
@@ -424,30 +428,63 @@ class ScreenshotPanel(
     }
 
     private fun acceptGeneratedGolden(golden: File) {
-        val result = com.github.dkwasniak.goldendiff.command.GoldenAccept.accept(
-            golden,
-            settings.toConfig(),
-            project.basePath?.let(::File),
-        )
-        telemetry.event(
-            "product.feature_used",
-            mapOf("feature" to if (result.isSuccess) "accept_golden" else "accept_golden_failed"),
-        )
-        result.onSuccess { generated ->
-            // The generated file moved onto the golden — refresh both so neither the list nor the
-            // preview keeps showing a change that was just accepted.
-            LocalFileSystem.getInstance().refreshIoFiles(listOf(golden, generated))
-        }
-        result.onFailure { error ->
-            val message = when ((error as? com.github.dkwasniak.goldendiff.command.GoldenAccept.AcceptException)?.failure) {
-                is com.github.dkwasniak.goldendiff.command.GoldenAccept.Failure.NoGeneratedCounterpart ->
-                    "No generated output was found for ${golden.name}."
-                else -> "Could not accept ${golden.name}."
+        if (acceptingGolden != null || selectedSource() != ComparisonSource.GENERATED) return
+        acceptingGolden = golden
+        suppressPngEvent(golden)
+        compareView.showAccepting()
+        val config = settings.toConfig()
+        val root = project.basePath?.let(::File)
+        val trim = settings.trimTransparentPadding
+        AppExecutorUtil.getAppExecutorService().execute {
+            val result = GoldenAccept.accept(golden, config, root)
+            val acceptedImage = result.getOrNull()?.let {
+                ImagePainting.trimTransparentBorder(
+                    ImageBytes.decode(ImageBytes.workingBytes(golden)),
+                    trim,
+                )
             }
-            Messages.showErrorDialog(project, message, "Accept Generated Golden")
+            ApplicationManager.getApplication().invokeLater {
+                acceptingGolden = null
+                telemetry.event(
+                    "product.feature_used",
+                    mapOf("feature" to if (result.isSuccess) "accept_golden" else "accept_golden_failed"),
+                )
+                result.onSuccess { generated ->
+                    suppressPngEvent(generated)
+                    LocalFileSystem.getInstance().refreshIoFiles(listOf(golden, generated))
+                    acceptedGoldens += golden.absolutePath
+                    markItemAccepted(golden)
+                    if (loadedFile == golden && selectedSource() == ComparisonSource.GENERATED) {
+                        compareView.showAccepted(acceptedImage, "Accepted as golden \u2014 ${golden.name}")
+                    }
+                }
+                result.onFailure { error ->
+                    val message = when ((error as? GoldenAccept.AcceptException)?.failure) {
+                        is GoldenAccept.Failure.NoGeneratedCounterpart ->
+                            "No generated output was found for ${golden.name}."
+                        else -> "Could not accept ${golden.name}."
+                    }
+                    if (loadedFile == golden && selectedSource() == ComparisonSource.GENERATED) {
+                        compareView.showAccept()
+                    }
+                    Messages.showErrorDialog(project, message, "Accept Generated Golden")
+                }
+            }
         }
-        loadedFile = null
-        scheduleRefresh(force = true, trigger = "accept_golden")
+    }
+
+    /** Updates one row in place; list order, scroll position and selection remain untouched. */
+    private fun markItemAccepted(golden: File) {
+        for (index in 0 until listModel.size()) {
+            val item = listModel.getElementAt(index)
+            if (item.file == golden) {
+                listModel.setElementAt(item.copy(status = ExtraComparisonItemStatus.UNCHANGED), index)
+                break
+            }
+        }
+        listRenderer.clearFileCache(golden)
+        updateStatusLegend(listModel.elements().toList())
+        list.repaint()
     }
 
     private fun bindListKey(keyCode: Int, actionName: String, delta: Int) {
@@ -502,15 +539,10 @@ class ScreenshotPanel(
 
     private fun buildHeader(): JPanel {
         directoriesButton.addActionListener { onDirectoriesClicked() }
-        generateButton.addActionListener { showCommandMenu(generateButton, CommandKind.GENERATE) }
-        verifyButton.addActionListener { showCommandMenu(verifyButton, CommandKind.VERIFY) }
         val toolbar = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(4))).apply {
             add(directoriesButton)
-            add(JButton("Refresh").apply {
-                addActionListener { scheduleRefresh(force = true, trigger = "manual_refresh") }
-            })
-            add(generateButton)
-            add(verifyButton)
+            add(generateCombo)
+            add(verifyCombo)
             add(JBLabel("Scope:"))
             add(scopeCombo)
             add(JBLabel("Compare:"))
@@ -553,6 +585,95 @@ class ScreenshotPanel(
                 }
             },
         )
+        connection.subscribe(
+            VirtualFileManager.VFS_CHANGES,
+            object : BulkFileListener {
+                override fun after(events: List<VFileEvent>) {
+                    val changes = events.mapNotNull { event ->
+                        event.path.takeIf { it.endsWith(".png", ignoreCase = true) }
+                            ?.let { PngVfsChange(File(it), event !is VFileContentChangeEvent) }
+                    }
+                    if (changes.isNotEmpty()) {
+                        pendingPngChanges += changes
+                        pngRefreshTimer.restart()
+                    }
+                }
+            },
+        )
+    }
+
+    private fun applyPngVfsChanges() {
+        if (commandRunning) {
+            pendingPngChanges.clear()
+            return
+        }
+        val now = System.currentTimeMillis()
+        suppressedPngPaths.entries.removeIf { it.value < now }
+        val root = project.basePath?.let(::File)
+        val config = settings.toConfig()
+        val source = selectedSource()
+        val relevant = pendingPngChanges.toList()
+            .also { pendingPngChanges.clear() }
+            .distinctBy { "${it.structural}:${it.file.absolutePath}" }
+            .filterNot { suppressedPngPaths.containsKey(it.file.absolutePath) }
+            .filter {
+                config.containsGoldenFile(root, it.file) ||
+                    (source == ComparisonSource.GENERATED && config.containsGeneratedFile(root, it.file))
+            }
+        if (relevant.isEmpty()) return
+        if (relevant.any(PngVfsChange::structural) || selectedScope() == Scope.PROJECT_CHANGES) {
+            scheduleRefresh(force = true, trigger = "filesystem_change")
+            return
+        }
+
+        val visible = listModel.elements().toList()
+        val affected = linkedSetOf<File>()
+        relevant.forEach { change ->
+            visible.firstOrNull { it.file.absolutePath == change.file.absolutePath }?.file?.let(affected::add)
+            if (source == ComparisonSource.GENERATED && config.containsGeneratedFile(root, change.file)) {
+                generatedGoldenBase(change.file)?.let { base ->
+                    visible.asSequence()
+                        .filter { it.file.nameWithoutExtension.equals(base, ignoreCase = true) }
+                        .mapTo(affected) { it.file }
+                }
+            }
+        }
+        if (affected.isNotEmpty()) refreshItemsInPlace(affected, source)
+    }
+
+    private fun refreshItemsInPlace(affected: Set<File>, source: ComparisonSource) {
+        val generation = ++pngUpdateGeneration
+        AppExecutorUtil.getAppExecutorService().execute {
+            val refreshed = changeScanner().itemsFor(
+                affected.toList(),
+                if (source == ComparisonSource.GENERATED) BuiltInSource.GENERATED else BuiltInSource.WORKING_COPY,
+            ).associateBy { it.file.absolutePath }
+            ApplicationManager.getApplication().invokeLater {
+                if (generation != pngUpdateGeneration || selectedSource() != source) return@invokeLater
+                for (index in 0 until listModel.size()) {
+                    val current = listModel.getElementAt(index)
+                    refreshed[current.file.absolutePath]?.let { updated ->
+                        listModel.setElementAt(updated.copy(title = current.title), index)
+                        listRenderer.clearFileCache(current.file)
+                    }
+                }
+                updateStatusLegend(listModel.elements().toList())
+                list.repaint()
+                list.selectedValue?.takeIf { it.file in affected }?.let { selectedItem ->
+                    loadedFile = null
+                    loadComparison(selectedItem, "filesystem", keepCurrentPreview = true)
+                }
+            }
+        }
+    }
+
+    private fun generatedGoldenBase(file: File): String? {
+        val regex = runCatching { Regex(settings.generatedFileRegex) }.getOrNull() ?: return null
+        return regex.matchEntire(file.name)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun suppressPngEvent(file: File) {
+        suppressedPngPaths[file.absolutePath] = System.currentTimeMillis() + PNG_SUPPRESSION_MS
     }
 
     private fun onDirectoriesClicked() {
@@ -584,6 +705,14 @@ class ScreenshotPanel(
 
     private enum class CommandKind(val label: String) { GENERATE("Generate"), VERIFY("Verify") }
 
+    private enum class CommandTarget(val label: String) {
+        WHOLE_PROJECT("Whole project"),
+        CURRENT_FILE("Current file"),
+        ;
+
+        override fun toString(): String = label
+    }
+
     private fun commandFor(kind: CommandKind, perFile: Boolean): String {
         val config = settings.toConfig()
         return when (kind) {
@@ -592,63 +721,81 @@ class ScreenshotPanel(
         }
     }
 
+    private fun createCommandCombo(kind: CommandKind): ComboBox<CommandTarget> {
+        var resettingSelection = false
+        return ComboBox(CommandTarget.entries.toTypedArray()).apply {
+            selectedItem = null
+            renderer = object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean,
+                ): java.awt.Component {
+                    val component = super.getListCellRendererComponent(
+                        list,
+                        value,
+                        index,
+                        isSelected,
+                        cellHasFocus,
+                    )
+                    val target = value as? CommandTarget
+                    text = target?.label ?: kind.label
+                    if (target != null) {
+                        val perFile = target == CommandTarget.CURRENT_FILE
+                        val commandConfigured = commandFor(kind, perFile).isNotBlank()
+                        val hasCurrentFile = !perFile || currentScreen != null
+                        isEnabled = commandConfigured && hasCurrentFile && !commandRunning
+                        toolTipText = when {
+                            !commandConfigured -> "Set the ${target.label.lowercase()} ${kind.label} command in Settings."
+                            !hasCurrentFile -> "Open a file in the editor first."
+                            else -> commandFor(kind, perFile)
+                        }
+                    }
+                    return component
+                }
+            }
+            addActionListener {
+                if (resettingSelection) return@addActionListener
+                val target = selectedItem as? CommandTarget ?: return@addActionListener
+                resettingSelection = true
+                selectedItem = null
+                resettingSelection = false
+
+                val perFile = target == CommandTarget.CURRENT_FILE
+                val configuredCommand = commandFor(kind, perFile)
+                val command = if (perFile) {
+                    val screen = currentScreen ?: return@addActionListener
+                    com.github.dkwasniak.goldendiff.command.CommandTemplate.expand(configuredCommand, screen)
+                } else {
+                    configuredCommand
+                }
+                if (configuredCommand.isNotBlank()) {
+                    runScreenshotCommand(kind, command, perFile)
+                }
+            }
+        }
+    }
+
     /**
      * Keeps the Generate/Verify buttons enabled only when at least one of their commands is set and no
      * run is in flight; a disabled button explains how to turn it on. Called after settings changes.
      */
     private fun updateCommandButtons() {
-        fun sync(button: JButton, kind: CommandKind) {
+        fun sync(combo: ComboBox<CommandTarget>, kind: CommandKind) {
             val configured = commandFor(kind, perFile = false).isNotBlank() ||
                 commandFor(kind, perFile = true).isNotBlank()
-            button.isEnabled = configured && !commandRunning
-            button.toolTipText = when {
+            combo.isEnabled = configured && !commandRunning
+            combo.toolTipText = when {
                 commandRunning -> "A screenshot command is already running."
                 !configured -> "Set a ${kind.label} command in Settings → Golden Diff → Commands."
                 else -> "${kind.label} screenshot goldens (whole project or current file)."
             }
+            combo.repaint()
         }
-        sync(generateButton, CommandKind.GENERATE)
-        sync(verifyButton, CommandKind.VERIFY)
-    }
-
-    private fun showCommandMenu(anchor: JButton, kind: CommandKind) {
-        val allCommand = commandFor(kind, perFile = false)
-        val fileCommand = commandFor(kind, perFile = true)
-        val screen = currentScreen
-        val fileName = screen?.fileName
-        val menu = javax.swing.JPopupMenu().apply {
-            add(
-                javax.swing.JMenuItem("Whole project").apply {
-                    isEnabled = allCommand.isNotBlank()
-                    toolTipText = if (allCommand.isBlank()) {
-                        "Set a whole-project ${kind.label} command in Settings."
-                    } else {
-                        allCommand
-                    }
-                    addActionListener { runScreenshotCommand(kind, allCommand, perFile = false) }
-                },
-            )
-            add(
-                javax.swing.JMenuItem(fileName?.let { "Current file: $it" } ?: "Current file").apply {
-                    isEnabled = fileCommand.isNotBlank() && screen != null
-                    toolTipText = when {
-                        fileCommand.isBlank() -> "Set a current-file ${kind.label} command in Settings."
-                        screen == null -> "Open a file in the editor first."
-                        else -> com.github.dkwasniak.goldendiff.command.CommandTemplate.expand(fileCommand, screen)
-                    }
-                    addActionListener {
-                        if (screen != null) {
-                            runScreenshotCommand(
-                                kind,
-                                com.github.dkwasniak.goldendiff.command.CommandTemplate.expand(fileCommand, screen),
-                                perFile = true,
-                            )
-                        }
-                    }
-                },
-            )
-        }
-        menu.show(anchor, 0, anchor.height)
+        sync(generateCombo, CommandKind.GENERATE)
+        sync(verifyCombo, CommandKind.VERIFY)
     }
 
     private fun runScreenshotCommand(kind: CommandKind, command: String, perFile: Boolean) {
@@ -756,6 +903,7 @@ class ScreenshotPanel(
 
         val force = pendingForce
         pendingForce = false
+        if (force) acceptedGoldens.clear()
         val trigger = pendingTrigger
         pendingTrigger = "automatic"
         val generation = refreshGeneration
@@ -955,8 +1103,14 @@ class ScreenshotPanel(
         scanSpan: TelemetrySpan,
     ) {
         val previouslyLoaded = loadedFile
-        listModel.clear()
-        items.forEach(listModel::addElement)
+        for (index in items.indices) {
+            if (index < listModel.size()) {
+                listModel.setElementAt(items[index], index)
+            } else {
+                listModel.addElement(items[index])
+            }
+        }
+        while (listModel.size() > items.size) listModel.removeElementAt(listModel.size() - 1)
         refreshListThumbnailLayout()
         updateStatusLegend(items)
         statusLabel.text = statusOverride ?: if (items.isEmpty()) {
@@ -987,6 +1141,7 @@ class ScreenshotPanel(
         nextSelectionTrigger = "automatic"
         list.selectedIndex = index
         list.ensureIndexIsVisible(index)
+        list.selectedValue?.let { loadComparison(it, "automatic") }
     }
 
     // Clears the "loading" spinner for a list item whose file has just been downloaded, in place,
@@ -1123,14 +1278,20 @@ class ScreenshotPanel(
         compareView.showSingle(null, "")
     }
 
-    private fun loadComparison(item: ExtraComparisonItem, selectionTrigger: String = "grid") {
+    private fun loadComparison(
+        item: ExtraComparisonItem,
+        selectionTrigger: String = "grid",
+        keepCurrentPreview: Boolean = false,
+    ) {
         val file = item.file
         val source = selectedSource()
         if (file == loadedFile && source == loadedSource) return
         loadedFile = file
         loadedSource = source
         compareView.setTitle(shortGoldenName(file.name))
-        compareView.showSingle(null, "Loading…")
+        if (!keepCurrentPreview) compareView.showSingle(null, "Loading…")
+        val acceptedAtLoad = source == ComparisonSource.GENERATED &&
+            file.absolutePath in acceptedGoldens
         val extra = source.extra
         if (extra != null) {
             val screen = currentScreen
@@ -1195,6 +1356,7 @@ class ScreenshotPanel(
                 ) { headBytesSource.headBytes(file) }
                 val workingFile = when (source) {
                     ComparisonSource.WORKING_COPY -> file
+                    ComparisonSource.GENERATED if acceptedAtLoad -> file
                     ComparisonSource.GENERATED -> telemetry.measureSpan(
                         "generated.lookup",
                         mapOf("scope" to selectedScope().wireValue(), "source" to "test_output"),
@@ -1218,8 +1380,11 @@ class ScreenshotPanel(
                     ImagePainting.trimTransparentBorder(ImageBytes.decode(headBytes), trim) to
                         ImagePainting.trimTransparentBorder(ImageBytes.decode(workingBytes), trim)
                 }
-                val unchanged = headBytes != null && workingBytes != null && headBytes.contentEquals(workingBytes)
-                val diffRatio = if (!unchanged && head != null && working != null) {
+                val unchanged = !acceptedAtLoad &&
+                    headBytes != null &&
+                    workingBytes != null &&
+                    headBytes.contentEquals(workingBytes)
+                val diffRatio = if (!acceptedAtLoad && !unchanged && head != null && working != null) {
                     telemetry.measureSpan(
                         "pixel_diff.compute",
                         mapOf("scope" to selectedScope().wireValue(), "source" to source.wireValue()),
@@ -1235,6 +1400,8 @@ class ScreenshotPanel(
                         return@invokeLater
                     }
                     when {
+                        acceptedAtLoad ->
+                            compareView.showAccepted(working, "Accepted as golden \u2014 ${file.name}")
                         source == ComparisonSource.GENERATED && !settings.hasGeneratedPaths ->
                             compareView.showSingle(head, "Configure generated test output directories in Settings.")
                         source == ComparisonSource.GENERATED && workingFile == null ->
@@ -1255,6 +1422,9 @@ class ScreenshotPanel(
                             compareView.showSingle(head, "Working copy missing — showing HEAD.")
                         else ->
                             compareView.showSingle(null, "Could not read image.")
+                    }
+                    if (source == ComparisonSource.GENERATED && workingFile != null && !acceptedAtLoad) {
+                        compareView.showAccept()
                     }
                     comparisonSpan.finish()
                     emitComparisonViewed(
@@ -1297,11 +1467,14 @@ class ScreenshotPanel(
     override fun dispose() {
         // messageBus connection and caret listener are tied to this Disposable and cleaned up here.
         refreshTimer.stop()
+        pngRefreshTimer.stop()
         telemetryService.panelClosed()
     }
 
     companion object {
         private const val DEBOUNCE_MS = 300
+        private const val PNG_DEBOUNCE_MS = 400
+        private const val PNG_SUPPRESSION_MS = 2_000L
         private const val GOLDEN_LIST_POPUP_PLACE = "GoldenDiffListPopup"
         private const val BASE_THUMBNAIL_CELL_WIDTH = 300
         private val THUMBNAIL_SCALES = listOf(1.0, 0.85, 0.70, 0.55, 0.40, 0.30, 0.22)
@@ -1330,6 +1503,8 @@ class ScreenshotPanel(
                 ComparisonSource(source.id, source.title, source)
         }
     }
+
+    private data class PngVfsChange(val file: File, val structural: Boolean)
 
     private fun thumbnailScale(): Double = THUMBNAIL_SCALES[thumbnailScaleIndex]
 }

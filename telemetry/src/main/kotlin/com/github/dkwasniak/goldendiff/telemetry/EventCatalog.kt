@@ -74,6 +74,7 @@ object EventCatalog {
                 "quick_open", "detached_comparison", "copy_path", "reveal_in_file_manager",
                 "left_pane_toggle", "tab_open", "tab_close", "update_open",
                 "update_download", "update_homebrew", "update_restart", "update_dequarantine",
+                "generate_run", "verify_run", "accept_golden", "accept_golden_failed",
             ),
         ),
         "product.scan_completed" to definition(

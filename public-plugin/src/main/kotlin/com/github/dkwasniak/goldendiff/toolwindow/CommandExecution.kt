@@ -6,6 +6,7 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import java.io.File
@@ -40,11 +41,16 @@ object CommandExecution {
             override fun processTerminated(event: ProcessEvent) = onTerminated(event.exitCode)
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) = Unit
         })
-        RunContentExecutor(project, handler)
+        val executor = RunContentExecutor(project, handler)
             .withTitle(title)
             .withActivateToolWindow(true)
             .withStop({ handler.destroyProcess() }, { !handler.isProcessTerminated })
-            .run()
+
+        // Swing listeners run on the EDT but, on recent IDEs, no longer implicitly hold the
+        // write-intent lock. RunContentExecutor saves open documents before launch and therefore
+        // requires that lock even though this method is already called from the EDT.
+        @Suppress("UnstableApiUsage")
+        WriteIntentReadAction.run { executor.run() }
         return true
     }
 }

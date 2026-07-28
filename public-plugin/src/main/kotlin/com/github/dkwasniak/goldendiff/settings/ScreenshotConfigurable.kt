@@ -20,7 +20,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
-import com.intellij.ui.ToolbarDecorator
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -28,7 +28,9 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.CardLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
 import java.io.File
@@ -36,17 +38,20 @@ import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.ButtonGroup
+import javax.swing.DefaultListCellRenderer
 import javax.swing.JCheckBox
 import javax.swing.DefaultListModel
+import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JList
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JScrollPane
-import javax.swing.JSeparator
+import javax.swing.JSplitPane
 import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.ListSelectionModel
-import javax.swing.SwingConstants
 import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
@@ -54,13 +59,15 @@ import javax.swing.event.ListDataEvent
 import javax.swing.event.ListDataListener
 
 private const val PREVIEW_DEBOUNCE_MS = 300
+private const val PREVIEW_DIVIDER_KEY = "golden.diff.settings.preview.divider"
+private const val DEFAULT_PREVIEW_DIVIDER = 560
 
 class ScreenshotConfigurable(private val project: Project) : Configurable, Configurable.NoScroll {
 
     private val goldenModel = DefaultListModel<String>()
-    private val goldenList = JBList(goldenModel)
+    private val goldenList = JBList(goldenModel).apply { name = "goldenDirectoriesList" }
     private val generatedModel = DefaultListModel<String>()
-    private val generatedList = JBList(generatedModel)
+    private val generatedList = JBList(generatedModel).apply { name = "generatedDirectoriesList" }
     private val generatedRegexField = singleLineField()
     private val annotationRegexField = singleLineField()
     private val annotatedMethodRadio = JRadioButton("Match by annotated method")
@@ -79,8 +86,12 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     private val analyticsCheckbox = JCheckBox("Share anonymous product analytics")
     private val diagnosticsCheckbox = JCheckBox("Share diagnostic error reports")
     private val previewCountLabel = JBLabel()
+    private val previewSummaryLabel = JBLabel()
     private val previewModel = DefaultListModel<String>()
     private val previewList = JBList(previewModel)
+    private val directoryRegexField = singleLineField()
+    private val directoryRegexAddButton = JButton("Add regex")
+    private lateinit var matchingOptions: JPanel
     private val extraSettingsSources: List<Pair<String, ExtraSettingsComponent>> =
         ExtraComparisonSources.all.mapNotNull { source ->
             source.createSettingsComponent(project)?.let { source.title to it }
@@ -92,53 +103,238 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     override fun getDisplayName(): String = "Golden Diff"
 
     override fun createComponent(): JComponent {
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        val pages = buildList {
+            add(
+                SettingsPage(
+                    "Directories",
+                    formPage(
+                        "Directories",
+                        "Choose the committed baselines and, optionally, the fresh screenshots produced by verification tests.",
+                        directorySection(
+                            "Golden directories",
+                            "Directories holding the committed screenshots Golden Diff compares against.",
+                            goldenList,
+                            goldenModel,
+                            allowRegex = true,
+                        ),
+                        spacer(20),
+                        directorySection(
+                            "Generated output directories",
+                            "Where verification tests write their screenshots. Only needed for Test output.",
+                            generatedList,
+                            generatedModel,
+                        ),
+                    ),
+                    showsPreview = true,
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Test output matching",
+                    formPage(
+                        "Test output matching",
+                        "Map a generated screenshot back to its committed golden.",
+                        regexSection(),
+                    ),
+                    showsPreview = true,
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Golden matching",
+                    formPage(
+                        "Golden matching",
+                        "Match goldens either by the name of annotated screenshot functions, or by a file/class regex.",
+                        matchingSection(),
+                    ),
+                    showsPreview = true,
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Filtering",
+                    formPage(
+                        "Filtering",
+                        "Hide generated artifacts that should not appear as committed goldens.",
+                        excludedSuffixesSection(),
+                    ),
+                    showsPreview = true,
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Display",
+                    formPage(
+                        "Display",
+                        "Control how screenshot images are presented in the plugin.",
+                        displaySection(),
+                    ),
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Commands",
+                    formPage(
+                        "Commands",
+                        "Configure the framework-agnostic shell commands exposed by the tool window.",
+                        commandsSection(),
+                    ),
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Privacy",
+                    formPage(
+                        "Privacy",
+                        "Control anonymous product analytics and sanitized diagnostic reports independently.",
+                        privacySection(),
+                    ),
+                ),
+            )
+            extraSettingsSources.forEach { (title, settings) ->
+                add(
+                    SettingsPage(
+                        title,
+                        formPage(
+                            title,
+                            "Settings provided by the $title comparison source.",
+                            settings.component,
+                        ),
+                    ),
+                )
+            }
         }
-        panel.add(sectionHeader("Directories"))
-        panel.add(directorySection("Golden directories:", "Committed screenshot baselines listed in the tool window.", goldenList, goldenModel))
-        panel.add(spacer())
-        panel.add(
-            directorySection(
-                "Generated test output directories:",
-                "Fresh screenshots produced by verification tests; used only when Compare is set to Test output.",
-                generatedList,
-                generatedModel,
-            ),
-        )
-        panel.add(spacer())
-        panel.add(sectionHeader("Test output matching"))
-        panel.add(regexSection())
-        panel.add(spacer())
-        panel.add(sectionHeader("Golden matching"))
-        panel.add(matchingSection())
-        panel.add(spacer())
-        panel.add(sectionHeader("Filtering"))
-        panel.add(excludedSuffixesSection())
-        panel.add(spacer())
-        panel.add(sectionHeader("Display"))
-        panel.add(displaySection())
-        panel.add(spacer())
-        panel.add(sectionHeader("Commands"))
-        panel.add(commandsSection())
-        panel.add(spacer())
-        panel.add(sectionHeader("Privacy"))
-        panel.add(privacySection())
-        panel.add(spacer())
-        extraSettingsSources.forEach { (title, settings) ->
-            panel.add(sectionHeader(title))
-            panel.add(settings.component)
-            panel.add(spacer())
+
+        val cardsLayout = CardLayout()
+        val cards = JPanel(cardsLayout)
+        pages.forEachIndexed { index, page ->
+            cards.add(page.component, index.toString())
         }
-        panel.add(sectionHeader("Preview"))
-        panel.add(previewSection())
+        val preview = previewSection()
+        val split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, cards, preview).apply {
+            name = "settingsPreviewSplit"
+            border = null
+            dividerSize = JBUI.scale(5)
+            resizeWeight = 1.0
+            isContinuousLayout = true
+            val saved = PropertiesComponent.getInstance(project)
+                .getInt(PREVIEW_DIVIDER_KEY, JBUI.scale(DEFAULT_PREVIEW_DIVIDER))
+            dividerLocation = saved
+            addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) {
+                if (rightComponent != null) {
+                    PropertiesComponent.getInstance(project)
+                        .setValue(PREVIEW_DIVIDER_KEY, dividerLocation, JBUI.scale(DEFAULT_PREVIEW_DIVIDER))
+                }
+            }
+        }
+        val navigation = settingsNavigation(pages) { index ->
+            cardsLayout.show(cards, index.toString())
+            if (pages[index].showsPreview) {
+                if (split.rightComponent == null) split.rightComponent = preview
+                split.dividerSize = JBUI.scale(5)
+                val saved = PropertiesComponent.getInstance(project)
+                    .getInt(PREVIEW_DIVIDER_KEY, JBUI.scale(DEFAULT_PREVIEW_DIVIDER))
+                split.dividerLocation = saved
+                schedulePreview()
+            } else {
+                split.rightComponent = null
+                split.dividerSize = 0
+            }
+        }
+
         wirePreviewTriggers()
         reset()
         return JPanel(BorderLayout()).apply {
-            add(JBScrollPane(panel), BorderLayout.CENTER)
+            preferredSize = Dimension(JBUI.scale(920), JBUI.scale(560))
+            add(navigation, BorderLayout.WEST)
+            add(split, BorderLayout.CENTER)
             add(versionFooter(), BorderLayout.SOUTH)
         }
     }
+
+    private data class SettingsPage(
+        val title: String,
+        val component: JComponent,
+        val showsPreview: Boolean = false,
+    )
+
+    private fun settingsNavigation(pages: List<SettingsPage>, onSelected: (Int) -> Unit): JComponent {
+        val model = DefaultListModel<String>().apply { pages.forEach { addElement(it.title) } }
+        val list = JBList(model).apply {
+            name = "settingsNavigation"
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+            selectedIndex = 0
+            fixedCellHeight = JBUI.scale(34)
+            border = JBUI.Borders.empty(10, 8)
+            cellRenderer = object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean,
+                ): Component {
+                    val component = super.getListCellRendererComponent(
+                        list,
+                        value,
+                        index,
+                        isSelected,
+                        cellHasFocus,
+                    ) as JLabel
+                    component.border = JBUI.Borders.empty(6, 12)
+                    component.font = component.font.deriveFont(if (isSelected) Font.BOLD else Font.PLAIN)
+                    if (isSelected) {
+                        component.background = UIUtil.getListSelectionBackground(true)
+                        component.foreground = UIUtil.getListSelectionForeground(true)
+                    }
+                    return component
+                }
+            }
+            addListSelectionListener {
+                if (!it.valueIsAdjusting && selectedIndex >= 0) onSelected(selectedIndex)
+            }
+        }
+        return JPanel(BorderLayout()).apply {
+            preferredSize = Dimension(JBUI.scale(210), 1)
+            border = BorderFactory.createMatteBorder(0, 0, 0, 1, UIUtil.getBoundsColor())
+            add(list, BorderLayout.CENTER)
+        }
+    }
+
+    private fun formPage(title: String, description: String, vararg content: JComponent): JComponent {
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(22, 28, 28, 28)
+            add(pageHeader(title, description))
+            content.forEach(::add)
+            add(Box.createVerticalGlue())
+        }
+        return JBScrollPane(panel).apply {
+            border = null
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+    }
+
+    private fun pageHeader(title: String, description: String): JComponent =
+        JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.emptyBottom(18)
+            add(
+                JBLabel(title).apply {
+                    font = font.deriveFont(Font.BOLD, JBUI.scale(20).toFloat())
+                    alignmentX = Component.LEFT_ALIGNMENT
+                },
+            )
+            add(
+                JBLabel("<html><div style='width:420px'>$description</div></html>").apply {
+                    foreground = UIUtil.getContextHelpForeground()
+                    border = JBUI.Borders.emptyTop(6)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                },
+            )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
 
     // Pinned to the bottom-left of the settings panel, next to the dialog's buttons. A developer or
     // beta build shows its badges directly after the version (DEV BUILD before BETA); stable shows none.
@@ -179,26 +375,30 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     }
 
     private fun previewSection(): JPanel {
-        previewList.visibleRowCount = 6
+        previewList.visibleRowCount = 12
         return JPanel(BorderLayout()).apply {
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(220))
+            preferredSize = Dimension(JBUI.scale(280), 1)
+            minimumSize = Dimension(JBUI.scale(220), 1)
+            border = BorderFactory.createMatteBorder(0, 1, 0, 0, UIUtil.getBoundsColor())
             add(
-                labelBlock(
-                    "Preview (live):",
-                    "Runs the current (unsaved) settings against the golden directories and the Kotlin file open in the editor.",
-                ),
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(12, 14, 10, 14)
+                    add(
+                        JBLabel("Preview (live)").apply {
+                            font = font.deriveFont(Font.BOLD)
+                        },
+                        BorderLayout.WEST,
+                    )
+                    add(previewCountLabel, BorderLayout.EAST)
+                },
                 BorderLayout.NORTH,
             )
             add(
                 JPanel(BorderLayout()).apply {
-                    add(previewCountLabel, BorderLayout.NORTH)
-                    add(
-                        JScrollPane(previewList).apply {
-                            preferredSize = Dimension(1, JBUI.scale(120))
-                            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
-                        },
-                        BorderLayout.CENTER,
-                    )
+                    previewSummaryLabel.border = JBUI.Borders.empty(10, 14)
+                    previewSummaryLabel.foreground = UIUtil.getContextHelpForeground()
+                    add(previewSummaryLabel, BorderLayout.NORTH)
+                    add(JBScrollPane(previewList).apply { border = null }, BorderLayout.CENTER)
                 },
                 BorderLayout.CENTER,
             )
@@ -255,32 +455,37 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     }
 
     private fun runPreview() {
-        val roots = currentPaths(goldenModel).map(::resolvePath)
+        val goldenPaths = currentPaths(goldenModel)
         val mode = selectedMatchMode()
         val annotationRegex = annotationRegexField.text.ifBlank { MatchingDefaults.ANNOTATION_NAME_REGEX }
         val patterns = parsePatterns(goldenPatternsArea.text).ifEmpty { MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS }
         val excluded = parseSuffixes(excludedSuffixesField.text)
 
-        if (roots.isEmpty()) {
+        if (goldenPaths.isEmpty()) {
             showPreview("Add a golden directory to preview matches.", emptyList())
             return
         }
-        previewCountLabel.text = "Searching…"
+        previewCountLabel.text = "…"
+        previewSummaryLabel.text = "Searching…"
         previewModel.clear()
         // Capture the dialog's modality so the result is delivered while Settings is still open.
         val modality = ModalityState.stateForComponent(previewList)
         AppExecutorUtil.getAppExecutorService().execute {
             val result = runCatching {
+                val roots = GoldenDiffConfig(goldenPaths = goldenPaths)
+                    .resolvedGoldenPaths(project.basePath?.let(::File))
                 val screen = CurrentScreen.compute(project, annotationRegex)
                 val files = if (screen == null) emptyList() else GoldenFinder.find(roots, screen, mode, excluded, patterns)
-                screen to files
+                Triple(screen, files, roots)
             }
             ApplicationManager.getApplication().invokeLater(
                 {
                     result.onFailure { showPreview("Preview failed: ${it.message}", emptyList()) }
-                    result.onSuccess { (screen, files) ->
-                        if (screen == null) {
-                            showPreview("Open a Kotlin file in the editor to preview matches.", emptyList())
+                    result.onSuccess { (screen, files, roots) ->
+                        if (roots.isEmpty()) {
+                            showPreview("No directories match the configured paths or regexes.", emptyList())
+                        } else if (screen == null) {
+                            showPreview("Open a source or test file in the editor to preview matches.", emptyList())
                         } else {
                             val context = buildList {
                                 if (screen.fileName.isNotBlank()) add("file ${screen.fileName}")
@@ -299,7 +504,8 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     }
 
     private fun showPreview(summary: String, paths: List<String>) {
-        previewCountLabel.text = summary
+        previewCountLabel.text = paths.size.toString()
+        previewSummaryLabel.text = "<html><div style='width:230px'>${htmlEscape(summary)}</div></html>"
         previewModel.clear()
         paths.forEach(previewModel::addElement)
     }
@@ -314,38 +520,119 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         description: String,
         list: JBList<String>,
         model: DefaultListModel<String>,
+        allowRegex: Boolean = false,
     ): JPanel {
-        list.visibleRowCount = 1
-        list.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        val decorator = ToolbarDecorator.createDecorator(list)
-            .setAddAction {
-                val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
-                    .withTitle("Select Screenshot Directory")
-                    .withDescription("Directory that contains screenshot files")
-                val chosen = FileChooser.chooseFile(descriptor, project, null)
-                val path = chosen?.path?.let(::storagePath)
-                if (path != null) {
-                    // Single directory per section: a new pick replaces the previous entry.
-                    model.clear()
-                    model.addElement(path)
+        list.visibleRowCount = 4
+        list.selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
+        list.cellRenderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?,
+                value: Any?,
+                index: Int,
+                isSelected: Boolean,
+                cellHasFocus: Boolean,
+            ): Component {
+                val raw = value?.toString().orEmpty()
+                val pattern = GoldenDiffConfig.goldenDirectoryRegex(raw)
+                val display = if (pattern == null) {
+                    raw
+                } else {
+                    "<html><b>Regex</b>&nbsp;&nbsp;<code>${htmlEscape(pattern)}</code></html>"
+                }
+                return super.getListCellRendererComponent(list, display, index, isSelected, cellHasFocus).apply {
+                    border = JBUI.Borders.empty(7, 10)
                 }
             }
-            .setRemoveAction {
+        }
+        val addButton = JButton("+ Add directory").apply {
+            addActionListener {
+                val descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
+                    .withTitle("Select $title")
+                    .withDescription(description)
+                val chosen = FileChooser.chooseFile(descriptor, project, null)
+                val path = chosen?.path?.let(::storagePath)
+                if (path != null && !modelContains(model, path)) {
+                    model.addElement(path)
+                    list.selectedIndex = model.size() - 1
+                }
+            }
+        }
+        val removeButton = JButton("Remove").apply {
+            isEnabled = false
+            addActionListener {
                 list.selectedValuesList.forEach { model.removeElement(it) }
             }
-            .disableUpDownActions()
-        val decorated = decorator.createPanel().apply {
-            preferredSize = Dimension(1, JBUI.scale(58))
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(58))
         }
+        list.addListSelectionListener { removeButton.isEnabled = !list.isSelectionEmpty }
 
-        return JPanel(BorderLayout()).apply {
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(100))
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(labelBlock(title, description))
             add(
-                labelBlock(title, description),
-                BorderLayout.NORTH,
+                JBScrollPane(list).apply {
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    preferredSize = Dimension(JBUI.scale(520), JBUI.scale(124))
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(124))
+                },
             )
-            add(decorated, BorderLayout.CENTER)
+            add(
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    border = JBUI.Borders.emptyTop(8)
+                    add(addButton)
+                    add(Box.createRigidArea(Dimension(JBUI.scale(8), 1)))
+                    add(removeButton)
+                    add(Box.createHorizontalGlue())
+                    maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+                },
+            )
+            if (allowRegex) {
+                add(spacer())
+                add(
+                    labelBlock(
+                        "Directory regex",
+                        "Matched against the complete project-relative directory path using / separators.",
+                    ),
+                )
+                directoryRegexField.toolTipText = "Example: .*/src/test/snapshots"
+                directoryRegexAddButton.isEnabled = false
+                directoryRegexAddButton.addActionListener {
+                    val pattern = directoryRegexField.text.trim()
+                    val entry = GoldenDiffConfig.goldenDirectoryRegexEntry(pattern)
+                    if (pattern.isNotEmpty() && runCatching { Regex(pattern) }.isSuccess && !modelContains(model, entry)) {
+                        model.addElement(entry)
+                        list.selectedIndex = model.size() - 1
+                        directoryRegexField.text = ""
+                    }
+                }
+                directoryRegexField.document.addDocumentListener(
+                    object : DocumentListener {
+                        private fun update() {
+                            val pattern = directoryRegexField.text.trim()
+                            val entry = GoldenDiffConfig.goldenDirectoryRegexEntry(pattern)
+                            directoryRegexAddButton.isEnabled =
+                                pattern.isNotEmpty() &&
+                                runCatching { Regex(pattern) }.isSuccess &&
+                                !modelContains(model, entry)
+                        }
+
+                        override fun insertUpdate(e: DocumentEvent) = update()
+                        override fun removeUpdate(e: DocumentEvent) = update()
+                        override fun changedUpdate(e: DocumentEvent) = update()
+                    },
+                )
+                add(
+                    JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+                        alignmentX = Component.LEFT_ALIGNMENT
+                        add(directoryRegexField, BorderLayout.CENTER)
+                        add(directoryRegexAddButton, BorderLayout.EAST)
+                        maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+                    },
+                )
+            }
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }
 
@@ -372,60 +659,63 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         annotatedMethodRadio.addActionListener { updateMatchModeEnablement() }
         fileClassRadio.addActionListener { updateMatchModeEnablement() }
 
-        return JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        val annotatedFields = JPanel(BorderLayout()).apply {
             add(
                 labelBlock(
-                    "Golden matching mode:",
+                    "Screenshot annotation name regex",
+                    "Annotated functions whose annotation name matches become golden candidates; the golden must contain the function name.",
+                ),
+                BorderLayout.NORTH,
+            )
+            annotationRegexField.toolTipText =
+                "Annotation names matched here make their functions golden candidates, e.g. .*Preview.*|Test|ScreenshotTest."
+            add(annotationRegexField, BorderLayout.CENTER)
+        }
+        val fileClassFields = JPanel(BorderLayout()).apply {
+            add(
+                labelBlock(
+                    "Golden filename regex (one per line)",
+                    "Matched against each golden's path. {file_name} and {class_name} are substituted first.",
+                ),
+                BorderLayout.NORTH,
+            )
+            goldenPatternsArea.toolTipText =
+                "{file_name} = current file name, {class_name} = a class declared in the file."
+            add(
+                JBScrollPane(goldenPatternsArea).apply {
+                    preferredSize = Dimension(1, JBUI.scale(116))
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(116))
+                },
+                BorderLayout.CENTER,
+            )
+        }
+        matchingOptions = JPanel(CardLayout()).apply {
+            add(annotatedFields, MatchMode.ANNOTATED_METHOD.name)
+            add(fileClassFields, MatchMode.FILE_CLASS_REGEX.name)
+        }
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(
+                labelBlock(
+                    "Golden matching mode",
                     "Match goldens either by the name of annotated screenshot functions, or by a file/class regex.",
                 ),
             )
             add(annotatedMethodRadio)
             add(fileClassRadio)
             add(spacer())
-            add(
-                JPanel(BorderLayout()).apply {
-                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(94))
-                    add(
-                        labelBlock(
-                            "Screenshot annotation name regex:",
-                            "Annotated functions whose annotation name matches become golden candidates; the golden must contain the function name.",
-                        ),
-                        BorderLayout.NORTH,
-                    )
-                    annotationRegexField.toolTipText =
-                        "Annotation names matched here make their functions golden candidates, e.g. .*Preview.*|Test|ScreenshotTest."
-                    add(annotationRegexField, BorderLayout.CENTER)
-                },
-            )
-            add(spacer())
-            add(
-                JPanel(BorderLayout()).apply {
-                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(196))
-                    add(
-                        labelBlock(
-                            "Golden filename regex (one per line):",
-                            "Matched against each golden's path. Examples: {file_name}, {class_name}, {class_name}\\..*, golden_{file_name}.",
-                        ),
-                        BorderLayout.NORTH,
-                    )
-                    goldenPatternsArea.toolTipText =
-                        "{file_name} = current Kotlin file name, {class_name} = a class declared in the file."
-                    add(
-                        JScrollPane(goldenPatternsArea).apply {
-                            preferredSize = Dimension(1, JBUI.scale(92))
-                            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(92))
-                        },
-                        BorderLayout.CENTER,
-                    )
-                },
-            )
+            add(matchingOptions)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }
 
     private fun updateMatchModeEnablement() {
         annotationRegexField.isEnabled = annotatedMethodRadio.isSelected
         goldenPatternsArea.isEnabled = fileClassRadio.isSelected
+        if (::matchingOptions.isInitialized) {
+            (matchingOptions.layout as CardLayout).show(matchingOptions, selectedMatchMode().name)
+        }
     }
 
     private fun excludedSuffixesSection(): JPanel =
@@ -492,46 +782,50 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     private fun singleLineField(): JTextField =
         JTextField().apply {
             margin = JBUI.insets(2, 6)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-
-    // A left-aligned section title followed by a divider line. Built by hand because TitledSeparator
-    // overrides getMaximumSize(), so inside a Y_AXIS BoxLayout it refuses to fill the width and its
-    // label drifts to the center.
-    private fun sectionHeader(title: String): JComponent =
-        JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            border = JBUI.Borders.empty(12, 0, 4, 0)
-            add(
-                JBLabel(title).apply { font = font.deriveFont(Font.BOLD) },
-                BorderLayout.WEST,
-            )
-            add(JSeparator(SwingConstants.HORIZONTAL), BorderLayout.CENTER)
-            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            preferredSize = Dimension(JBUI.scale(420), preferredSize.height)
+            maximumSize = Dimension(JBUI.scale(520), preferredSize.height)
         }
 
     private fun labelBlock(title: String, description: String): JPanel =
         JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.emptyBottom(6)
-            add(JBLabel(title))
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(8, 0, 8, 0)
             add(
-                JBLabel(description).apply {
-                    foreground = UIUtil.getContextHelpForeground()
+                JBLabel(title).apply {
+                    font = font.deriveFont(Font.BOLD)
+                    alignmentX = Component.LEFT_ALIGNMENT
                 },
             )
+            add(
+                JBLabel("<html><div style='width:420px'>$description</div></html>").apply {
+                    foreground = UIUtil.getContextHelpForeground()
+                    border = JBUI.Borders.emptyTop(4)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                },
+            )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
 
-    private fun spacer(): JPanel =
+    private fun spacer(height: Int = 12): JPanel =
         JPanel().apply {
-            maximumSize = Dimension(1, JBUI.scale(12))
-            preferredSize = Dimension(1, JBUI.scale(12))
+            maximumSize = Dimension(1, JBUI.scale(height))
+            preferredSize = Dimension(1, JBUI.scale(height))
         }
 
     private fun currentPaths(model: DefaultListModel<String>): List<String> =
         (0 until model.size()).map { model.getElementAt(it) }
 
     private fun currentStoragePaths(model: DefaultListModel<String>): List<String> =
-        currentPaths(model).map(::storagePath)
+        currentPaths(model).map { path ->
+            if (GoldenDiffConfig.goldenDirectoryRegex(path) != null) path else storagePath(path)
+        }
+
+    private fun modelContains(model: DefaultListModel<String>, value: String): Boolean =
+        (0 until model.size()).any { model.getElementAt(it) == value }
+
+    private fun htmlEscape(value: String): String =
+        value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private fun parseSuffixes(text: String): List<String> =
         text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
@@ -562,6 +856,15 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     }
 
     override fun apply() {
+        currentPaths(goldenModel).forEach { path ->
+            GoldenDiffConfig.goldenDirectoryRegex(path)?.let { pattern ->
+                try {
+                    Regex(pattern)
+                } catch (e: IllegalArgumentException) {
+                    throw ConfigurationException("Golden directory regex is invalid: ${e.message}")
+                }
+            }
+        }
         val regex = generatedRegexField.text.ifBlank { GoldenDiffDefaults.GENERATED_FILE_REGEX }
         try {
             Regex(regex)
@@ -653,6 +956,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         generateFileCommandField.text = settings.generateFileCommand
         verifyAllCommandField.text = settings.verifyAllCommand
         verifyFileCommandField.text = settings.verifyFileCommand
+        directoryRegexField.text = ""
         trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding
         val telemetrySettings = PluginTelemetrySettings.getInstance()
         analyticsCheckbox.isSelected = telemetrySettings.analyticsEnabled
@@ -673,6 +977,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     }
 
     private fun storagePath(path: String): String {
+        if (GoldenDiffConfig.goldenDirectoryRegex(path) != null) return path
         val basePath = project.basePath ?: return path
         val base = File(basePath).normalize()
         val file = resolvePath(path)

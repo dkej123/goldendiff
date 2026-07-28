@@ -5,8 +5,10 @@ nav_order: 6
 
 # Settings reference
 
-All settings live in **Settings → Tools → Golden Diff** (you can also open them with the **Directories…**
-button in the tool window header). Settings are stored **per project**.
+All settings live in **Settings → Tools → Golden Diff** (you can also open them with the **Settings**
+button in the tool window header). The plugin uses the same section layout as the standalone app:
+navigation on the left, the active form in the middle, and a live match preview on the right where it
+is relevant. Settings are stored **per project**.
 
 ![The Golden Diff settings page](images/settings.png)
 <!-- TODO(screenshot): the full Settings → Tools → Golden Diff page -->
@@ -23,15 +25,15 @@ The folders that contain your committed golden PNGs. Add one or more with the **
 
 **Default:** empty.
 
-In the standalone app, the list can also contain directory regexes. **Add regex** stores an explicit
-regex entry, matched against the complete project-relative directory path with `/` separators. For
-example, `.*/src/test/snapshots` selects that directory in every module. The same setting is available
-from the CLI as `--golden-dir-regex`; literal and regex entries can be combined. The CLI's `validate`
-command expands every regex and verifies that each resolved directory exists and contains PNG files.
-Pass one or more representative source files with `validate --source-file <path>` to run the same
-source-to-golden matcher as the app; successful full validation requires every supplied source to
-match at least one golden. Directory-only validation must be requested explicitly with
-`--directories-only`.
+The plugin and standalone app can both store several literal directories and directory regexes in the
+same list. **Add regex** stores an explicit regex entry, matched against the complete project-relative
+directory path with `/` separators. For example, `.*/src/test/snapshots` selects that directory in
+every module. The same setting is available from the CLI as `--golden-dir-regex`; literal and regex
+entries can be combined. The CLI's `validate` command expands every regex and verifies that each
+resolved directory exists and contains PNG files. Pass one or more representative source files with
+`validate --source-file <path>` to run the same source-to-golden matcher as the app; successful full
+validation requires every supplied source to match at least one golden. Directory-only validation
+must be requested explicitly with `--directories-only`.
 
 ## Generated test output directories
 > *Fresh screenshots produced by verification tests; used only when Compare is set to Test output.*

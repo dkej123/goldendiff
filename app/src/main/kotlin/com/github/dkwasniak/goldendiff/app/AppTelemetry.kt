@@ -12,8 +12,36 @@ import com.github.dkwasniak.goldendiff.telemetry.TelemetryEnvironment
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryStore
 import com.github.dkwasniak.goldendiff.telemetry.TelemetrySurface
 import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
+import java.time.OffsetDateTime
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Appends the full stack trace of an uncaught exception to `~/.config/golden-diff/crash.log`. A crash
+ * tears the whole app down before the in-memory diagnostics panel can be read, so a durable on-disk
+ * record is the only way to see what happened after the fact. Best-effort: never throws from inside
+ * the crash handler.
+ */
+object CrashLog {
+    val file: File
+        get() = File(System.getProperty("user.home"), ".config/golden-diff/crash.log")
+
+    fun record(throwable: Throwable) {
+        runCatching {
+            val trace = StringWriter().also { throwable.printStackTrace(PrintWriter(it)) }.toString()
+            val entry = buildString {
+                append("===== ").append(OffsetDateTime.now()).append(" =====\n")
+                append("thread: ").append(Thread.currentThread().name).append('\n')
+                append(trace)
+                if (!trace.endsWith("\n")) append('\n')
+            }
+            file.parentFile?.mkdirs()
+            file.appendText(entry)
+        }
+    }
+}
 
 class AppTelemetrySettings private constructor(
     analytics: Boolean,
@@ -176,6 +204,7 @@ object AppTelemetry {
             Thread.setDefaultUncaughtExceptionHandler(
                 ChainedUncaughtExceptionHandler(
                     reporter = { throwable ->
+                        CrashLog.record(throwable)
                         DevLog.record(
                             "exception",
                             "uncaught ${throwable.javaClass.simpleName}: ${throwable.message ?: "(no message)"}",
@@ -190,6 +219,7 @@ object AppTelemetry {
         Thread.setDefaultUncaughtExceptionHandler(
             ChainedUncaughtExceptionHandler(
                 reporter = { throwable ->
+                    CrashLog.record(throwable)
                     client.captureException(throwable, "uncaught:${throwable.javaClass.name}")
                 },
                 previous = previous,

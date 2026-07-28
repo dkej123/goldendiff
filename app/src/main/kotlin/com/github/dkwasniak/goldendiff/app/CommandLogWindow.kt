@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.darkColors
@@ -96,6 +97,15 @@ private fun CommandLogHeader(state: AppState) {
             fontSize = Type.small,
             modifier = Modifier.weight(1f),
         )
+        if (state.commandLog.isNotEmpty()) {
+            Box(
+                Modifier.clip(RoundedCornerShape(5.dp)).hoverWash()
+                    .clickable { copyToClipboard(state.commandLog.joinToString("\n")) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                Text("Copy", color = tokens.textDim, fontSize = Type.small)
+            }
+        }
         if (state.commandRunning) {
             Box(
                 Modifier.clip(RoundedCornerShape(5.dp)).hoverWash().clickable(onClick = state::cancelCommand)
@@ -119,15 +129,17 @@ private fun CommandLogBody(state: AppState) {
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize(), state = listState) {
-        items(state.commandLog) { line ->
-            Text(
-                line.ifEmpty { " " },
-                color = tokens.textDim,
-                fontSize = 11.sp,
-                fontFamily = Type.Mono,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 1.dp),
-            )
+    SelectionContainer {
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            items(state.commandLog) { line ->
+                Text(
+                    line.ifEmpty { " " },
+                    color = tokens.textDim,
+                    fontSize = 11.sp,
+                    fontFamily = Type.Mono,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 1.dp),
+                )
+            }
         }
     }
 }

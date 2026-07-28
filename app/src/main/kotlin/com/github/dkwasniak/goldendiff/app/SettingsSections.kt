@@ -238,6 +238,24 @@ internal fun CommandsSection(state: AppState) {
         "Verify only the open file's goldens, e.g. -only-testing:SnapshotTests/{class_name}.",
         state.config.verifyFileCommand,
     ) { state.updateConfig(state.config.copy(verifyFileCommand = it)) }
+    CommandField(
+        "JDK for commands (JAVA_HOME)",
+        "Optional. Absolute path to a JDK/JBR exported as JAVA_HOME when running the commands above. " +
+            "Use this when the toolchain lives outside the app's shell — e.g. Android Studio's bundled " +
+            "JBR, which the app cannot see otherwise. Leave blank to use the command's own environment.",
+        state.config.commandJavaHome,
+    ) { state.updateConfig(state.config.copy(commandJavaHome = it)) }
+    val bundledJbr = remember { AndroidStudioJbr.detect() }
+    if (bundledJbr != null && bundledJbr != state.config.commandJavaHome) {
+        Text(
+            "Use Android Studio's bundled JBR",
+            color = tokens.accent,
+            fontSize = 11.5.sp,
+            modifier = Modifier
+                .clickable { state.updateConfig(state.config.copy(commandJavaHome = bundledJbr)) }
+                .padding(bottom = 8.dp),
+        )
+    }
 }
 
 @Composable

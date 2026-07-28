@@ -39,6 +39,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.TextStyle
@@ -364,6 +366,55 @@ fun ExpandIcon(color: Color) {
         )
         // Diagonal joining the two corners.
         drawLine(color, Offset(inset, inset), Offset(w - inset, h - inset), strokeWidth = 1.3.dp.toPx())
+    }
+}
+
+/** Play glyph: a right-pointing triangle for the Generate command. */
+@Composable
+fun PlayIcon(color: Color) {
+    Canvas(Modifier.size(width = 7.dp, height = 8.dp)) {
+        val path = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(size.width, size.height / 2f)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(path, color)
+    }
+}
+
+/** Check glyph: a tick for the Verify command (and, in white, the Accept button). */
+@Composable
+fun CheckIcon(color: Color, size: Dp = 10.dp, strokeWidth: Dp = 1.7.dp) {
+    Canvas(Modifier.size(size)) {
+        val path = Path().apply {
+            moveTo(this@Canvas.size.width * 0.12f, this@Canvas.size.height * 0.55f)
+            lineTo(this@Canvas.size.width * 0.40f, this@Canvas.size.height * 0.82f)
+            lineTo(this@Canvas.size.width * 0.90f, this@Canvas.size.height * 0.20f)
+        }
+        drawPath(path, color, style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** Gear glyph for the Settings button: eight teeth around a stroked ring with a small hub. */
+@Composable
+fun GearIcon(color: Color, size: Dp = 15.dp) {
+    Canvas(Modifier.size(size)) {
+        val center = Offset(this.size.width / 2f, this.size.height / 2f)
+        val radius = this.size.minDimension / 2f
+        val toothHalf = 1.4.dp.toPx()
+        repeat(8) { i ->
+            rotate(i * 45f, pivot = center) {
+                drawRoundRect(
+                    color,
+                    topLeft = Offset(center.x - toothHalf, 0f),
+                    size = Size(toothHalf * 2f, radius * 0.42f),
+                    cornerRadius = CornerRadius(1.dp.toPx()),
+                )
+            }
+        }
+        drawCircle(color, radius = radius * 0.6f, center = center, style = Stroke(width = 1.7.dp.toPx()))
+        drawCircle(color, radius = radius * 0.22f, center = center)
     }
 }
 

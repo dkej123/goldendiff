@@ -87,6 +87,29 @@ class TelemetryTest {
     }
 
     @Test
+    fun `catalog accepts command and accept feature values`() {
+        listOf("generate_run", "verify_run", "accept_golden", "accept_golden_failed").forEach {
+            EventCatalog.validate("product.feature_used", mapOf("feature" to it))
+        }
+    }
+
+    @Test
+    fun `event drops a malformed event instead of throwing`() {
+        val factory = RecordingFactory()
+        val client = TelemetryClient(
+            environment,
+            MemoryStore(),
+            factory,
+            TelemetryConsent(analytics = true),
+        )
+
+        val accepted = client.event("product.feature_used", mapOf("feature" to "not_a_real_feature"))
+
+        assertFalse(accepted)
+        assertTrue(factory.backend.events.isEmpty())
+    }
+
+    @Test
     fun `does not create backend before opt in and consent is independent`() {
         val factory = RecordingFactory()
         val client = TelemetryClient(environment, MemoryStore(), factory)

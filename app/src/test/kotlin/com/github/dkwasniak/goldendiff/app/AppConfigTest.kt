@@ -76,6 +76,55 @@ class AppConfigTest {
     }
 
     @Test
+    fun `open files preserve order active tab and missing paths`() {
+        val project = projectDir("open-files")
+        val missing = "src/DeletedScreen.kt"
+        val session = AppConfig.OpenFilesSession(
+            paths = listOf("src/LoginScreen.kt", missing, "src/SettingsScreen.kt"),
+            selectedPath = missing,
+        )
+
+        AppConfig.saveOpenFiles(project, session).getOrThrow()
+
+        assertEquals(session, AppConfig.loadOpenFiles(project))
+    }
+
+    @Test
+    fun `open files are independent per project and de-duplicated`() {
+        val first = projectDir("first-open-files")
+        val second = projectDir("second-open-files")
+
+        AppConfig.saveOpenFiles(
+            first,
+            AppConfig.OpenFilesSession(
+                paths = listOf("src/Screen.kt", "src/Screen.kt"),
+                selectedPath = "src/Screen.kt",
+            ),
+        ).getOrThrow()
+
+        assertEquals(
+            AppConfig.OpenFilesSession(listOf("src/Screen.kt"), "src/Screen.kt"),
+            AppConfig.loadOpenFiles(first),
+        )
+        assertEquals(AppConfig.OpenFilesSession(), AppConfig.loadOpenFiles(second))
+    }
+
+    @Test
+    fun `open files ignore a selected path that is not an open tab`() {
+        val project = projectDir("invalid-selected-tab")
+
+        AppConfig.saveOpenFiles(
+            project,
+            AppConfig.OpenFilesSession(listOf("src/Open.kt"), "src/Closed.kt"),
+        ).getOrThrow()
+
+        assertEquals(
+            AppConfig.OpenFilesSession(listOf("src/Open.kt"), null),
+            AppConfig.loadOpenFiles(project),
+        )
+    }
+
+    @Test
     fun `screenshot-test commands round trip`() {
         val project = projectDir("commands-project")
         val config = GoldenDiffConfig(
@@ -185,6 +234,29 @@ class AppConfigTest {
     }
 
     @Test
+    fun `CLI signal identifies the project after settings are persisted`() {
+        val project = projectDir("cli-signal")
+        val startedAt = System.currentTimeMillis()
+
+        val exit = GoldenDiffCli.run(
+            arrayOf(
+                "configure",
+                "--project", project.absolutePath,
+                "--golden-dir", "screenshots",
+                "--verify-all-cmd", "./verify",
+                "--signal",
+                "--allow-non-git",
+            ),
+        )
+
+        assertEquals(0, exit)
+        assertEquals("./verify", AppConfig.load(project).verifyAllCommand)
+        val signal = AppConfig.readCliSignal()
+        assertEquals(project.canonicalPath, signal?.project?.canonicalPath)
+        assertTrue(signal != null && signal.timestamp >= startedAt)
+    }
+
+    @Test
     fun `CLI fails instead of reporting an in-memory config when settings cannot be written`() {
         val project = projectDir("cli-unwritable-config")
         File(tempHome, ".config").writeText("blocks creation of the config directory")
@@ -239,6 +311,17 @@ class AppConfigTest {
         assertTrue(signal > validate)
         assertTrue(prompt.contains("--golden-dir-regex"))
         assertTrue(prompt.contains("--source-file"))
+        assertTrue(prompt.contains("official framework recording switch"))
+        assertTrue(prompt.contains("Do not require a wrapper"))
+        assertTrue(prompt.contains("xcrun simctl list devices available"))
+        assertTrue(prompt.contains("xcodebuild -showdestinations"))
+        assertTrue(prompt.contains("exact per-device OS value"))
+        assertTrue(prompt.contains("ask the user"))
+        assertTrue(prompt.contains("Never silently choose"))
+        assertTrue(prompt.contains("audit the four final command strings"))
+        assertTrue(prompt.contains("Generate All/File enable recording"))
+        assertTrue(prompt.contains("Verify All/File do not enable recording"))
+        assertTrue(prompt.contains("no command contains an unresolved <placeholder>"))
     }
 
     @Test
@@ -267,10 +350,42 @@ class AppConfigTest {
                 "framework-guides/ios-swift-snapshot-testing.md",
             ),
         ).bufferedReader().use { it.readText() }
+        val normalized = guide.replace(Regex("\\s+"), " ")
+        assertTrue(normalized.contains("inspect the existing shell/CI environment read-only", ignoreCase = true))
+        assertTrue(normalized.contains("Do not edit a shell profile"))
+        assertFalse(normalized.contains("offer to append"))
+    }
 
-        assertTrue(guide.contains("Inspect the existing shell/CI environment read-only"))
-        assertTrue(guide.contains("Do not edit a shell profile"))
-        assertFalse(guide.contains("offer to append"))
+    @Test
+    fun `swift snapshot guide configures generate commands through the supported record environment`() {
+        val guide = checkNotNull(
+            javaClass.classLoader.getResourceAsStream(
+                "framework-guides/ios-swift-snapshot-testing.md",
+            ),
+        ).bufferedReader().use { it.readText() }
+        val normalized = guide.replace(Regex("\\s+"), " ")
+
+        assertTrue(guide.contains("1.17.0 or newer"))
+        assertTrue(guide.contains("TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all"))
+        assertTrue(guide.contains("--generate-all-cmd"))
+        assertTrue(guide.contains("--generate-file-cmd"))
+        assertTrue(guide.contains("no wrapper and no source-code change are needed"))
+        assertTrue(guide.contains("xcrun simctl list devices available"))
+        assertTrue(guide.contains("xcodebuild -showdestinations"))
+        assertTrue(guide.contains("xcodebuild -showdestinations` is authoritative"))
+        assertTrue(guide.contains("never copy a device model", ignoreCase = true))
+        assertTrue(guide.contains("Ask the user which test target/destination to use"))
+        assertTrue(guide.contains("Do not save the Generate/Verify commands until the user answers"))
+        assertTrue(guide.contains("Plugin “…” from package “…” must be enabled before it can be used"))
+        assertTrue(guide.contains("Macro “…” from package “…” must be enabled before it can be used"))
+        assertTrue(guide.contains("-skipPackagePluginValidation"))
+        assertTrue(guide.contains("-skipMacroValidation"))
+        assertTrue(normalized.contains("Do not add them preemptively"))
+        assertTrue(guide.contains("all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS`"))
+        assertTrue(guide.contains("only Generate All/File set `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`"))
+        assertTrue(guide.contains("only Generate File/Verify File use `-only-testing:"))
+        assertFalse(guide.contains("iPhone 15 Pro"))
+        assertFalse(guide.contains("There is no universal record command"))
     }
 
     @Test

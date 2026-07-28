@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.github.dkwasniak.goldendiff.app.ui.CheckIcon
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
 import com.github.dkwasniak.goldendiff.app.ui.EmptyState
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
@@ -198,6 +199,7 @@ private fun Modifier.selectionKeys(state: AppState, columnCount: Int): Modifier 
 @Composable
 private fun GoldenCard(state: AppState, item: ExtraComparisonItem, cardWidth: Dp, onSelect: () -> Unit) {
     val selected = state.selected == item.file
+    val accepted = item.file.absolutePath in state.acceptedGoldens
     val bitmap by rememberThumbnail(state, item)
     val shape = RoundedCornerShape(8.dp)
 
@@ -239,13 +241,30 @@ private fun GoldenCard(state: AppState, item: ExtraComparisonItem, cardWidth: Dp
                         fontFamily = Type.Mono,
                     )
                 }
+                if (accepted) {
+                    AcceptedBadge(Modifier.align(Alignment.TopStart).padding(6.dp))
+                }
             }
             HairLine()
             // Status lives in a slim 4px bar at the card's foot — red for changed, green for new,
             // nothing for unchanged — so a wall of thumbnails stays legible and the screenshot is
             // never covered by a floating dot. The filename shows in the compare header, not here.
-            Box(Modifier.fillMaxWidth().height(4.dp).background(statusBarColor(item.status)))
+            Box(Modifier.fillMaxWidth().height(4.dp).background(if (accepted) tokens.new else statusBarColor(item.status)))
         }
+    }
+}
+
+/** A small green pill overlaid on a just-accepted golden's thumbnail. */
+@Composable
+private fun AcceptedBadge(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(4.dp)
+    Row(
+        modifier.clip(shape).background(tokens.new).padding(horizontal = 5.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        CheckIcon(Color.White, size = 7.dp, strokeWidth = 1.8.dp)
+        Text("Accepted", color = Color.White, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -262,6 +281,7 @@ private fun rememberThumbnail(state: AppState, item: ExtraComparisonItem) =
         item.file.path,
         item.file.lastModified(),
         state.config.trimTransparentPadding,
+        state.pngRevision,
     ) {
         val trim = state.config.trimTransparentPadding
         val key = "${item.file.path}|${item.file.lastModified()}|$trim"
