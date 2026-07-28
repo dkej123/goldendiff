@@ -1,7 +1,6 @@
 package com.github.dkwasniak.goldendiff.update
 
 import com.github.dkwasniak.goldendiff.telemetry.PluginTelemetryService
-import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -10,8 +9,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -36,31 +34,37 @@ class PluginUpdateStartupActivity : ProjectActivity {
         // network access (PluginUpdateChecker.check short-circuits DEV).
         val channel = service.releaseChannel
 
-        val update = withContext(Dispatchers.IO) {
-            PluginUpdateChecker.check(currentVersion, channel)
-        }
-        properties.setValue(LAST_CHECK_KEY, now.toString())
-        if (update == null || project.isDisposed) return
+        // Keep this suspend override free of suspension points. Kotlin 2.2 otherwise emits a
+        // coroutine state machine that references SpillingKt, which is absent from the Kotlin
+        // runtime bundled with IntelliJ Platform 241–243.
+        AppExecutorUtil.getAppExecutorService().execute task@{
+            val update = runCatching {
+                PluginUpdateChecker.check(currentVersion, channel)
+            }.getOrNull()
+            properties.setValue(LAST_CHECK_KEY, now.toString())
+            if (update == null || project.isDisposed) return@task
 
-        ApplicationManager.getApplication().invokeLater {
-            if (project.isDisposed) return@invokeLater
-            NotificationGroupManager.getInstance()
-                .getNotificationGroup(NOTIFICATION_GROUP)
-                .createNotification(
-                    "Golden Diff ${update.version} is available",
-                    "You are running $currentVersion. Update to get the latest version.",
-                    NotificationType.INFORMATION,
-                )
-                .addAction(NotificationAction.createSimple("Update…") {
-                    ShowSettingsUtil.getInstance()
-                        .showSettingsDialog(project, PluginManagerConfigurable::class.java)
-                })
-                .notify(project)
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup(NOTIFICATION_GROUP)
+                    .createNotification(
+                        "Golden Diff ${update.version} is available",
+                        "You are running $currentVersion. Update to get the latest version.",
+                        NotificationType.INFORMATION,
+                    )
+                    .addAction(NotificationAction.createSimple("Update…") {
+                        ShowSettingsUtil.getInstance()
+                            .showSettingsDialog(project, PLUGIN_MANAGER_CONFIGURABLE_ID)
+                    })
+                    .notify(project)
+            }
         }
     }
 
     companion object {
         private const val NOTIFICATION_GROUP = "Golden Diff Updates"
+        private const val PLUGIN_MANAGER_CONFIGURABLE_ID = "preferences.pluginManager"
         private const val LAST_CHECK_KEY = "goldendiff.update.lastCheckMs"
         private val CHECK_INTERVAL_MS = TimeUnit.HOURS.toMillis(24)
 

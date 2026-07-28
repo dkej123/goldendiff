@@ -1,6 +1,5 @@
 package com.github.dkwasniak.goldendiff.telemetry
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
@@ -9,7 +8,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBCheckBox
@@ -87,10 +85,9 @@ class PluginTelemetryService {
             .getResourceAsStream("golden-diff-telemetry.properties")
             ?.use(::load)
     }
-    private val version: String = buildProperties.getProperty("version").orEmpty().ifBlank {
-        PluginManagerCore.getPlugin(PluginId.getId("com.github.dkwasniak.goldendiff"))
-            ?.version.orEmpty().ifBlank { "dev" }
-    }
+    // Every plugin build generates this resource. Keep a defensive fallback for tests or an
+    // unpackaged development classpath without reaching into the platform's internal plugin API.
+    private val version: String = buildProperties.getProperty("version").orEmpty().ifBlank { "dev" }
     val appVersion: String
         get() = version
     val metadata = BuildMetadata.from(version, buildProperties)

@@ -936,7 +936,49 @@ class ScreenshotPanel(
             return
         }
 
-        val screen = CurrentScreen.compute(project, settings.annotatedFunctionRegex)
+        val source = selectedSource()
+        statusLabel.text = "Searching…"
+        AppExecutorUtil.getAppExecutorService().execute {
+            val result = runCatching {
+                CurrentScreen.compute(project, settings.annotatedFunctionRegex)
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (generation != refreshGeneration || selectedSource() != source) {
+                    scanSpan.finish(TelemetrySpanStatus.CANCELLED)
+                    return@invokeLater
+                }
+                result.onFailure {
+                    reportOperationFailure("scan", it, retryable = true)
+                    emitScan(emptyList(), trigger, scanStarted, "failure", "none", false)
+                    scanSpan.finish(TelemetrySpanStatus.ERROR)
+                    statusLabel.text = "Could not scan screenshots."
+                }
+                result.onSuccess { screen ->
+                    continueCurrentFileRefresh(
+                        screen,
+                        roots,
+                        force,
+                        generation,
+                        trigger,
+                        scanStarted,
+                        scanSpan,
+                        source,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun continueCurrentFileRefresh(
+        screen: Screen?,
+        roots: List<File>,
+        force: Boolean,
+        generation: Long,
+        trigger: String,
+        scanStarted: Long,
+        scanSpan: TelemetrySpan,
+        source: ComparisonSource,
+    ) {
         if (screen == null || screen.names.isEmpty()) {
             statusLabel.text = "Open a screen or test file, or switch scope to Project changes."
             updateStatusLegend(emptyList())
@@ -949,7 +991,6 @@ class ScreenshotPanel(
             return
         }
 
-        val source = selectedSource()
         val refreshKey = screen.names + source.id + (source.extra?.refreshKey(screen) ?: emptyList())
 
         // Same file/name-set/source as before: keep the current list and the user's selection untouched.

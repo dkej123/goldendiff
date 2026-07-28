@@ -104,23 +104,25 @@ available in 241 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevisio
 `FileChooserDescriptorFactory`, PSI). Do not introduce platform-bundled Compose/Jewel modules or
 branch-specific APIs without revisiting the compatibility promise for both plugins.
 
-## Plugin Verifier warnings (accepted, non-blocking)
-The bundled verifier (IntelliJ Platform Gradle Plugin 2.17.0) reports **no** API-usage problems in our
-code. The stricter Marketplace verifier (1.405) flags a small, constant set across all IDE versions —
-all reviewed and **intentionally accepted**:
-- **Internal API — Kotlin PSI** (`KtFile`, `KtClass`, `KtNamedFunction` and their members in
-  `match/CurrentScreen.kt`). This is the sanctioned, unavoidable way to traverse Kotlin PSI; the K2
-  note above applies. Do not chase these away.
-- **Experimental API — `ByteBackedContentRevision`** (`compare/GitImageSource.kt`). Cleanest path to
-  raw committed bytes; a non-experimental fallback (`ContentRevision.getContent()`) is already in place.
-- **Deprecated API — none.** Two were replaced: the old `com.intellij.util.Alarm` debounce by a plain
-  `javax.swing.Timer` (EDT, `restart()` = cancel + reschedule) in `toolwindow/ScreenshotPanel.kt`; and
-  `ReadAction.compute(ThrowableComputable)` (deprecated on build 261+) by the Kotlin
-  `com.intellij.openapi.application.runReadAction { }` in `match/CurrentScreen.kt`.
+## Plugin Verifier must stay clean
+The public plugin supports the open-ended 241+ platform range, so compatibility and platform API
+findings are release blockers. In particular:
+- Keep suspend `ProjectActivity.execute()` implementations free of suspension points. Kotlin 2.2
+  otherwise emits coroutine state-machine references such as `SpillingKt`, which are absent from the
+  Kotlin runtime bundled with 241–243. Schedule blocking work on `AppExecutorUtil` instead.
+- Use configurable IDs with `ShowSettingsUtil` instead of internal configurable implementation
+  classes, and read the plugin version from the generated telemetry resource instead of
+  `PluginManagerCore`.
+- `RunContentExecutor.run()` needs a write lock when launched from Swing; use the short, stable
+  `Application.runWriteAction`, not experimental `WriteIntentReadAction`.
+- `CurrentScreen.compute()` is a background-thread operation and uses
+  `ReadAction.nonBlocking(Callable).executeSynchronously()`. Do not move it back onto the EDT or to
+  the deprecated Kotlin `runReadAction` helper.
 
 The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
 so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
-moves to newer verifier versions.
+moves to newer verifier versions. Run the full verifier in GitHub Actions; locally, the bytecode
+compatibility test guards the exact runtime/API regressions that previously broke 241–243.
 
 ## Screenshot-test commands run in the platform shell
 The four Generate/Verify commands are **user-supplied shell strings**, run at the project root through
