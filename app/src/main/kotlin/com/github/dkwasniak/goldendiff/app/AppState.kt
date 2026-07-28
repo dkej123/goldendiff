@@ -30,6 +30,8 @@ import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.image.BufferedImage
@@ -83,6 +85,13 @@ class AppState(
         private set
     var items by mutableStateOf<List<ExtraComparisonItem>>(emptyList())
         private set
+    /**
+     * Goldens accepted since the last scan, by absolute path. Drives the transient "Accepted" marker
+     * in the list and compare pane so a promotion reads as confirmed without a disruptive rescan.
+     * Cleared whenever the item list is rebuilt (scan, source switch, tab switch, project open).
+     */
+    var acceptedGoldens by mutableStateOf<Set<String>>(emptySet())
+        private set
     var selected by mutableStateOf<File?>(null)
         private set
     var busy by mutableStateOf(false)
@@ -97,12 +106,26 @@ class AppState(
     // bar; `commandLog` is the full streamed output the expandable log window renders.
     var commandRunning by mutableStateOf(false)
         private set
+    // Which command is currently running, so the toolbar pair can spinner the exact button and dim
+    // the other. Left in place after a run finishes; call sites only read these while `commandRunning`.
+    var commandKind by mutableStateOf<CommandKind?>(null)
+        private set
+    var commandPerFile by mutableStateOf(false)
+        private set
     var commandLabel by mutableStateOf<String?>(null)
         private set
     var commandStatus by mutableStateOf<String?>(null)
         private set
     val commandLog = mutableStateListOf<String>()
     var commandLogVisible by mutableStateOf(false)
+
+    // The status-bar chip stays after a run finishes so the last outcome (e.g. "Verify failed (exit 1)")
+    // remains visible; the user dismisses it with the chip's ✕. Set false when a new run starts.
+    var commandStatusDismissed by mutableStateOf(false)
+
+    fun dismissCommandStatus() {
+        commandStatusDismissed = true
+    }
 
     @Volatile
     private var commandCancelled = false
@@ -179,11 +202,19 @@ class AppState(
     // Match results per opened file, the golden last selected in each, and decoded comparisons keyed
     // by golden + source + mtime + trim. Decoded thumbnails are cached the same way for the grid.
     // File mtime is part of every image key, so a re-run that rewrites a golden re-decodes on its own;
-    // config edits and the Refresh button clear the caches wholesale via [clearCaches].
+    // Configuration changes clear the caches wholesale via [clearCaches].
     private val itemsCache = HashMap<String, List<ExtraComparisonItem>>()
     private val tabSelection = HashMap<String, File>()
     private val comparisonCache = HashMap<String, Comparison>()
     val thumbnailCache = HashMap<String, ImageBitmap>()
+    var pngRevision by mutableStateOf(0L)
+        private set
+    private var pngWatcher: PngDirectoryWatcher? = null
+    private var pngDebounceJob: Job? = null
+    private val pendingPngEvents = mutableListOf<PngDirectoryWatcher.Event>()
+    private var pendingPngOverflow = false
+    private var pngUpdateGeneration = 0L
+    private val suppressedPngPaths = HashMap<String, Long>()
 
     private fun comparisonKey(golden: File, source: BuiltInSource): String =
         "${source.name}|${golden.absolutePath}|${golden.lastModified()}|${config.trimTransparentPadding}"
@@ -206,6 +237,12 @@ class AppState(
         val statusText: String,
         /** True when both sides are byte-identical, so the UI shows one preview instead of a diff. */
         val identical: Boolean,
+        /**
+         * True right after the test output was accepted onto this golden. Drives the "Accepted"
+         * banner in place of the plain "Unchanged" one, and shows the freshly written golden alone
+         * (the generated counterpart it was promoted from is gone, so there is nothing to diff).
+         */
+        val accepted: Boolean = false,
     ) {
         /**
          * The golden is committed but has no working-copy or generated counterpart.
@@ -225,10 +262,18 @@ class AppState(
         val remaining = openTabs.toMutableList().apply { removeAt(index) }
         openTabs = remaining
         telemetry.event("product.feature_used", mapOf("feature" to "tab_close"))
-        if (selectedSourcePath != path) return
+        if (selectedSourcePath != path) {
+            persistOpenFiles()
+            return
+        }
         // Land on the tab that slides into the closed one's place, else the previous, else nothing.
         val next = remaining.getOrNull(index) ?: remaining.getOrNull(index - 1)
-        if (next != null) selectSourceFile(next) else clearSelection()
+        if (next != null) {
+            selectSourceFile(next)
+        } else {
+            clearSelection()
+            persistOpenFiles()
+        }
     }
 
     /** Drops the current file selection and its comparison — used when the last tab closes. */
@@ -238,6 +283,7 @@ class AppState(
         comparison = null
         comparisonGeneration++
         items = emptyList()
+        acceptedGoldens = emptySet()
         status = "Choose a project file to find its screenshots."
     }
 
@@ -245,20 +291,49 @@ class AppState(
         pendingProjectOpenTrigger = if (restored) "restored" else "manual"
         projectRoot = root
         config = AppConfig.load(root)
+        restartPngWatcher()
+        val restoredFiles = AppConfig.loadOpenFiles(root)
+        val restoredSelection = restoredFiles.selectedPath ?: restoredFiles.paths.lastOrNull()
         AppConfig.rememberProject(root)
         browse = Browse.FILES
-        selectedSourcePath = null
+        selectedSourcePath = restoredSelection
+        treeHighlight = restoredSelection
         selected = null
         comparison = null
-        openTabs = emptyList()
+        openTabs = restoredFiles.paths
         treeFilter = ""
         clearCaches()
         tabSelection.clear()
-        refresh("automatic")
+        if (restoredSelection != null && !File(root, restoredSelection).isFile) {
+            showMissingSourceFile(restoredSelection)
+        } else {
+            refresh("automatic")
+        }
         scope.launch {
             val index = withContext(Dispatchers.IO) { ProjectFileIndex.scan(root) }
             fileIndex = index
         }
+    }
+
+    private fun persistOpenFiles() {
+        val root = projectRoot ?: return
+        AppConfig.saveOpenFiles(root, AppConfig.OpenFilesSession(openTabs, selectedSourcePath))
+            .onFailure { error ->
+                DevLog.record("session", "Could not save open files: ${error.message.orEmpty()}")
+            }
+    }
+
+    /** Keeps a stale tab selectable without trying to scan a source file that no longer exists. */
+    private fun showMissingSourceFile(relativePath: String) {
+        refreshGeneration++
+        comparisonGeneration++
+        blocker = null
+        busy = false
+        selected = null
+        comparison = null
+        items = emptyList()
+        acceptedGoldens = emptySet()
+        status = "${File(relativePath).name} no longer exists."
     }
 
     /**
@@ -380,6 +455,7 @@ class AppState(
             return
         }
         config = newConfig
+        restartPngWatcher()
         telemetry.event(
             "product.configuration_saved",
             mapOf(
@@ -404,10 +480,149 @@ class AppState(
         refresh("config_change")
     }
 
-    /** The toolbar Refresh: drop every cache and re-scan from disk. */
-    fun forceRefresh() {
-        clearCaches()
-        refresh("manual_refresh")
+    /**
+     * Picks up settings written by the standalone CLI without reopening the project.
+     *
+     * The signal may belong to another project configured by a separate terminal, in which case this
+     * window stays where it is. Command-only changes need only replace the observable config (Compose
+     * immediately enables the matching toolbar actions); settings that affect matching or rendering
+     * also invalidate caches and rescan the current project.
+     */
+    fun reloadConfigFromDisk(signaledProject: File): Boolean {
+        val root = projectRoot ?: return false
+        val currentPath = runCatching { root.canonicalPath }.getOrElse { root.absolutePath }
+        val signaledPath = runCatching { signaledProject.canonicalPath }.getOrElse { signaledProject.absolutePath }
+        if (currentPath != signaledPath) return false
+
+        val old = config
+        val reloaded = AppConfig.load(root)
+        if (old == reloaded) return false
+        config = reloaded
+        restartPngWatcher()
+
+        val scanChanged =
+            old.goldenPaths != reloaded.goldenPaths ||
+                old.generatedPaths != reloaded.generatedPaths ||
+                old.generatedFileRegex != reloaded.generatedFileRegex ||
+                old.matchMode != reloaded.matchMode ||
+                old.annotatedFunctionRegex != reloaded.annotatedFunctionRegex ||
+                old.goldenFilePatterns != reloaded.goldenFilePatterns ||
+                old.excludedSuffixes != reloaded.excludedSuffixes ||
+                old.trimTransparentPadding != reloaded.trimTransparentPadding
+        if (scanChanged) {
+            clearCaches()
+            refresh("cli_config_change")
+        }
+        return true
+    }
+
+    private fun restartPngWatcher() {
+        pngWatcher?.close()
+        pngWatcher = null
+        val root = projectRoot ?: return
+        val configuredRoots = if (config.goldenPaths.any { GoldenDiffConfig.goldenDirectoryRegex(it) != null }) {
+            listOf(root)
+        } else {
+            config.resolvedGoldenPaths(root) + config.resolvedGeneratedPaths(root)
+        }
+        val watchRoots = configuredRoots.map { nearestExistingDirectory(it, root) }.distinctBy { it.absolutePath }
+        pngWatcher = PngDirectoryWatcher(watchRoots) { events, overflow ->
+            scope.launch { queuePngEvents(events, overflow) }
+        }
+    }
+
+    private fun nearestExistingDirectory(path: File, projectRoot: File): File {
+        var candidate: File? = path
+        val normalizedRoot = projectRoot.normalize()
+        while (candidate != null && !candidate.isDirectory && candidate.normalize() != normalizedRoot) {
+            candidate = candidate.parentFile
+        }
+        return candidate?.takeIf { it.isDirectory } ?: normalizedRoot
+    }
+
+    private fun queuePngEvents(events: List<PngDirectoryWatcher.Event>, overflow: Boolean) {
+        pendingPngEvents += events
+        pendingPngOverflow = pendingPngOverflow || overflow
+        pngDebounceJob?.cancel()
+        pngDebounceJob = scope.launch {
+            delay(PNG_DEBOUNCE_MS)
+            val batch = pendingPngEvents.toList()
+            val overflowed = pendingPngOverflow
+            pendingPngEvents.clear()
+            pendingPngOverflow = false
+            applyPngEvents(batch, overflowed)
+        }
+    }
+
+    private fun applyPngEvents(events: List<PngDirectoryWatcher.Event>, overflow: Boolean) {
+        // Generate/Verify may write hundreds of files over several seconds. Their completion path
+        // already performs one refresh, so intermediate watcher batches would only waste work.
+        if (commandRunning) return
+        val root = projectRoot ?: return
+        val now = System.currentTimeMillis()
+        suppressedPngPaths.entries.removeIf { it.value < now }
+        val relevant = events
+            .distinctBy { "${it.kind}:${it.file.absolutePath}" }
+            .filterNot { suppressedPngPaths.containsKey(it.file.absolutePath) }
+            .filter { event ->
+                config.containsGoldenFile(root, event.file) ||
+                    (source == BuiltInSource.GENERATED && config.containsGeneratedFile(root, event.file))
+            }
+        if (!overflow && relevant.isEmpty()) return
+
+        relevant.forEach { invalidateCachesFor(it.file) }
+        pngRevision++
+        val structural = overflow || relevant.any { it.kind != PngDirectoryWatcher.Kind.MODIFIED }
+        if (structural || browse == Browse.CHANGED) {
+            selectedSourcePath?.let(itemsCache::remove)
+            refresh("filesystem_change")
+            return
+        }
+
+        val visibleByPath = items.associateBy { it.file.absolutePath }
+        val affected = linkedSetOf<File>()
+        relevant.forEach { event ->
+            visibleByPath[event.file.absolutePath]?.file?.let(affected::add)
+            if (source == BuiltInSource.GENERATED && config.containsGeneratedFile(root, event.file)) {
+                generatedGoldenBase(event.file)?.let { base ->
+                    items.asSequence()
+                        .filter { it.file.nameWithoutExtension.equals(base, ignoreCase = true) }
+                        .mapTo(affected) { it.file }
+                }
+            }
+        }
+        if (affected.isEmpty()) return
+        refreshItemsInPlace(affected)
+    }
+
+    private fun refreshItemsInPlace(affected: Set<File>) {
+        val root = projectRoot ?: return
+        val requestedSource = source
+        val requestedBrowse = browse
+        val generation = ++pngUpdateGeneration
+        scope.launch {
+            val refreshed = withContext(Dispatchers.IO) {
+                scanner(root).itemsFor(affected.toList(), requestedSource).associateBy { it.file.absolutePath }
+            }
+            if (generation != pngUpdateGeneration || source != requestedSource || browse != requestedBrowse) return@launch
+            items = items.map { item -> refreshed[item.file.absolutePath] ?: item }
+            selectedSourcePath?.let { itemsCache[it] = items }
+            val selectedFile = selected
+            if (selectedFile != null && selectedFile in affected) {
+                invalidateCachesFor(selectedFile)
+                select(selectedFile, "filesystem", keepCurrentPreview = true)
+            }
+        }
+    }
+
+    private fun generatedGoldenBase(file: File): String? {
+        val regex = runCatching { Regex(config.normalizedForMatching().generatedFileRegex) }.getOrNull() ?: return null
+        val match = regex.matchEntire(file.name) ?: return null
+        return match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun suppressPngEvent(file: File) {
+        suppressedPngPaths[file.absolutePath] = System.currentTimeMillis() + PNG_SUPPRESSION_MS
     }
 
     // region screenshot-test commands
@@ -434,7 +649,7 @@ class AppState(
         if (template.isBlank()) return
         val relativePath = selectedSourcePath
         val command = if (perFile) {
-            val file = relativePath?.let { File(root, it) } ?: return
+            val file = relativePath?.let { File(root, it) }?.takeIf { it.isFile } ?: return
             val screen = GenericScreenExtractor.extract(
                 file.nameWithoutExtension,
                 runCatching { file.readText() }.getOrDefault(""),
@@ -446,7 +661,10 @@ class AppState(
         }
 
         commandCancelled = false
+        commandStatusDismissed = false
         commandRunning = true
+        commandKind = kind
+        commandPerFile = perFile
         commandLabel = "${kind.label}${if (perFile) " (current file)" else ""}"
         commandStatus = "Running…"
         commandLog.clear()
@@ -458,10 +676,16 @@ class AppState(
                 CommandRunner.run(
                     command = command,
                     workingDir = root,
+                    javaHome = config.commandJavaHome.ifBlank { null },
                     isCancelled = { commandCancelled },
                 ) { line ->
-                    // Compose snapshot state must be mutated on the main thread.
-                    scope.launch(Dispatchers.Main) {
+                    // Compose snapshot state must be mutated on the UI thread. `scope` is the
+                    // composition scope (rememberCoroutineScope), so launching from it already
+                    // dispatches on Compose's UI dispatcher — do NOT pass Dispatchers.Main here: the
+                    // kotlinx Main dispatcher is provided via ServiceLoader and that service entry does
+                    // not survive jpackage, so `Dispatchers.Main` throws "Main dispatcher is missing"
+                    // in the packaged app (works only in :app:run).
+                    scope.launch {
                         commandLog.add(line)
                         commandStatus = line
                     }
@@ -477,6 +701,7 @@ class AppState(
             commandLog.add(commandStatus.orEmpty())
             // Show the freshly written output without a manual refresh.
             clearCaches()
+            restartPngWatcher()
             if (result.succeeded && kind == CommandKind.VERIFY && source != BuiltInSource.GENERATED) {
                 selectSource(BuiltInSource.GENERATED)
             } else {
@@ -491,12 +716,17 @@ class AppState(
 
     /**
      * Promotes the generated counterpart of [golden] to the committed golden (moves the generated
-     * file onto it), then refreshes so neither the list nor the preview keeps showing the accepted
-     * change. Only meaningful while viewing Test output.
+     * file onto it). Only meaningful while viewing Test output.
+     *
+     * Updates the list and preview in place rather than rescanning: the accepted row stays put and
+     * loses its change bar, its thumbnail re-decodes to the freshly written golden, and the compare
+     * pane switches to an "Accepted" state. A full [refresh] here used to blank the grid, wipe every
+     * thumbnail and reset the selection — a jarring flash for a one-file change.
      */
     fun acceptGenerated(golden: File) {
         if (commandRunning) return
         val root = projectRoot
+        suppressPngEvent(golden)
         scope.launch {
             val result = withContext(Dispatchers.IO) { GoldenAccept.accept(golden, config, root) }
             featureUsed(if (result.isSuccess) "accept_golden" else "accept_golden_failed")
@@ -507,15 +737,53 @@ class AppState(
                 } else {
                     "Could not accept ${golden.name}."
                 }
+                return@launch
             }
+            result.getOrNull()?.let(::suppressPngEvent)
+            // Drop only this golden's stale image/comparison; the rest of the grid keeps its decodes.
+            invalidateCachesFor(golden)
+            acceptedGoldens = acceptedGoldens + golden.absolutePath
+            // The golden now matches its accepted output, so the change bar goes away. Same list, same
+            // order, same keys — the grid animates the one card instead of rebuilding.
+            items = items.map {
+                if (it.file == golden) it.copy(status = ExtraComparisonItemStatus.UNCHANGED) else it
+            }
+            status = "Accepted ${golden.name} as the golden."
             if (selected == golden) {
-                selected = null
-                comparison = null
-                comparisonGeneration++
+                // Repaint from the freshly written golden with an "Accepted" banner. Reloading the
+                // comparison instead would read as "missing", since the test output it was promoted
+                // from has just been consumed.
+                val generation = ++comparisonGeneration
+                val bitmap = withContext(Dispatchers.IO) { runCatching { loadGoldenBitmap(golden) }.getOrNull() }
+                if (generation == comparisonGeneration && selected == golden) {
+                    val accepted = Comparison(
+                        old = null,
+                        new = bitmap,
+                        diff = null,
+                        changedRatio = 0.0,
+                        statusText = "Accepted as golden — ${golden.name}",
+                        identical = true,
+                        accepted = true,
+                    )
+                    // Cache it so clicking away and back to this golden keeps showing the accepted
+                    // preview instead of reloading against the now-consumed test output.
+                    comparisonCache[comparisonKey(golden, source)] = accepted
+                    comparison = accepted
+                }
             }
-            clearCaches()
-            refresh("accept_golden")
         }
+    }
+
+    /** Decodes [golden] (trimmed like the compare view) for the post-accept preview. IO only. */
+    private fun loadGoldenBitmap(golden: File): ImageBitmap? =
+        ImageBytes.decode(ImageBytes.workingBytes(golden))
+            ?.let { trimIfEnabled(it, config.trimTransparentPadding) }
+            ?.toComposeImageBitmap()
+
+    /** Evicts the cached comparison and thumbnail entries for a single [golden] after it changes. */
+    private fun invalidateCachesFor(golden: File) {
+        comparisonCache.keys.removeAll { it.contains("|${golden.absolutePath}|") }
+        thumbnailCache.keys.removeAll { it.startsWith("${golden.path}|") }
     }
 
     // endregion
@@ -566,9 +834,8 @@ class AppState(
         )
         selected = null
         comparison = null
-        // Project-changes scope is not driven by an opened file, so it carries no tabs; returning to
-        // Current-file scope restores the open file, if any, as its single tab.
-        openTabs = if (value == Browse.FILES) listOfNotNull(selectedSourcePath) else emptyList()
+        // Project-changes scope is not driven by an opened file. Keep the file tabs in memory (and on
+        // disk) while they are hidden so returning to Current-file restores the complete session.
         comparisonGeneration++
         refresh("scope_change")
     }
@@ -700,6 +967,7 @@ class AppState(
             }
             blocker = outcome.blocker
             items = outcome.items
+            acceptedGoldens = emptySet()
             busy = false
             status = when {
                 outcome.error != null -> "Could not scan this project."
@@ -737,6 +1005,7 @@ class AppState(
         treeHighlight = relativePath
         // Opening a file adds a tab (an already-open file just reactivates its tab).
         if (relativePath !in openTabs) openTabs = openTabs + relativePath
+        persistOpenFiles()
         val file = File(root, relativePath)
         telemetry.sourceFileSelected(
             memoryKey = file.absolutePath,
@@ -745,6 +1014,10 @@ class AppState(
             alreadyOpen = alreadyOpen,
         )
         if (!alreadyOpen) telemetry.event("product.feature_used", mapOf("feature" to "tab_open"))
+        if (!file.isFile) {
+            showMissingSourceFile(relativePath)
+            return
+        }
         if (file.extension.equals("png", ignoreCase = true)) {
             val single = listOf(ExtraComparisonItem(file, file.name))
             applyCachedItems(relativePath, single, "1 screenshot selected.")
@@ -766,6 +1039,7 @@ class AppState(
         blocker = null
         busy = false
         items = list
+        acceptedGoldens = emptySet()
         status = label
         restoreSelectionFor(path, list)
     }
@@ -798,7 +1072,11 @@ class AppState(
         scanner(root).itemsFor(goldens, requestedSource)
     }
 
-    fun select(file: File?, selectionTrigger: String = "grid") {
+    fun select(
+        file: File?,
+        selectionTrigger: String = "grid",
+        keepCurrentPreview: Boolean = false,
+    ) {
         selected = file
         val generation = ++comparisonGeneration
         val requestedSource = source
@@ -815,7 +1093,7 @@ class AppState(
             comparisonViewed(it, requestedSource, cacheHit = true, selectionTrigger)
             return
         }
-        comparison = null
+        if (!keepCurrentPreview) comparison = null
         scope.launch {
             val started = System.nanoTime()
             val span = telemetry.startSpan(
@@ -984,6 +1262,9 @@ class AppState(
     }
 
     override fun close() {
+        pngDebounceJob?.cancel()
+        pngWatcher?.close()
+        persistOpenFiles()
         telemetry.close()
     }
 
@@ -992,6 +1273,11 @@ class AppState(
         val items: List<ExtraComparisonItem>,
         val error: Throwable? = null,
     )
+
+    private companion object {
+        const val PNG_DEBOUNCE_MS = 400L
+        const val PNG_SUPPRESSION_MS = 2_000L
+    }
 }
 
 private fun Browse.wireValue(): String = if (this == Browse.FILES) "current_file" else "project_changes"

@@ -93,4 +93,26 @@ class GoldenDiffConfigTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun `watcher membership checks do not require scanning resolved directories`() {
+        val root = Files.createTempDirectory("golden-config-membership").toFile()
+        try {
+            val config = GoldenDiffConfig(
+                goldenPaths = listOf(
+                    "shared/goldens",
+                    GoldenDiffConfig.goldenDirectoryRegexEntry(".*/src/test/snapshots"),
+                ),
+                generatedPaths = listOf("build/test-output"),
+            )
+
+            assertTrue(config.containsGoldenFile(root, File(root, "shared/goldens/nested/Literal.png")))
+            assertTrue(config.containsGoldenFile(root, File(root, "feature/src/test/snapshots/Nested.png")))
+            assertTrue(config.containsGeneratedFile(root, File(root, "build/test-output/Screen_actual.png")))
+            assertTrue(!config.containsGoldenFile(root, File(root, "feature/screenshots/Other.png")))
+            assertTrue(!config.containsGoldenFile(root, File(root, ".build/cache/src/test/snapshots/Noise.png")))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

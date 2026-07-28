@@ -28,6 +28,11 @@ object AppConfig {
         return File(configDir, "${projectRoot.name}-$key.properties")
     }
 
+    private fun sessionFileFor(projectRoot: File): File {
+        val key = Integer.toHexString(projectRoot.absolutePath.hashCode())
+        return File(configDir, "${projectRoot.name}-$key-session.properties")
+    }
+
     fun load(projectRoot: File): GoldenDiffConfig {
         val file = fileFor(projectRoot)
         if (!file.isFile) return EMPTY
@@ -70,6 +75,7 @@ object AppConfig {
             generateFileCommand = props.getProperty("generateFileCommand").orEmpty(),
             verifyAllCommand = props.getProperty("verifyAllCommand").orEmpty(),
             verifyFileCommand = props.getProperty("verifyFileCommand").orEmpty(),
+            commandJavaHome = props.getProperty("commandJavaHome").orEmpty(),
         )
     }
 
@@ -104,10 +110,52 @@ object AppConfig {
             setProperty("generateFileCommand", effective.generateFileCommand)
             setProperty("verifyAllCommand", effective.verifyAllCommand)
             setProperty("verifyFileCommand", effective.verifyFileCommand)
+            setProperty("commandJavaHome", effective.commandJavaHome)
         }
         return runCatching {
             configDir.mkdirs()
             fileFor(projectRoot).outputStream().use { props.store(it, "Golden Diff — ${projectRoot.absolutePath}") }
+        }
+    }
+
+    /**
+     * Editor-style file tabs remembered independently for each project.
+     *
+     * This intentionally lives beside, rather than inside, [GoldenDiffConfig]: saving settings from
+     * the GUI or CLI must not overwrite the current UI session. Missing paths are kept so the app can
+     * render their tabs as stale and let the user close them explicitly.
+     */
+    data class OpenFilesSession(
+        val paths: List<String> = emptyList(),
+        val selectedPath: String? = null,
+    )
+
+    fun loadOpenFiles(projectRoot: File): OpenFilesSession {
+        val file = sessionFileFor(projectRoot)
+        if (!file.isFile) return OpenFilesSession()
+        val props = Properties()
+        runCatching { file.inputStream().use(props::load) }.getOrElse { return OpenFilesSession() }
+        val count = props.getProperty("paths.count")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val paths = (0 until count)
+            .mapNotNull { props.getProperty("paths.$it") }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val selected = props.getProperty("selectedPath")?.takeIf { it in paths }
+        return OpenFilesSession(paths, selected)
+    }
+
+    fun saveOpenFiles(projectRoot: File, session: OpenFilesSession): Result<Unit> {
+        val paths = session.paths.filter { it.isNotBlank() }.distinct()
+        val props = Properties().apply {
+            setProperty("paths.count", paths.size.toString())
+            paths.forEachIndexed { index, path -> setProperty("paths.$index", path) }
+            session.selectedPath?.takeIf { it in paths }?.let { setProperty("selectedPath", it) }
+        }
+        return runCatching {
+            configDir.mkdirs()
+            sessionFileFor(projectRoot).outputStream().use {
+                props.store(it, "Golden Diff open files — ${projectRoot.absolutePath}")
+            }
         }
     }
 
@@ -160,10 +208,11 @@ object AppConfig {
     }
 
     /**
-     * Cross-process hand-off from the CLI to a running setup window: the CLI writes it after it has
-     * finished configuring a project, and the onboarding walkthrough polls for it so it can pick up
-     * where the agent left off. A file is enough — both sides are the same user on the same machine —
-     * and the timestamp lets the reader ignore a stale signal from an earlier run.
+     * Cross-process hand-off from the CLI to the running app: the CLI writes it after it has finished
+     * configuring a project. The main window reloads that project's settings, while the onboarding
+     * walkthrough additionally advances past the steps the agent completed. A file is enough — both
+     * sides are the same user on the same machine — and the timestamp lets readers ignore a stale
+     * signal from an earlier run.
      */
     data class CliSignal(val project: File, val timestamp: Long)
 

@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+## [1.5.0-beta.9] - 2026-07-28
+
+### Added
+- Generate and Verify actions in both hosts, with whole-project and current-file commands, streamed
+  output, cancellation, and automatic refresh after successful runs.
+- An Accept action that promotes generated test output to its committed golden and immediately marks
+  the result as accepted.
+- Persistent editor-style file tabs in the standalone app, including an explicit state for files
+  removed since the previous session.
+- Optional per-project `JAVA_HOME` configuration for standalone Generate/Verify commands, including
+  one-click detection of Android Studio's bundled runtime.
+- Golden-directory regex entries in the plugin settings, matching the standalone app and CLI.
+- Automatic, debounced PNG watching in both hosts, with targeted preview/status updates for modified
+  images and selection-preserving soft rescans when files are added, removed, or moved.
+
+### Changed
+- Plugin settings now use section navigation with a contextual live-match preview instead of one
+  long form.
+- The standalone command controls now show the active operation, retain its final status, expose a
+  selectable/copyable log, and can cancel a silent child process promptly.
+- Settings written by the standalone CLI are reloaded by an already-running app without reopening
+  the project.
+- Accept now lives beside the comparison-mode controls in the plugin and confirms the promotion
+  in place without rebuilding or jumping the golden list. Manual Refresh controls were removed from
+  both hosts because configured PNG changes update automatically.
+- The bundled Roborazzi and Swift Snapshot Testing setup guides now validate framework-specific
+  paths, command scopes, destinations, recording switches, and non-interactive trust requirements
+  more precisely.
+
+### Fixed
+- Packaged app update checks can retry after an empty response, and the trimmed runtime now includes
+  `java.net.http`.
+- Packaged app crashes are written to a durable local crash log, and UI callbacks no longer rely on
+  a missing `Dispatchers.Main` service.
+- Invalid analytics events are dropped and diagnosed instead of reaching user-facing code.
+
+## [1.5.0-beta.8] - 2026-07-27
+
+### Changed
+- Hardened standalone configuration validation, setup hand-off, CLI option handling, and the
+  generated project-configuration prompt.
+- Added README documentation for installing and configuring the standalone beta.
+
 ## [1.5.0-beta.7] - 2026-07-27
 
 ### Added

@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.app
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import com.github.dkwasniak.goldendiff.app.generated.resources.Res
 import com.github.dkwasniak.goldendiff.app.generated.resources.app_icon
 import com.github.dkwasniak.goldendiff.platform.Os
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 
 fun main(args: Array<String>) {
@@ -59,6 +61,7 @@ fun main(args: Array<String>) {
             if (!AppConfig.onboardingCompleted()) state.onboardingVisible = true
             state.checkForUpdates()
         }
+        CliConfigReloadEffect(state)
         DeferredWindowCloseEffect(mainWindowVisible) {
             state.close()
             exitApplication()
@@ -105,6 +108,29 @@ fun main(args: Array<String>) {
         if (state.diagnosticsVisible) DiagnosticsWindow(state) { state.diagnosticsVisible = false }
         if (state.commandLogVisible) CommandLogWindow(state) { state.commandLogVisible = false }
         if (AppTelemetry.consentPromptVisible && !state.onboardingVisible) TelemetryConsentWindow()
+    }
+}
+
+/**
+ * Keeps an already-open project in sync with settings written by the headless CLI.
+ *
+ * Onboarding has its own signal consumer because it also changes wizard steps. This watcher still
+ * advances its cursor while onboarding is visible so the same signal is not replayed after the
+ * walkthrough closes.
+ */
+@Composable
+private fun CliConfigReloadEffect(state: AppState) {
+    val baseline = remember { AppConfig.readCliSignal()?.timestamp ?: 0L }
+    LaunchedEffect(state) {
+        var handledAt = baseline
+        while (true) {
+            val signal = AppConfig.readCliSignal()
+            if (signal != null && signal.timestamp > handledAt) {
+                handledAt = signal.timestamp
+                if (!state.onboardingVisible) state.reloadConfigFromDisk(signal.project)
+            }
+            delay(500)
+        }
     }
 }
 

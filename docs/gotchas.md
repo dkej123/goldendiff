@@ -87,6 +87,17 @@ JDK, but the packaged app gets `NoClassDefFoundError`. Keep `modules("java.net.h
 `app/build.gradle.kts`. After packaging, verify that
 `app/build/compose/tmp/main/runtime/release` lists `java.net.http` in `MODULES`.
 
+## `Dispatchers.Main` throws in the packaged app (works in `:app:run`)
+`kotlinx.coroutines.Dispatchers.Main` is resolved lazily through a `MainDispatcherFactory` registered
+in `META-INF/services`. That service entry does not survive the Compose Desktop / `jpackage` runtime
+image, so `Dispatchers.Main` throws `IllegalStateException: Module with the Main dispatcher is missing`
+in the installed app while `:app:run` and tests (full classpath) work fine. To hop onto the UI thread
+for Compose snapshot state, launch from the composition scope (`rememberCoroutineScope()`, passed into
+`AppState`) **without** a dispatcher argument — `scope.launch { … }` already dispatches on Compose's UI
+dispatcher. Do not add `Dispatchers.Main`. Uncaught exceptions like this are appended to
+`~/.config/golden-diff/crash.log` (see `CrashLog`), which is the way to diagnose a packaged-app crash
+since it exits before the in-memory dev log can be read.
+
 ## Stable-APIs-only rule
 The open-ended compatibility range depends on keeping the plugin UI in Swing and using platform APIs
 available in 241 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevision`,

@@ -50,7 +50,16 @@ data class GoldenDiffConfig(
     val verifyAllCommand: String = "",
     /** Shell command run to verify the current file's goldens only. Supports the same placeholders. */
     val verifyFileCommand: String = "",
+    /**
+     * Absolute path to a JDK/JBR used as `JAVA_HOME` when running the generate/verify commands. Lets a
+     * project whose toolchain lives outside the app's environment — e.g. Android Studio's bundled JBR,
+     * which a GUI-launched shell does not see — resolve without the user editing their shell profile.
+     * Blank means "use whatever the command's own shell resolves".
+     */
+    val commandJavaHome: String = "",
 ) {
+
+    val hasCommandJavaHome: Boolean get() = commandJavaHome.isNotBlank()
 
     val isConfigured: Boolean get() = goldenPaths.isNotEmpty()
 
@@ -100,6 +109,43 @@ data class GoldenDiffConfig(
 
     fun resolvedGeneratedPaths(projectRoot: File?): List<File> = generatedPaths.map { resolve(projectRoot, it) }
 
+    /**
+     * Cheap event-time check used by filesystem watchers. Unlike [resolvedGoldenPaths], this never
+     * walks the project: literal roots use path ancestry and regex roots inspect only this file's
+     * parent ancestors.
+     */
+    fun containsGoldenFile(projectRoot: File?, file: File): Boolean =
+        goldenPaths.any { entry ->
+            val pattern = goldenDirectoryRegex(entry)
+            if (pattern == null) {
+                isUnder(file, resolve(projectRoot, entry))
+            } else {
+                val root = projectRoot?.normalize() ?: return@any false
+                val regex = runCatching { Regex(pattern) }.getOrNull() ?: return@any false
+                val filePath = file.toPath().toAbsolutePath().normalize()
+                val rootPath = root.toPath().toAbsolutePath().normalize()
+                if (!filePath.startsWith(rootPath)) return@any false
+                if (rootPath.relativize(filePath).any { it.toString() in REGEX_SCAN_EXCLUDED_DIRECTORIES }) {
+                    return@any false
+                }
+                generateSequence(file.normalize().parentFile) { parent ->
+                    parent.parentFile?.takeIf { parent.normalize() != root }
+                }.any { directory ->
+                    runCatching {
+                        regex.matches(
+                            directory.relativeTo(root).path
+                                .replace(File.separatorChar, '/')
+                                .ifEmpty { "." },
+                        )
+                    }.getOrDefault(false)
+                }
+            }
+        }
+
+    /** Cheap counterpart of [containsGoldenFile] for literal generated-output roots. */
+    fun containsGeneratedFile(projectRoot: File?, file: File): Boolean =
+        generatedPaths.any { isUnder(file, resolve(projectRoot, it)) }
+
     // Absolute paths stay supported for backwards compatibility with configs written before paths
     // became project-relative.
     private fun resolve(projectRoot: File?, path: String): File {
@@ -107,6 +153,10 @@ data class GoldenDiffConfig(
         if (file.isAbsolute || projectRoot == null) return file.normalize()
         return File(projectRoot, path).normalize()
     }
+
+    private fun isUnder(file: File, root: File): Boolean =
+        file.toPath().toAbsolutePath().normalize()
+            .startsWith(root.toPath().toAbsolutePath().normalize())
 
     companion object {
         const val GOLDEN_DIRECTORY_REGEX_PREFIX = "regex:"

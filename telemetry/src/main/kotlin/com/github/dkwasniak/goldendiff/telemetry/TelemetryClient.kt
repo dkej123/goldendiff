@@ -101,7 +101,14 @@ class TelemetryClient(
     }
 
     fun event(name: String, properties: Map<String, String>): Boolean {
-        EventCatalog.validate(name, properties)
+        // Telemetry must never crash the app: a catalog mismatch is a reporting bug, not a user-facing
+        // failure. Drop the malformed event (logged for diagnosis) instead of letting it propagate.
+        try {
+            EventCatalog.validate(name, properties)
+        } catch (e: IllegalArgumentException) {
+            diagnostics?.log("analytics", "dropped invalid event: ${e.message}")
+            return false
+        }
         diagnostics?.log("analytics", diagnosticDetail(name, properties, sent = consent.analytics))
         if (!consent.analytics) return false
         val activeBackend = backend

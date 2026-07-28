@@ -47,7 +47,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -60,8 +63,11 @@ import com.github.dkwasniak.goldendiff.app.ui.Dimens
 import com.github.dkwasniak.goldendiff.app.ui.Direction
 import com.github.dkwasniak.goldendiff.app.ui.EmptyState
 import com.github.dkwasniak.goldendiff.app.ui.DropdownButton
+import com.github.dkwasniak.goldendiff.app.ui.CheckIcon
 import com.github.dkwasniak.goldendiff.app.ui.FolderIcon
+import com.github.dkwasniak.goldendiff.app.ui.GearIcon
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
+import com.github.dkwasniak.goldendiff.app.ui.PlayIcon
 import com.github.dkwasniak.goldendiff.app.ui.LegendItem
 import com.github.dkwasniak.goldendiff.app.ui.LightTokens
 import com.github.dkwasniak.goldendiff.app.ui.LocalTokens
@@ -106,7 +112,7 @@ fun GoldenDiffWindow(state: AppState) {
                 HairLine()
                 LegendRow(state)
                 HairLine()
-                if (state.openTabs.isNotEmpty()) TabStrip(state)
+                if (state.browse == Browse.FILES && state.openTabs.isNotEmpty()) TabStrip(state)
                 Body(state, Modifier.weight(1f))
                 HairLine()
                 StatusBar(state)
@@ -127,13 +133,6 @@ private fun Toolbar(state: AppState) {
     ) {
         ProjectMenuButton(state)
         VerticalHairLine(20.dp)
-        ToolButton("Settings", enabled = hasProject) { state.settingsVisible = true }
-        ToolButton("Refresh", enabled = hasProject) { state.forceRefresh() }
-        VerticalHairLine(20.dp)
-        CommandMenuButton(state, AppState.CommandKind.GENERATE)
-        CommandMenuButton(state, AppState.CommandKind.VERIFY)
-        CommandStatusChip(state)
-        VerticalHairLine(20.dp)
         DropdownButton("Scope", state.browse, Browse.entries.toList(), Browse::label, hasProject) { state.selectBrowse(it) }
         if (state.browse == Browse.FILES) {
             ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
@@ -150,47 +149,134 @@ private fun Toolbar(state: AppState) {
             hasProject,
         ) { state.selectSource(it) }
         Spacer(Modifier.weight(1f))
+        SettingsGearButton(state)
     }
 }
 
-/**
- * A Generate/Verify button that drops a small menu of *Whole project* / *Current file*. Each option
- * is enabled only when its command is configured (and, for the file option, a file is open); an
- * unconfigured button stays disabled with a tooltip pointing at Settings so the feature is discoverable.
- */
+/** The gear on the far right of the toolbar; opens Settings. Disabled until a project is open. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CommandMenuButton(state: AppState, kind: AppState.CommandKind) {
+private fun SettingsGearButton(state: AppState) {
+    val enabled = state.projectRoot != null
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    val button = @Composable {
+        Box(
+            Modifier.size(28.dp).clip(shape).hoverWash(enabled, shape)
+                .clickable(enabled = enabled) { state.settingsVisible = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            GearIcon(tokens.textDim.copy(alpha = if (enabled) 1f else 0.4f))
+        }
+    }
+    if (enabled) button() else TooltipArea(tooltip = { TipBubble("Open a project first.") }) { button() }
+}
+
+/**
+ * The grouped Generate | Verify pair that lives on the right of the legend row and drives the whole
+ * project. The two buttons share one bordered pill; only one command runs at a time, so while either
+ * runs it shows a spinner and the other dims and goes inert. Each button's caret opens the per-scope
+ * menu (*Whole project* / *Current file*); the button body itself runs the whole project.
+ */
+@Composable
+private fun CommandGroup(state: AppState) {
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    Row(
+        Modifier.clip(shape).border(1.dp, tokens.border, shape),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CommandSegment(state, AppState.CommandKind.GENERATE)
+        Box(Modifier.width(1.dp).height(26.dp).background(tokens.border))
+        CommandSegment(state, AppState.CommandKind.VERIFY)
+    }
+}
+
+/** One half of the [CommandGroup]. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun CommandSegment(state: AppState, kind: AppState.CommandKind) {
     var expanded by remember { mutableStateOf(false) }
     val hasProject = state.projectRoot != null
     val hasAll = state.hasCommand(kind, perFile = false)
     val hasFile = state.hasCommand(kind, perFile = true)
-    val enabled = hasProject && (hasAll || hasFile) && !state.commandRunning
+    val available = hasProject && (hasAll || hasFile)
+    val running = state.commandRunning && state.commandKind == kind && !state.commandPerFile
+    val otherRunning = state.commandRunning && !running
+    val disabled = !available
+    val inert = disabled || otherRunning
+
+    val fg = when {
+        running -> tokens.accent
+        inert -> tokens.textFaint
+        else -> tokens.text
+    }
+    val alpha = when {
+        disabled -> 0.4f
+        otherRunning -> 0.45f
+        else -> 1f
+    }
+    val tip = when {
+        !hasProject -> "Open a project first."
+        !available -> "Set a ${kind.label} command in Settings → Commands."
+        running -> "Running — click to view the log."
+        otherRunning -> "A screenshot command is already running."
+        else -> "Whole project — caret for Current file"
+    }
+
     Box {
-        if (enabled) {
-            ToolButton(kind.label) { expanded = true }
-        } else {
-            val tip = when {
-                !hasProject -> "Open a project first."
-                state.commandRunning -> "A screenshot command is already running."
-                else -> "Set a ${kind.label} command in Settings → Commands."
-            }
-            TooltipArea(tooltip = { TipBubble(tip) }) {
-                ToolButton(kind.label, enabled = false) {}
+        val body = @Composable {
+            Row(
+                Modifier.height(26.dp)
+                    .background(if (running) tokens.accentBg else Color.Transparent)
+                    .hoverWash(enabled = !inert, shape = RoundedCornerShape(0.dp))
+                    .clickable(enabled = running || !inert) {
+                        when {
+                            running -> state.commandLogVisible = true
+                            hasAll -> state.runCommand(kind, perFile = false)
+                            else -> expanded = true
+                        }
+                    }
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (running) {
+                    CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.6.dp)
+                } else if (kind == AppState.CommandKind.GENERATE) {
+                    PlayIcon(fg.copy(alpha = alpha))
+                } else {
+                    CheckIcon(if (inert) fg.copy(alpha = alpha) else tokens.new)
+                }
+                Text(kind.label, color = fg.copy(alpha = alpha), fontSize = Type.body, fontWeight = FontWeight.Medium)
+                Box(
+                    Modifier.clip(RoundedCornerShape(4.dp))
+                        .hoverWash(enabled = !inert, shape = RoundedCornerShape(4.dp))
+                        .clickable(enabled = !inert) { expanded = true }
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                ) {
+                    Chevron(Direction.DOWN, tokens.textFaint.copy(alpha = alpha), size = 8.dp)
+                }
             }
         }
+        TooltipArea(tooltip = { TipBubble(tip) }) { body() }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
-                enabled = hasAll,
+                enabled = hasAll && !state.commandRunning,
                 onClick = { expanded = false; state.runCommand(kind, perFile = false) },
             ) { Text("Whole project", color = tokens.text, fontSize = Type.body) }
             val fileName = state.selectedSourcePath?.let { File(it).name }
+            val fileExists = state.selectedSourcePath
+                ?.let { path -> state.projectRoot?.let { root -> File(root, path).isFile } }
+                ?: false
             DropdownMenuItem(
-                enabled = hasFile && fileName != null,
+                enabled = hasFile && fileExists && !state.commandRunning,
                 onClick = { expanded = false; state.runCommand(kind, perFile = true) },
             ) {
                 Text(
-                    fileName?.let { "Current file: $it" } ?: "Current file (open a file)",
+                    when {
+                        fileName == null -> "Current file (open a file)"
+                        !fileExists -> "Current file: $fileName (missing)"
+                        else -> "Current file: $fileName"
+                    },
                     color = tokens.text,
                     fontSize = Type.body,
                 )
@@ -201,7 +287,7 @@ private fun CommandMenuButton(state: AppState, kind: AppState.CommandKind) {
 
 /** Small tooltip bubble used for disabled command buttons. */
 @Composable
-private fun TipBubble(text: String) {
+internal fun TipBubble(text: String) {
     Box(
         Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).background(tokens.panel)
             .border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
@@ -211,33 +297,63 @@ private fun TipBubble(text: String) {
     }
 }
 
-/** Toolbar chip showing the latest command status; click to open the full log window. */
+/**
+ * Status-bar chip for the last screenshot-test command: a spinner + label + latest line + Stop while
+ * it runs, then the final outcome kept in place with a ✕ to dismiss it. Clicking the chip opens the
+ * full log window. Hidden once dismissed (or before any command has run).
+ */
 @Composable
 private fun CommandStatusChip(state: AppState) {
     val label = state.commandLabel ?: return
+    if (!state.commandRunning && state.commandStatusDismissed) return
+    val running = state.commandRunning
+    // Trim the small font's leading so glyphs sit on the row's optical centre, aligned with the
+    // spinner/stop icons instead of riding a couple of pixels below them.
+    val chipText = TextStyle(
+        fontSize = Type.small,
+        lineHeight = Type.small,
+        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+    )
     Row(
         Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).hoverWash()
-            .clickable { state.commandLogVisible = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+            .clickable { state.commandLogVisible = true }.padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (state.commandRunning) {
-            CircularProgressIndicator(
-                Modifier.size(12.dp),
-                color = tokens.accent,
-                strokeWidth = 1.5.dp,
-            )
+        if (running) {
+            CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.5.dp)
         }
         Text(
-            "$label: ${state.commandStatus.orEmpty()}",
-            color = tokens.textDim,
-            fontSize = Type.small,
+            label,
+            color = if (running) tokens.accent else tokens.textDim,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 260.dp),
+            style = chipText,
         )
-        Text("Log", color = tokens.accent, fontSize = Type.small)
+        state.commandStatus?.let {
+            Text(
+                it,
+                color = tokens.textDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = chipText,
+                modifier = Modifier.widthIn(max = 260.dp),
+            )
+        }
+        Box(
+            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).hoverWash()
+                .clickable { if (running) state.cancelCommand() else state.dismissCommandStatus() },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (running) StopIcon(tokens.changed) else CloseIcon(tokens.textDim)
+        }
     }
+}
+
+/** A small filled square: the Stop glyph for a running command. */
+@Composable
+private fun StopIcon(color: Color) {
+    Box(Modifier.size(8.dp).clip(RoundedCornerShape(1.dp)).background(color))
 }
 
 /**
@@ -315,9 +431,11 @@ private fun TabStrip(state: AppState) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         state.openTabs.forEach { path ->
+            val missing = state.projectRoot?.let { !File(it, path).isFile } == true
             Tab(
                 label = File(path).name,
                 active = state.selectedSourcePath == path,
+                missing = missing,
                 onClick = { state.selectSourceFile(path, "tab") },
                 onClose = { state.closeTab(path) },
             )
@@ -330,6 +448,7 @@ private fun TabStrip(state: AppState) {
 private fun Tab(
     label: String,
     active: Boolean,
+    missing: Boolean,
     onClick: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -348,9 +467,10 @@ private fun Tab(
     ) {
         Text(
             label,
-            color = if (active) tokens.text else tokens.textDim,
+            color = if (missing) tokens.textFaint else if (active) tokens.text else tokens.textDim,
             fontSize = 11.5.sp,
             fontFamily = Type.Mono,
+            textDecoration = if (missing) TextDecoration.LineThrough else TextDecoration.None,
             maxLines = 1,
         )
         Box(
@@ -375,7 +495,10 @@ private fun LegendRow(state: AppState) {
         LegendItem(tokens.changed, "Changed vs HEAD")
         LegendItem(tokens.new, "New in working copy")
         Spacer(Modifier.weight(1f))
-        state.blockerText()?.let { Text(it, color = tokens.changed, fontSize = Type.small) }
+        state.blockerText()?.let {
+            Text(it, color = tokens.changed, fontSize = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        }
+        if (state.projectRoot != null) CommandGroup(state)
     }
 }
 
@@ -391,6 +514,7 @@ private fun StatusBar(state: AppState) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Golden Diff ${AppTelemetry.appVersion}", color = tokens.textFaint, fontSize = Type.small)
+        CommandStatusChip(state)
         Spacer(Modifier.weight(1f))
         when {
             state.updateBusy -> UpdateProgress(state.updateStatus ?: "Updating…")

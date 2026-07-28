@@ -117,9 +117,30 @@ fun buildCliAgentPrompt(projectPath: String): String {
        In the per-file variants use {file_name}, {class_name} and {file_path} where the framework needs
        the edited file's name, its declaring class, or its project-relative path. If a framework guide
        matched, use exactly the command examples it gives; otherwise derive them from the project's own
-       build/test configuration. Do NOT run these commands yourself — the project stays read-only; you
-       only WRITE them into Golden Diff's settings. If you cannot determine a command with confidence,
-       leave it unset rather than guessing.
+       build/test configuration. An official framework recording switch supplied through an environment
+       variable is a valid Generate mechanism: inspect the resolved dependency version when the switch
+       is version-gated, preserve the normal test command, and add the forwarding/prefix syntax required
+       by the framework guide. Do not require a wrapper merely because Generate and Verify run the same
+       underlying tests. Resolve machine-specific command inputs instead of copying guide examples: for
+       an iOS simulator, inspect any destination already configured by the project and use the read-only
+       `xcrun simctl list devices available` to enumerate what is installed. When the matched guide
+       requires it, present the detected scheme/test target and available destinations, ask the user
+       which target to use, and wait for the answer. Then validate that choice with the non-building
+       `xcodebuild -showdestinations -scheme <scheme>` and use its exact per-device OS value; a `simctl`
+       runtime heading may omit the patch component required by xcodebuild. Never silently choose or
+       guess a device model, and never save an example placeholder. Do NOT run the configured commands
+       yourself — the project stays read-only; you only WRITE them into Golden Diff's settings. If you
+       cannot determine a command with confidence, leave it unset rather than guessing.
+
+       Before saving, audit the four final command strings as one coherent set:
+         • all four use the same user-confirmed scheme and destination;
+         • every command exports the framework's generated-artifact directory when the guide requires it,
+           and that path resolves to the same directory configured with --generated-dir;
+         • Generate All/File enable recording; Verify All/File do not enable recording;
+         • only the two per-file commands contain the framework's single-test selector and the appropriate
+           Golden Diff placeholder; the all commands remain project-wide;
+         • no command contains an unresolved <placeholder>, example device, stale OS, or simulator UUID.
+       If any invariant fails, fix the command set before calling configure.
 
     7. Verify what Golden Diff will actually use. Select representative source/test files whose
        goldens you confirmed manually — at least one for every distinct module, target, or directory
@@ -138,6 +159,7 @@ fun buildCliAgentPrompt(projectPath: String): String {
     8. After successful validation, notify the open setup window:
        "$cliPath" configure --project "$projectPath" --signal
        This preserves the settings you already applied and only writes the completion signal. Finally
-       run "$cliPath" show --project "$projectPath" --json and share that configuration summary with me.
+       run "$cliPath" show --project "$projectPath" --json, re-audit the four persisted commands against
+       the invariants above, and share that configuration summary with me.
     """.trimIndent()
 }

@@ -7,8 +7,8 @@ Status: working MVP. Below is what's intentionally missing and where to extend.
 - **Matching is name-based**: two modes (annotated-method, or file/class regex) matched against the
   golden's relative path cover the common frameworks, but very unusual conventions can still miss
   without project-specific configuration.
-- **No live update on edits**: the list refreshes on file switch, not while you type. Use **Refresh**
-  after (re)recording goldens.
+- Source-code edits still do not trigger matching while you type. PNG changes in configured golden
+  and generated-output directories are watched automatically.
 - **Comparison is HEAD vs working copy only** — no picking an arbitrary branch/revision yet.
 - **`runIde` launches IntelliJ IDEA**, not Android Studio (see docs/build-and-run.md).
 

@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.app
 
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Slider
 import androidx.compose.material.SliderDefaults
 import androidx.compose.material.Text
@@ -48,12 +51,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.github.dkwasniak.goldendiff.app.ui.CheckIcon
 import com.github.dkwasniak.goldendiff.app.ui.CopyIcon
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
 import com.github.dkwasniak.goldendiff.app.ui.EmptyState
 import com.github.dkwasniak.goldendiff.app.ui.ExpandIcon
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
 import com.github.dkwasniak.goldendiff.app.ui.IconButton
+import com.github.dkwasniak.goldendiff.app.ui.PlayIcon
 import com.github.dkwasniak.goldendiff.app.ui.Pane
 import com.github.dkwasniak.goldendiff.app.ui.Segment
 import com.github.dkwasniak.goldendiff.app.ui.StatusDot
@@ -111,12 +116,18 @@ fun ComparePane(state: AppState, modifier: Modifier) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            // Per-file Generate/Verify for the open golden — run the command scoped to this one file
+            // without leaving the compare view.
+            if (selected != null) {
+                PerFileCommandButton(state, AppState.CommandKind.GENERATE)
+                PerFileCommandButton(state, AppState.CommandKind.VERIFY)
+            }
             // Accept only makes sense for verify output: it promotes the generated image onto the
             // golden. Generation writes the golden directly, so it is not offered there.
-            if (selected != null && state.source == BuiltInSource.GENERATED && state.comparison?.hasDiff == true) {
-                com.github.dkwasniak.goldendiff.app.ui.ToolButton("Accept", enabled = !state.commandRunning) {
-                    state.acceptGenerated(selected)
-                }
+            if (selected != null && state.acceptedGoldens.contains(selected.absolutePath)) {
+                AcceptedLabel()
+            } else if (selected != null && state.source == BuiltInSource.GENERATED && state.comparison?.hasDiff == true) {
+                AcceptButton(enabled = !state.commandRunning) { state.acceptGenerated(selected) }
             }
             if (selected != null) {
                 IconButton(size = 26.dp, onClick = {
@@ -135,6 +146,94 @@ fun ComparePane(state: AppState, modifier: Modifier) {
         }
         HairLine()
         CompareContent(state, Modifier.weight(1f))
+    }
+}
+
+/**
+ * A 26×26 icon-only button that runs Generate/Verify scoped to the open file. Shares the whole-project
+ * pair's running/disabled/mutual-exclusion states: only one command runs at a time, so while any runs
+ * the others dim and go inert, and clicking the running one opens the log rather than relaunching.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PerFileCommandButton(state: AppState, kind: AppState.CommandKind) {
+    val hasCmd = state.hasCommand(kind, perFile = true)
+    val hasFile = state.selectedSourcePath != null
+    val running = state.commandRunning && state.commandKind == kind && state.commandPerFile
+    val otherRunning = state.commandRunning && !running
+    val disabled = !hasCmd || !hasFile
+    val inert = disabled || otherRunning
+
+    val fg = when {
+        running -> tokens.accent
+        inert -> tokens.textFaint
+        else -> tokens.textDim
+    }
+    val alpha = when {
+        disabled -> 0.4f
+        otherRunning -> 0.45f
+        else -> 1f
+    }
+    val tip = when {
+        !hasCmd -> "Set a ${kind.label} command in Settings → Commands."
+        !hasFile -> "Open a file to run ${kind.label} for it."
+        running -> "Running — click to view the log."
+        otherRunning -> "A screenshot command is already running."
+        else -> "${kind.label} for the current file"
+    }
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    val button = @Composable {
+        Box(
+            Modifier.size(26.dp).clip(shape)
+                .background(if (running) tokens.accentBg else Color.Transparent)
+                .border(1.dp, if (running) tokens.accentBorder else tokens.border, shape)
+                .hoverWash(enabled = running || !inert, shape = shape)
+                .clickable(enabled = running || !inert) {
+                    if (running) state.commandLogVisible = true else state.runCommand(kind, perFile = true)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                running -> CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.6.dp)
+                kind == AppState.CommandKind.GENERATE -> PlayIcon(fg.copy(alpha = alpha))
+                else -> CheckIcon(if (inert) fg.copy(alpha = alpha) else tokens.new)
+            }
+        }
+    }
+    TooltipArea(tooltip = { TipBubble(tip) }) { button() }
+}
+
+/** The confirmation that replaces [AcceptButton] once the open golden has been accepted. */
+@Composable
+private fun AcceptedLabel() {
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    Row(
+        Modifier.clip(shape)
+            .background(tokens.new.copy(alpha = 0.14f))
+            .border(1.dp, tokens.new.copy(alpha = 0.5f), shape)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CheckIcon(tokens.new, size = 9.dp, strokeWidth = 2.dp)
+        Text("Accepted", color = tokens.new, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** The green "Accept test output as golden" action; ranked as the primary confirming button here. */
+@Composable
+private fun AcceptButton(enabled: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    Row(
+        Modifier.clip(shape)
+            .background(tokens.new.copy(alpha = if (enabled) 1f else 0.4f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CheckIcon(Color.White, size = 9.dp, strokeWidth = 2.dp)
+        Text("Accept", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -199,6 +298,8 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
                 }
             }
             HairLine()
+        } else if (comparison?.accepted == true) {
+            AcceptedBanner()
         } else if (comparison?.identical == true) {
             UnchangedBanner()
         }
@@ -347,6 +448,25 @@ private fun UnchangedBanner() {
             "Unchanged — identical to Git HEAD, no working copy diff to show",
             color = tokens.textDim,
             fontSize = 11.5.sp,
+        )
+    }
+    HairLine()
+}
+
+/** Shown in place of [UnchangedBanner] right after the test output is promoted onto the golden. */
+@Composable
+private fun AcceptedBanner() {
+    Row(
+        Modifier.fillMaxWidth().background(tokens.new.copy(alpha = 0.1f)).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CheckIcon(tokens.new, size = 10.dp, strokeWidth = 2.dp)
+        Text(
+            "Accepted — the test output is now the committed golden",
+            color = tokens.new,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
         )
     }
     HairLine()

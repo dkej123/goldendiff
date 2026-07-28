@@ -5,6 +5,7 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.MessageType
 import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -21,6 +22,8 @@ import java.awt.datatransfer.StringSelection
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.image.BufferedImage
+import java.awt.Color
+import javax.swing.BorderFactory
 import javax.swing.BoxLayout
 import javax.swing.ButtonGroup
 import javax.swing.Icon
@@ -39,6 +42,7 @@ class CompareView(
     private val onModeSelected: (String) -> Unit = {},
     private val onZoomSelected: (String, String) -> Unit = { _, _ -> },
     private val onCopyPath: () -> Unit = {},
+    private val onAccept: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
 
     private val cardLayout = CardLayout()
@@ -51,6 +55,20 @@ class CompareView(
     private val single = SingleImagePanel()
 
     private val modeButtons = mutableListOf<JToggleButton>()
+    private val acceptedGreen = JBColor(Color(0x2E7D32), Color(0x6FBF73))
+    private val acceptButton = JButton("Accept").apply {
+        toolTipText = "Accept test output as the golden"
+        isVisible = false
+        addActionListener { onAccept() }
+    }
+    private val acceptedLabel = JBLabel("\u2713 Accepted").apply {
+        foreground = acceptedGreen
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(acceptedGreen),
+            JBUI.Borders.empty(4, 10),
+        )
+        isVisible = false
+    }
     private var titleText: String? = null
     // A JTextArea (not a JLabel) because file names are single long tokens without spaces, which the
     // Swing HTML/CSS renderer refuses to break; a char-wrapping text area wraps them reliably.
@@ -223,6 +241,7 @@ class CompareView(
         applyZoom(currentZoom)
         status.text = statusText
         hideRetry()
+        hideAcceptState()
         setModeButtonsVisible(true)
         cardLayout.show(cards, selectedMode)
         updateZoomControls()
@@ -233,6 +252,7 @@ class CompareView(
         single.setZoom(currentZoom)
         status.text = statusText
         hideRetry()
+        hideAcceptState()
         setModeButtonsVisible(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
@@ -246,6 +266,7 @@ class CompareView(
         retryAction = action
         retryButton.text = retryLabel
         retryButton.isVisible = true
+        hideAcceptState()
         setModeButtonsVisible(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
@@ -254,6 +275,34 @@ class CompareView(
     private fun hideRetry() {
         retryButton.isVisible = false
         retryAction = null
+    }
+
+    /** Shows the generated-output promotion next to the comparison mode controls. */
+    fun showAccept(enabled: Boolean = true) {
+        acceptedLabel.isVisible = false
+        acceptButton.text = "Accept"
+        acceptButton.isEnabled = enabled
+        acceptButton.isVisible = true
+    }
+
+    /** Keeps the preview stable while the file move and decode happen off the EDT. */
+    fun showAccepting() {
+        acceptedLabel.isVisible = false
+        acceptButton.text = "Accepting\u2026"
+        acceptButton.isEnabled = false
+        acceptButton.isVisible = true
+    }
+
+    /** Replaces the comparison with the promoted image and a persistent confirmation state. */
+    fun showAccepted(image: BufferedImage?, statusText: String) {
+        showSingle(image, statusText)
+        acceptButton.isVisible = false
+        acceptedLabel.isVisible = true
+    }
+
+    private fun hideAcceptState() {
+        acceptButton.isVisible = false
+        acceptedLabel.isVisible = false
     }
 
     private fun applyZoom(zoom: Double) {
@@ -294,6 +343,8 @@ class CompareView(
         modeButton("Swipe", MODE_SWIPE)
         modeButton("Onion skin", MODE_ONION)
         modeButton("Diff", MODE_DIFF)
+        toolbar.add(acceptButton)
+        toolbar.add(acceptedLabel)
         return toolbar
     }
 
