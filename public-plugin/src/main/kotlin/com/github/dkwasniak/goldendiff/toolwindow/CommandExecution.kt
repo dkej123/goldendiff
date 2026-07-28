@@ -6,7 +6,7 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
-import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import java.io.File
@@ -46,11 +46,9 @@ object CommandExecution {
             .withActivateToolWindow(true)
             .withStop({ handler.destroyProcess() }, { !handler.isProcessTerminated })
 
-        // Swing listeners run on the EDT but, on recent IDEs, no longer implicitly hold the
-        // write-intent lock. RunContentExecutor saves open documents before launch and therefore
-        // requires that lock even though this method is already called from the EDT.
-        @Suppress("UnstableApiUsage")
-        WriteIntentReadAction.run { executor.run() }
+        // RunContentExecutor saves open documents before launch. A short write action provides the
+        // required lock through a public API available across the full 241+ compatibility range.
+        ApplicationManager.getApplication().runWriteAction { executor.run() }
         return true
     }
 }
