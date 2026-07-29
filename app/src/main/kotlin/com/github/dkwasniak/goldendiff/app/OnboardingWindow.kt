@@ -78,6 +78,11 @@ private enum class OnboardingStep(val label: String, val optional: Boolean) {
     FINISH("Finish", false),
 }
 
+private enum class WelcomePage {
+    CHOICE,
+    AI_AGENT,
+}
+
 private val OnboardingWidth = 1040.dp
 private val OnboardingHeight = 640.dp
 private val StepperWidth = 230.dp
@@ -129,6 +134,7 @@ fun ApplicationScope.OnboardingWindow(state: AppState, onClose: () -> Unit) {
 private fun OnboardingContent(state: AppState, requestClose: () -> Unit) {
     val steps = OnboardingStep.entries
     var index by remember { mutableStateOf(0) }
+    var welcomePage by remember { mutableStateOf(WelcomePage.CHOICE) }
     val step = steps[index]
     val isLast = index == steps.lastIndex
 
@@ -158,14 +164,26 @@ private fun OnboardingContent(state: AppState, requestClose: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(tokens.background)) {
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            Stepper(steps, index) { target -> if (target <= index) index = target }
-            // The welcome pane scrolls its own content (icon, intro and the CLI-agent card); every
-            // other step scrolls its form. Both branches own their scroller so nothing overflows.
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                if (step == OnboardingStep.WELCOME) {
-                    WelcomeStep(state)
-                } else {
+        if (step == OnboardingStep.WELCOME) {
+            when (welcomePage) {
+                WelcomePage.CHOICE -> WelcomeChoice(
+                    onAgent = { welcomePage = WelcomePage.AI_AGENT },
+                    onManual = { index = OnboardingStep.PROJECT.ordinal },
+                )
+                WelcomePage.AI_AGENT -> AgentSetupStep(
+                    state = state,
+                    onBack = { welcomePage = WelcomePage.CHOICE },
+                )
+            }
+        } else {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Stepper(steps, index) { target ->
+                    if (target <= index) {
+                        index = target
+                        if (target == OnboardingStep.WELCOME.ordinal) welcomePage = WelcomePage.CHOICE
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
                     Column(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                             .padding(horizontal = 44.dp, vertical = 36.dp),
@@ -182,17 +200,20 @@ private fun OnboardingContent(state: AppState, requestClose: () -> Unit) {
                     }
                 }
             }
+            HairLine()
+            Footer(
+                step = step,
+                isLast = isLast,
+                showBack = true,
+                nextEnabled = nextEnabled,
+                onBack = {
+                    if (index > 0) index -= 1
+                    if (index == OnboardingStep.WELCOME.ordinal) welcomePage = WelcomePage.CHOICE
+                },
+                onSkip = { if (index < steps.lastIndex) index += 1 },
+                onNext = { if (nextEnabled) advance() },
+            )
         }
-        HairLine()
-        Footer(
-            step = step,
-            isLast = isLast,
-            showBack = index > 0,
-            nextEnabled = nextEnabled,
-            onBack = { if (index > 0) index -= 1 },
-            onSkip = { if (index < steps.lastIndex) index += 1 },
-            onNext = { if (nextEnabled) advance() },
-        )
     }
 }
 
@@ -293,7 +314,7 @@ private fun StepperRow(number: Int, step: OnboardingStep, stepState: StepState, 
 @Composable
 private fun StepContent(step: OnboardingStep, state: AppState) {
     when (step) {
-        OnboardingStep.WELCOME -> WelcomeStep(state)
+        OnboardingStep.WELCOME -> Unit
         OnboardingStep.PROJECT -> ProjectStep(state)
         OnboardingStep.GOLDEN_DIRS -> GoldenDirectoriesSection(state)
         OnboardingStep.TEST_OUTPUT -> {
@@ -310,48 +331,103 @@ private fun StepContent(step: OnboardingStep, state: AppState) {
 }
 
 @Composable
-private fun WelcomeStep(state: AppState) {
+private fun WelcomeChoice(onAgent: () -> Unit, onManual: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 44.dp, vertical = 36.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 48.dp, vertical = 44.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Box(
-            Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
-                .border(1.dp, tokens.border, RoundedCornerShape(16.dp)),
+            Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)).background(Color.White)
+                .border(1.dp, tokens.border, RoundedCornerShape(18.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Image(painterResource(Res.drawable.app_icon), contentDescription = null, modifier = Modifier.size(40.dp))
+            Image(painterResource(Res.drawable.app_icon), contentDescription = null, modifier = Modifier.size(44.dp))
         }
-        Spacer(Modifier.height(20.dp))
-        Text("Welcome to Golden Diff", color = tokens.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(24.dp))
+        Text("Welcome to Golden Diff", color = tokens.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
         Text(
             "Compare your committed golden screenshots against Git HEAD and your working copy — " +
-                "side by side, swipe, onion skin, or pixel diff.",
+                "in one focused desktop workspace.",
             color = tokens.textDim,
-            fontSize = 13.5.sp,
-            lineHeight = 22.sp,
+            fontSize = 14.sp,
+            lineHeight = 23.sp,
             textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 420.dp),
+            modifier = Modifier.widthIn(max = 560.dp),
         )
-        Spacer(Modifier.height(30.dp))
-        LabeledDivider("or automate it")
-        Spacer(Modifier.height(20.dp))
-        CliAgentCard(state)
+        Spacer(Modifier.height(44.dp))
+        Row(
+            Modifier.widthIn(max = 660.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            SetupChoiceCard(
+                title = "Configure with AI agent",
+                description = "Pick a directory and copy a ready-made prompt into Claude Code " +
+                    "(or another CLI agent) to set everything up for you.",
+                emphasized = true,
+                modifier = Modifier.weight(1f),
+                onClick = onAgent,
+            )
+            SetupChoiceCard(
+                title = "Configure manually",
+                description = "Walk through the setup wizard yourself, step by step.",
+                emphasized = false,
+                modifier = Modifier.weight(1f),
+                onClick = onManual,
+            )
+        }
     }
 }
 
-/** A hairline with a centred label — the "— or automate it —" separator from the mockup. */
 @Composable
-private fun LabeledDivider(label: String) {
-    Row(
-        Modifier.widthIn(max = 560.dp).fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+private fun SetupChoiceCard(
+    title: String,
+    description: String,
+    emphasized: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier.heightIn(min = 150.dp).clip(shape)
+            .background(if (emphasized) tokens.accentBg else tokens.panel)
+            .border(1.dp, if (emphasized) tokens.accentBorder else tokens.border, shape)
+            .hoverWash(true, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        HairLine(Modifier.weight(1f))
-        Text(label, color = tokens.textFaint, fontSize = Type.body)
-        HairLine(Modifier.weight(1f))
+        Text(title, color = tokens.text, fontSize = Type.large, fontWeight = FontWeight.Bold)
+        Text(
+            description,
+            color = tokens.textDim,
+            fontSize = 12.5.sp,
+            lineHeight = 19.sp,
+        )
+    }
+}
+
+@Composable
+private fun AgentSetupStep(state: AppState, onBack: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 44.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(Modifier.widthIn(max = 660.dp).fillMaxWidth()) {
+            GhostButton("Back", onBack)
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("Configure with AI agent", color = tokens.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Choose your project, then copy the prepared prompt into your CLI agent.",
+            color = tokens.textDim,
+            fontSize = 13.5.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(24.dp))
+        CliAgentCard(state)
     }
 }
 
@@ -594,7 +670,6 @@ private fun Footer(
     onNext: () -> Unit,
 ) {
     val nextLabel = when {
-        step == OnboardingStep.WELCOME -> "Get started"
         isLast -> "Start comparing"
         else -> "Next"
     }

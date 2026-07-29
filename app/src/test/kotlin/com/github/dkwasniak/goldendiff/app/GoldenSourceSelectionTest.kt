@@ -51,4 +51,10 @@ class GoldenSourceSelectionTest {
             preferredGoldenSource(item, remembered = BuiltInSource.WORKING_COPY),
         )
     }
+
+    @Test
+    fun `source labels use explicit user-facing wording`() {
+        assertEquals("Test output", sourceLabel(BuiltInSource.GENERATED))
+        assertEquals("Working copy", sourceLabel(BuiltInSource.WORKING_COPY))
+    }
 }
