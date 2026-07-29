@@ -20,19 +20,39 @@ object CommandTemplate {
     const val FILE_NAME = "{file_name}"
     const val CLASS_NAME = "{class_name}"
     const val FILE_PATH = "{file_path}"
+    const val SNAPSHOT_FILE_NAME = "{snapshot_file_name}"
+    const val SNAPSHOT_CLASS_NAME = "{snapshot_class_name}"
+    const val SNAPSHOT_FILE_PATH = "{snapshot_file_path}"
+    const val SNAPSHOT_METHOD_NAME = "{snapshot_method_name}"
+
+    data class SnapshotContext(
+        val fileName: String,
+        val className: String?,
+        val filePath: String,
+        val methodName: String,
+    )
 
     /** Every placeholder [expand] understands, with a short description for UI help text. */
     val PLACEHOLDERS: List<Pair<String, String>> = listOf(
         FILE_NAME to "current file name without extension",
         CLASS_NAME to "first class declared in the file (falls back to the file name)",
         FILE_PATH to "project-relative path of the file without extension",
+        SNAPSHOT_FILE_NAME to "snapshot generator file name without extension",
+        SNAPSHOT_CLASS_NAME to "snapshot generator class (falls back to its file name)",
+        SNAPSHOT_FILE_PATH to "project-relative path of the snapshot generator without extension",
+        SNAPSHOT_METHOD_NAME to "snapshot test or preview function name",
     )
 
     /**
      * Substitutes the placeholders in [template] using [screen] and the optional [relativePath]
      * (project-relative, extension stripped). Order-independent, single pass per placeholder.
      */
-    fun expand(template: String, screen: Screen, relativePath: String? = null): String {
+    fun expand(
+        template: String,
+        screen: Screen,
+        relativePath: String? = null,
+        snapshot: SnapshotContext? = null,
+    ): String {
         var result = template
         if (result.contains(FILE_NAME)) {
             result = result.replace(FILE_NAME, screen.fileName)
@@ -43,6 +63,13 @@ object CommandTemplate {
         }
         if (relativePath != null && result.contains(FILE_PATH)) {
             result = result.replace(FILE_PATH, relativePath)
+        }
+        snapshot?.let { context ->
+            result = result
+                .replace(SNAPSHOT_FILE_NAME, context.fileName)
+                .replace(SNAPSHOT_CLASS_NAME, context.className?.takeIf(String::isNotBlank) ?: context.fileName)
+                .replace(SNAPSHOT_FILE_PATH, context.filePath)
+                .replace(SNAPSHOT_METHOD_NAME, context.methodName)
         }
         return result
     }

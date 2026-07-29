@@ -73,10 +73,7 @@ fun QuickOpenDialog(state: AppState) {
     }
 
     fun choose(index: Int) {
-        results.getOrNull(index)?.let { path ->
-            state.quickOpenVisible = false
-            state.selectSourceFile(path, "quick_open")
-        }
+        results.getOrNull(index)?.let(state::openQuickOpenResult)
     }
 
     Box(
@@ -144,9 +141,9 @@ fun QuickOpenDialog(state: AppState) {
                 )
             } else {
                 LazyColumn(Modifier.heightIn(max = 280.dp).padding(vertical = 8.dp), state = listState) {
-                    itemsIndexed(results, key = { _, path -> path }) { index, path ->
+                    itemsIndexed(results, key = { _, result -> "${result.path}\u0000${result.caseId.orEmpty()}" }) { index, result ->
                         ResultRow(
-                            path = path,
+                            result = result,
                             query = state.quickOpenQuery,
                             selected = index == selectedIndex,
                             onClick = { choose(index) },
@@ -166,9 +163,8 @@ fun QuickOpenDialog(state: AppState) {
 }
 
 @Composable
-private fun ResultRow(path: String, query: String, selected: Boolean, onClick: () -> Unit) {
+private fun ResultRow(result: QuickOpenResult, query: String, selected: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Dimens.controlRadius)
-    val name = path.substringAfterLast('/')
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(shape)
             .background(if (selected) tokens.accentBg else Color.Transparent, shape)
@@ -176,9 +172,9 @@ private fun ResultRow(path: String, query: String, selected: Boolean, onClick: (
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
-        Text(highlighted(name, query), fontSize = Type.header, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(highlighted(result.label, query), fontSize = Type.header, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            path,
+            result.path,
             color = tokens.textFaint,
             fontSize = Type.thumbLabel,
             fontFamily = Type.Mono,

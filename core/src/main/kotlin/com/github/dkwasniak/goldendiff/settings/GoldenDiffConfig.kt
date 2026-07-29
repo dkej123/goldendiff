@@ -50,6 +50,8 @@ data class GoldenDiffConfig(
     val verifyAllCommand: String = "",
     /** Shell command run to verify the current file's goldens only. Supports the same placeholders. */
     val verifyFileCommand: String = "",
+    /** Optional command scoped to one snapshot test/preview case. */
+    val verifyCaseCommand: String = "",
     /**
      * Absolute path to a JDK/JBR used as `JAVA_HOME` when running the generate/verify commands. Lets a
      * project whose toolchain lives outside the app's environment — e.g. Android Studio's bundled JBR,
@@ -57,6 +59,8 @@ data class GoldenDiffConfig(
      * Blank means "use whatever the command's own shell resolves".
      */
     val commandJavaHome: String = "",
+    /** Notify after successful/failed commands while the host is in the background. */
+    val notifyWhenTasksFinish: Boolean = true,
 ) {
 
     val hasCommandJavaHome: Boolean get() = commandJavaHome.isNotBlank()
@@ -72,6 +76,8 @@ data class GoldenDiffConfig(
     val hasVerifyAllCommand: Boolean get() = verifyAllCommand.isNotBlank()
 
     val hasVerifyFileCommand: Boolean get() = verifyFileCommand.isNotBlank()
+
+    val hasVerifyCaseCommand: Boolean get() = verifyCaseCommand.isNotBlank()
 
     /**
      * Fills the structural matching defaults just for consumption, so a host that stores these fields

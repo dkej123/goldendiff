@@ -63,6 +63,7 @@ import com.github.dkwasniak.goldendiff.app.ui.LightTokens
 import com.github.dkwasniak.goldendiff.app.ui.LocalTokens
 import com.github.dkwasniak.goldendiff.app.ui.PrimaryButton
 import com.github.dkwasniak.goldendiff.app.ui.Type
+import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.match.MatchMode
@@ -81,10 +82,12 @@ private enum class SettingsSection(val label: String) {
     FILTERING("Filtering"),
     DISPLAY("Display"),
     COMMANDS("Commands"),
+    NOTIFICATIONS("Notifications"),
     PRIVACY("Privacy");
 
     /** The live match preview is meaningless for the appearance/trim/command controls. */
-    val showsPreview: Boolean get() = this != DISPLAY && this != PRIVACY && this != COMMANDS
+    val showsPreview: Boolean get() =
+        this in setOf(OUTPUT_MATCHING, MATCHING, FILTERING)
 }
 
 /**
@@ -143,6 +146,16 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                 Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
                                     .padding(horizontal = 28.dp, vertical = 22.dp),
                             ) {
+                                if (state.projectRoot == null) {
+                                    Text(
+                                        "Open a project to view or change project-dependent settings.",
+                                        color = tokens.textDim,
+                                        fontSize = Type.body,
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(Dimens.controlRadius))
+                                            .background(tokens.accentBg).padding(10.dp),
+                                    )
+                                    Spacer(Modifier.height(14.dp))
+                                }
                                 when (section) {
                                     SettingsSection.DIRECTORIES -> DirectoriesSection(state)
                                     SettingsSection.OUTPUT_MATCHING -> OutputMatchingSection(state)
@@ -150,6 +163,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                     SettingsSection.FILTERING -> FilteringSection(state)
                                     SettingsSection.DISPLAY -> DisplaySection(state)
                                     SettingsSection.COMMANDS -> CommandsSection(state)
+                                    SettingsSection.NOTIFICATIONS -> NotificationsSection(state)
                                     SettingsSection.PRIVACY -> PrivacySection()
                                 }
                             }
@@ -184,7 +198,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                             state.onboardingVisible = true
                         }
                         GhostButton("Cancel", requestClose)
-                        PrimaryButton("Done", onClick = requestClose)
+                        PrimaryButton("OK", onClick = requestClose)
                     }
                 }
             }
@@ -253,19 +267,27 @@ private fun NavItem(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun PreviewPanel(state: AppState, modifier: Modifier) {
     Column(modifier.background(tokens.panelHeader)) {
-        Row(
-            Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Preview (live)", color = tokens.text, fontSize = Type.panelTitle, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            Text(
-                if (state.busy) "…" else "${state.items.size}",
-                color = tokens.textFaint,
-                fontSize = Type.small,
-            )
-        }
+        WrappingPaneHeader(
+            minHeight = 38.dp,
+            horizontalPadding = 14.dp,
+            verticalPadding = 6.dp,
+            spacing = 8.dp,
+            leading = {
+                Text(
+                    "Preview (live)",
+                    color = tokens.text,
+                    fontSize = Type.panelTitle,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            actions = {
+                Text(
+                    if (state.busy) "…" else "${state.items.size}",
+                    color = tokens.textFaint,
+                    fontSize = Type.small,
+                )
+            },
+        )
         HairLine()
         when {
             state.projectRoot == null ->
@@ -297,4 +319,3 @@ private fun PreviewPanel(state: AppState, modifier: Modifier) {
 private fun PreviewHint(text: String) {
     Text(text, color = tokens.textFaint, fontSize = Type.small, modifier = Modifier.padding(14.dp))
 }
-

@@ -20,12 +20,17 @@ object GenericScreenExtractor {
      * annotation whose name matches the regex (e.g. `@Preview`).
      * When null/blank every named function is kept (the original, unfiltered behaviour).
      */
-    fun extract(fileName: String, text: String, annotationNameRegex: String? = null): Screen {
+    fun extract(
+        fileName: String,
+        text: String,
+        annotationNameRegex: String? = null,
+        includeTestFunctions: Boolean = false,
+    ): Screen {
         val classNames = CLASS_DECL.captures(text)
         val namedFunctions = if (annotationNameRegex.isNullOrBlank()) {
             NAMED_FUNCTION_DECL.captures(text)
         } else {
-            annotatedOrTestFunctions(text, annotationNameRegex)
+            annotatedOrTestFunctions(text, annotationNameRegex, includeTestFunctions)
         }
         // Assigned components and test/story titles have no declaration annotation we can associate
         // reliably. They remain useful in the unfiltered extractor, but annotated-method mode must
@@ -43,15 +48,20 @@ object GenericScreenExtractor {
         )
     }
 
-    // Keeps only functions preceded by an annotation matching the regex. The annotated-method mode
-    // is deliberately literal: naming a function `test…` does not make it annotated.
-    private fun annotatedOrTestFunctions(text: String, annotationNameRegex: String): List<String> =
+    // The plugin keeps annotated-method matching literal. The standalone index additionally opts in
+    // to conventional test functions so Swift/XCTest generators can become snapshot cases without
+    // changing GoldenFinder.find() or the plugin's current-file semantics.
+    private fun annotatedOrTestFunctions(
+        text: String,
+        annotationNameRegex: String,
+        includeTestFunctions: Boolean,
+    ): List<String> =
         NAMED_FUNCTION_DECL.findAll(text)
             .mapNotNull { match ->
                 val name = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val annotated = precedingAnnotations(text, match.range.first)
                     .any { AnnotationNameMatcher.matches(it, annotationNameRegex) }
-                name.takeIf { annotated }
+                name.takeIf { annotated || includeTestFunctions && name.startsWith("test", ignoreCase = true) }
             }
             .distinct()
             .toList()
@@ -62,8 +72,10 @@ object GenericScreenExtractor {
     private fun precedingAnnotations(text: String, declStart: Int): List<String> {
         val lines = text.substring(0, declStart).split('\n')
         val annotations = mutableListOf<String>()
+        var annotationArgumentDepth = 0
         for (i in lines.indices.reversed()) {
             val line = lines[i].trim()
+            annotationArgumentDepth += line.count { it == ')' } - line.count { it == '(' }
             when {
                 line.isEmpty() -> continue
                 line.startsWith("@") -> {
@@ -71,6 +83,7 @@ object GenericScreenExtractor {
                     if (DECL_KEYWORD.containsMatchIn(line)) break
                     ANNOTATION_NAME.findAll(line).forEach { annotations.add(it.groupValues[1]) }
                 }
+                annotationArgumentDepth > 0 -> continue
                 line.startsWith("//") || line.startsWith("*") || line.startsWith("/*") -> continue
                 line.substringBefore(' ') in MODIFIERS -> continue
                 else -> break

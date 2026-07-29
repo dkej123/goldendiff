@@ -2,6 +2,7 @@ package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.LocalContextMenuRepresentation
 import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,18 +32,18 @@ import androidx.compose.material.darkColors
 import androidx.compose.material.lightColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
@@ -50,7 +51,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -85,6 +85,7 @@ import java.awt.Frame
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.JOptionPane
+import kotlinx.coroutines.delay
 
 /**
  * The main window: a toolbar, a legend, and three floating panes.
@@ -96,29 +97,122 @@ import javax.swing.JOptionPane
 @Composable
 fun GoldenDiffWindow(state: AppState) {
     val palette = if (state.ui.useDarkTheme) DarkTokens else LightTokens
-    CompositionLocalProvider(LocalTokens provides palette) {
+    val contextMenus = remember(palette) {
+        ThemedContextMenuRepresentation(palette)
+    }
+    CompositionLocalProvider(
+        LocalTokens provides palette,
+        LocalContextMenuRepresentation provides contextMenus,
+    ) {
         val materialColors = if (palette.dark) {
             darkColors(background = palette.background, surface = palette.panelHeader, primary = palette.accent)
         } else {
             lightColors(background = palette.background, surface = palette.panel, primary = palette.accent)
         }
         MaterialTheme(colors = materialColors) {
-            Column(Modifier.fillMaxSize().background(palette.background)) {
-                if (state.updateBannerVisible) {
-                    UpdateBanner(state)
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().background(palette.background)) {
+                    if (state.updateBannerVisible) {
+                        UpdateBanner(state)
+                        HairLine()
+                    }
+                    Toolbar(state)
                     HairLine()
+                    LegendRow(state)
+                    HairLine()
+                    Body(state, Modifier.weight(1f))
+                    HairLine()
+                    StatusBar(state)
                 }
-                Toolbar(state)
-                HairLine()
-                LegendRow(state)
-                HairLine()
-                if (state.browse == Browse.FILES && state.openTabs.isNotEmpty()) TabStrip(state)
-                Body(state, Modifier.weight(1f))
-                HairLine()
-                StatusBar(state)
+                if (state.quickOpenVisible) QuickOpenDialog(state)
+                state.acceptAllState?.let { AcceptAllOverlay(state, it) }
             }
-            if (state.quickOpenVisible) QuickOpenDialog(state)
         }
+    }
+}
+
+@Composable
+private fun AcceptAllOverlay(state: AppState, flow: AppState.AcceptAllState) {
+    LaunchedEffect(flow) {
+        if (flow is AppState.AcceptAllState.Success) {
+            delay(2_500)
+            state.dismissAcceptAll()
+        }
+    }
+    Box(
+        Modifier.fillMaxSize().background(tokens.scrim).clickable { state.dismissAcceptAll() },
+        contentAlignment = Alignment.Center,
+    ) {
+        val shape = RoundedCornerShape(10.dp)
+        Column(
+            Modifier.widthIn(min = 360.dp, max = 520.dp).clip(shape).background(tokens.panel)
+                .border(1.dp, tokens.borderStrong, shape)
+                .clickable(enabled = false) {}
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            when (flow) {
+                is AppState.AcceptAllState.Confirm -> {
+                    Text("Accept all Test outputs?", color = tokens.text, fontSize = Type.large, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${flow.candidates.size} snapshot(s) associated with ${state.selectedSourcePath?.let { File(it).name }.orEmpty()} will replace their goldens.",
+                        color = tokens.textDim,
+                        fontSize = Type.body,
+                    )
+                    ModalActions(
+                        secondary = "Cancel" to state::dismissAcceptAll,
+                        primary = "Accept all (${flow.candidates.size})" to { state.confirmAcceptAll(flow.candidates) },
+                    )
+                }
+                is AppState.AcceptAllState.Progress -> {
+                    Text("Accepting snapshots…", color = tokens.text, fontSize = Type.large, fontWeight = FontWeight.Bold)
+                    Text("Accepting ${flow.completed} of ${flow.total}…", color = tokens.textDim, fontSize = Type.body)
+                    CircularProgressIndicator(Modifier.size(18.dp), color = tokens.accent, strokeWidth = 2.dp)
+                }
+                is AppState.AcceptAllState.Success -> {
+                    Text("All ${flow.count} snapshots accepted", color = tokens.new, fontSize = Type.large, fontWeight = FontWeight.Bold)
+                    ModalActions(primary = "Done" to state::dismissAcceptAll)
+                }
+                is AppState.AcceptAllState.Partial -> {
+                    val first = flow.failed.first()
+                    Text("Some snapshots could not be accepted", color = tokens.changed, fontSize = Type.large, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${flow.accepted} of ${flow.total} accepted. ${first.golden.name} could not be written.",
+                        color = tokens.textDim,
+                        fontSize = Type.body,
+                    )
+                    ModalActions(
+                        secondary = "Close" to state::dismissAcceptAll,
+                        primary = "Retry remaining" to { state.retryAcceptAll(flow.failed) },
+                    )
+                }
+                AppState.AcceptAllState.NothingToAccept -> {
+                    Text("Nothing to accept", color = tokens.text, fontSize = Type.large, fontWeight = FontWeight.Bold)
+                    Text("No differing Test outputs remain for this file.", color = tokens.textDim, fontSize = Type.body)
+                    ModalActions(primary = "Done" to state::dismissAcceptAll)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModalActions(
+    secondary: Pair<String, () -> Unit>? = null,
+    primary: Pair<String, () -> Unit>,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        secondary?.let { (label, action) ->
+            Text(label, color = tokens.textDim, fontSize = Type.body, modifier = Modifier.clickable(onClick = action).padding(9.dp))
+        }
+        Text(
+            primary.first,
+            color = Color.White,
+            fontSize = Type.body,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).background(tokens.changed)
+                .clickable(onClick = primary.second).padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -133,21 +227,11 @@ private fun Toolbar(state: AppState) {
     ) {
         ProjectMenuButton(state)
         VerticalHairLine(20.dp)
-        DropdownButton("Scope", state.browse, Browse.entries.toList(), Browse::label, hasProject) { state.selectBrowse(it) }
-        if (state.browse == Browse.FILES) {
-            ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
-                state.featureUsed("quick_open")
-                state.quickOpenQuery = ""
-                state.quickOpenVisible = true
-            }
+        ToolButton(state.selectedSourcePath?.let { File(it).name } ?: "Choose file…", hasProject) {
+            state.featureUsed("quick_open")
+            state.quickOpenQuery = ""
+            state.quickOpenVisible = true
         }
-        DropdownButton(
-            "Compare",
-            state.source,
-            BuiltInSource.entries.toList(),
-            ::sourceLabel,
-            hasProject,
-        ) { state.selectSource(it) }
         Spacer(Modifier.weight(1f))
         SettingsGearButton(state)
     }
@@ -157,18 +241,14 @@ private fun Toolbar(state: AppState) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SettingsGearButton(state: AppState) {
-    val enabled = state.projectRoot != null
     val shape = RoundedCornerShape(Dimens.controlRadius)
-    val button = @Composable {
-        Box(
-            Modifier.size(28.dp).clip(shape).hoverWash(enabled, shape)
-                .clickable(enabled = enabled) { state.settingsVisible = true },
-            contentAlignment = Alignment.Center,
-        ) {
-            GearIcon(tokens.textDim.copy(alpha = if (enabled) 1f else 0.4f))
-        }
+    Box(
+        Modifier.size(28.dp).clip(shape).hoverWash(true, shape)
+            .clickable { state.settingsVisible = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        GearIcon(tokens.textDim)
     }
-    if (enabled) button() else TooltipArea(tooltip = { TipBubble("Open a project first.") }) { button() }
 }
 
 /**
@@ -226,34 +306,40 @@ private fun CommandSegment(state: AppState, kind: AppState.CommandKind) {
         val body = @Composable {
             Row(
                 Modifier.height(26.dp)
-                    .background(if (running) tokens.accentBg else Color.Transparent)
-                    .hoverWash(enabled = !inert, shape = RoundedCornerShape(0.dp))
-                    .clickable(enabled = running || !inert) {
-                        when {
-                            running -> state.commandLogVisible = true
-                            hasAll -> state.runCommand(kind, perFile = false)
-                            else -> expanded = true
-                        }
-                    }
-                    .padding(horizontal = 10.dp),
+                    .background(if (running) tokens.accentBg else Color.Transparent),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (running) {
-                    CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.6.dp)
-                } else if (kind == AppState.CommandKind.GENERATE) {
-                    PlayIcon(fg.copy(alpha = alpha))
-                } else {
-                    CheckIcon(if (inert) fg.copy(alpha = alpha) else tokens.new)
-                }
-                Text(kind.label, color = fg.copy(alpha = alpha), fontSize = Type.body, fontWeight = FontWeight.Medium)
-                Box(
-                    Modifier.clip(RoundedCornerShape(4.dp))
-                        .hoverWash(enabled = !inert, shape = RoundedCornerShape(4.dp))
-                        .clickable(enabled = !inert) { expanded = true }
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                Row(
+                    Modifier.fillMaxHeight()
+                        .hoverWash(enabled = !inert, shape = RoundedCornerShape(0.dp))
+                        .clickable(enabled = running || !inert) {
+                            when {
+                                running -> state.commandLogVisible = true
+                                hasAll -> state.runCommand(kind, perFile = false)
+                                else -> expanded = true
+                            }
+                        }
+                        .padding(start = 10.dp, end = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Chevron(Direction.DOWN, tokens.textFaint.copy(alpha = alpha), size = 8.dp)
+                    if (running) {
+                        CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.6.dp)
+                    } else if (kind == AppState.CommandKind.GENERATE) {
+                        PlayIcon(fg.copy(alpha = alpha))
+                    } else {
+                        CheckIcon(if (inert) fg.copy(alpha = alpha) else tokens.new)
+                    }
+                    Text(kind.label, color = fg.copy(alpha = alpha), fontSize = Type.body, fontWeight = FontWeight.Medium)
+                }
+                Box(
+                    Modifier.width(28.dp).fillMaxHeight()
+                        .hoverWash(enabled = !inert, shape = RoundedCornerShape(0.dp))
+                        .clickable(enabled = !inert) { expanded = true }
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Chevron(Direction.DOWN, tokens.textFaint.copy(alpha = alpha), size = 10.dp)
                 }
             }
         }
@@ -423,67 +509,6 @@ private fun ProjectMenuButton(state: AppState) {
     }
 }
 
-/** Window-level strip of opened project files, between the legend and the panes. */
-@Composable
-private fun TabStrip(state: AppState) {
-    Row(
-        Modifier.fillMaxWidth().background(tokens.panelHeader).horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        state.openTabs.forEach { path ->
-            val missing = state.projectRoot?.let { !File(it, path).isFile } == true
-            Tab(
-                label = File(path).name,
-                active = state.selectedSourcePath == path,
-                missing = missing,
-                onClick = { state.selectSourceFile(path, "tab") },
-                onClose = { state.closeTab(path) },
-            )
-        }
-    }
-    HairLine()
-}
-
-@Composable
-private fun Tab(
-    label: String,
-    active: Boolean,
-    missing: Boolean,
-    onClick: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val accentColor = tokens.accent
-    Row(
-        Modifier.height(32.dp)
-            .background(if (active) tokens.panel else Color.Transparent)
-            .drawBehind {
-                // A 2px accent lid on the active tab, matching the New-UI editor tabs.
-                if (active) drawRect(accentColor, size = Size(size.width, 2.dp.toPx()))
-            }
-            .clickable(onClick = onClick)
-            .padding(start = 12.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            label,
-            color = if (missing) tokens.textFaint else if (active) tokens.text else tokens.textDim,
-            fontSize = 11.5.sp,
-            fontFamily = Type.Mono,
-            textDecoration = if (missing) TextDecoration.LineThrough else TextDecoration.None,
-            maxLines = 1,
-        )
-        Box(
-            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).hoverWash()
-                .clickable(onClick = onClose),
-            contentAlignment = Alignment.Center,
-        ) {
-            CloseIcon(tokens.textFaint)
-        }
-    }
-    VerticalHairLine(32.dp)
-}
-
 @Composable
 private fun LegendRow(state: AppState) {
     Row(
@@ -492,8 +517,9 @@ private fun LegendRow(state: AppState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        LegendItem(tokens.changed, "Changed vs HEAD")
-        LegendItem(tokens.new, "New in working copy")
+        LegendItem(tokens.changed, "Failed — Test output")
+        LegendItem(tokens.modified, "Modified — Working copy")
+        LegendItem(tokens.new, "New — Working copy")
         Spacer(Modifier.weight(1f))
         state.blockerText()?.let {
             Text(it, color = tokens.changed, fontSize = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
@@ -677,31 +703,64 @@ private fun Body(state: AppState, modifier: Modifier) {
     }
 }
 
+private val MinResizablePaneWidth = 120.dp
+private val SplitterWidth = 4.dp
+
 /** The three floating panes, with draggable splitters between them. */
 @Composable
 private fun PaneRow(state: AppState, modifier: Modifier) {
     BoxWithConstraints(modifier.fillMaxSize().padding(Dimens.panePadding)) {
         val available = maxWidth
-        val maxProjectWidth = (available * 0.4f).coerceAtLeast(Dimens.leftPaneWidth)
-        var projectWidth by remember(available) {
-            mutableStateOf(Dimens.leftPaneWidth.coerceAtMost(maxProjectWidth))
-        }
         val collapsed = state.ui.leftPaneCollapsed
-        val usedByProject = if (collapsed) 24.dp else projectWidth
-        val maxGoldensWidth = (available - usedByProject - 420.dp).coerceAtLeast(340.dp)
-        var goldensWidth by remember(available) {
-            mutableStateOf((available * 0.28f).coerceIn(340.dp, maxGoldensWidth))
+        val expandedChromeWidth = SplitterWidth * 2 + Dimens.paneGap * 4
+        val availableProjectWidth = (
+            available - MinResizablePaneWidth * 2 - expandedChromeWidth
+            ).coerceAtLeast(MinResizablePaneWidth)
+        var projectWidth by remember { mutableStateOf(state.ui.projectPaneWidth.dp) }
+        val visibleProjectWidth = projectWidth.coerceIn(MinResizablePaneWidth, availableProjectWidth)
+        val usedByProject = if (collapsed) 24.dp else visibleProjectWidth
+        val chromeWidth = if (collapsed) {
+            SplitterWidth + Dimens.paneGap * 3
+        } else {
+            expandedChromeWidth
         }
+        val availableGoldensWidth = (
+            available - usedByProject - MinResizablePaneWidth - chromeWidth
+            ).coerceAtLeast(MinResizablePaneWidth)
+        var goldensWidth by remember {
+            mutableStateOf(state.ui.goldensPaneWidth.dp)
+        }
+        val visibleGoldensWidth = goldensWidth.coerceIn(MinResizablePaneWidth, availableGoldensWidth)
 
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(Dimens.paneGap)) {
             if (collapsed) {
                 CollapsedProjectEdge(state, Modifier.fillMaxHeight())
             } else {
-                ProjectPane(state, Modifier.width(projectWidth).fillMaxHeight())
-                Splitter { projectWidth = (projectWidth + it).coerceIn(Dimens.leftPaneWidth, maxProjectWidth) }
+                ProjectPane(state, Modifier.width(visibleProjectWidth).fillMaxHeight())
+                Splitter(
+                    onDrag = {
+                        projectWidth =
+                            (visibleProjectWidth + it).coerceIn(MinResizablePaneWidth, availableProjectWidth)
+                    },
+                    onDragFinished = {
+                        state.ui.rememberProjectPaneWidth(
+                            projectWidth.coerceIn(MinResizablePaneWidth, availableProjectWidth).value.toInt(),
+                        )
+                    },
+                )
             }
-            GoldensPane(state, Modifier.width(goldensWidth.coerceAtMost(maxGoldensWidth)).fillMaxHeight())
-            Splitter { goldensWidth = (goldensWidth + it).coerceIn(340.dp, maxGoldensWidth) }
+            GoldensPane(state, Modifier.width(visibleGoldensWidth).fillMaxHeight())
+            Splitter(
+                onDrag = {
+                    goldensWidth =
+                        (visibleGoldensWidth + it).coerceIn(MinResizablePaneWidth, availableGoldensWidth)
+                },
+                onDragFinished = {
+                    state.ui.rememberGoldensPaneWidth(
+                        goldensWidth.coerceIn(MinResizablePaneWidth, availableGoldensWidth).value.toInt(),
+                    )
+                },
+            )
             ComparePane(state, Modifier.weight(1f).fillMaxHeight())
         }
     }
@@ -709,38 +768,55 @@ private fun PaneRow(state: AppState, modifier: Modifier) {
 
 /** A 4px hit zone in the pane gap; it highlights accent while hovered. */
 @Composable
-private fun Splitter(onDrag: (Dp) -> Unit) {
+private fun Splitter(onDrag: (Dp) -> Unit, onDragFinished: () -> Unit) {
     var active by remember { mutableStateOf(false) }
+    val currentOnDrag = rememberUpdatedState(onDrag)
+    val currentOnDragFinished = rememberUpdatedState(onDragFinished)
     Box(
-        Modifier.width(4.dp).fillMaxHeight()
+        Modifier.width(SplitterWidth).fillMaxHeight()
             .background(if (active) tokens.accent.copy(alpha = 0.4f) else Color.Transparent)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = { active = true },
-                    onDragEnd = { active = false },
+                    onDragEnd = {
+                        active = false
+                        currentOnDragFinished.value()
+                    },
                     onDragCancel = { active = false },
-                ) { _, drag -> onDrag(drag.toDp()) }
+                ) { _, drag -> currentOnDrag.value(drag.toDp()) }
             },
     )
 }
 
-/** Show in Finder / Copy Absolute Path / Delete, on tree rows and golden cards alike. */
+/** Host-specific actions plus Show in Finder / Copy Absolute Path / Delete. */
 @Composable
-fun FileContextMenu(state: AppState, file: File, canDelete: Boolean, content: @Composable () -> Unit) {
+fun FileContextMenu(
+    state: AppState,
+    file: File,
+    canDelete: Boolean,
+    title: String = file.name,
+    additionalItems: () -> List<ContextMenuItem> = { emptyList() },
+    content: @Composable () -> Unit,
+) {
     ContextMenuArea(
         items = {
             buildList {
-                add(ContextMenuItem(showInFileManagerLabel()) {
+                add(HeaderContextMenuItem(title))
+                val custom = additionalItems()
+                addAll(custom)
+                if (custom.isNotEmpty()) add(SeparatorContextMenuItem())
+                add(ActionContextMenuItem(showInFileManagerLabel(), ContextActionIcon.FINDER) {
                     state.featureUsed("reveal_in_file_manager")
                     RevealInFileManager.reveal(file)
                 })
-                add(ContextMenuItem("Copy Absolute Path") {
+                add(ActionContextMenuItem("Copy Absolute Path", ContextActionIcon.COPY) {
                     state.featureUsed("copy_path")
                     copyToClipboard(file.absolutePath)
                 })
                 if (canDelete && file.isFile) {
-                    add(ContextMenuItem("Delete") {
+                    add(SeparatorContextMenuItem())
+                    add(ActionContextMenuItem("Delete", ContextActionIcon.DELETE) {
                         val answer = JOptionPane.showConfirmDialog(
                             null,
                             "Delete ${file.name} from disk?",

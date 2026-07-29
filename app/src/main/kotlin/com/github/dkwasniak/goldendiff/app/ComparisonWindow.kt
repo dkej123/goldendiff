@@ -34,6 +34,7 @@ import com.github.dkwasniak.goldendiff.app.ui.IconButton
 import com.github.dkwasniak.goldendiff.app.ui.LightTokens
 import com.github.dkwasniak.goldendiff.app.ui.LocalTokens
 import com.github.dkwasniak.goldendiff.app.ui.Type
+import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.naming.shortGoldenName
 
@@ -65,27 +66,32 @@ fun ApplicationScope.ComparisonWindow(state: AppState, onClose: () -> Unit) {
                 },
             ) {
                 Column(Modifier.fillMaxSize().background(tokens.background)) {
-                    Row(
-                        Modifier.fillMaxWidth().height(40.dp).background(tokens.panelHeader)
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            selected?.let { shortGoldenName(it.name) } ?: "Compare",
-                            color = tokens.text,
-                            fontSize = Type.panelTitle,
-                            fontFamily = if (selected != null) Type.Mono else null,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (selected != null) {
-                            IconButton(size = 26.dp, onClick = { copyToClipboard(selected.absolutePath) }) {
-                                CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
+                    WrappingPaneHeader(
+                        modifier = Modifier.background(tokens.panelHeader),
+                        minHeight = 40.dp,
+                        horizontalPadding = 14.dp,
+                        verticalPadding = 7.dp,
+                        spacing = 10.dp,
+                        leading = {
+                            Text(
+                                selected?.let { shortGoldenName(it.name) } ?: "Compare",
+                                color = tokens.text,
+                                fontSize = Type.panelTitle,
+                                fontFamily = if (selected != null) Type.Mono else null,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        },
+                        actions = {
+                            if (selected != null) {
+                                IconButton(size = 26.dp, onClick = { copyToClipboard(selected.absolutePath) }) {
+                                    CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
+                                }
                             }
-                        }
-                    }
+                        },
+                    )
                     HairLine()
                     CompareContent(state, Modifier.weight(1f), location = "detached_window")
                 }

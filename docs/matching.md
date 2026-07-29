@@ -112,6 +112,20 @@ auth_login_.*\.png
 
 Matches `auth_login_empty_state.png`, `auth_login_dark_mode.png`.
 
+## Standalone view and snapshot-case tree
+
+The standalone app preserves the matcher above for source-to-golden coverage, then adds a
+function-level evidence pass using the same whole-word/camel-case boundaries as annotated-method
+matching. It recognizes annotated Kotlin functions, conventional Swift `test…` functions, and the
+generic functions/tests/stories already extracted for other languages.
+
+Each case is assigned to one parent view: its own non-test generator file first, otherwise the most
+specific non-test file/class sharing its goldens, and finally the generator/test file. Test containers
+are detected from `test…` functions, `test`/`tests`/`__tests__` path segments, and conventional
+`Test(s)`, `SnapshotTest(s)`, or `Spec(s)` suffixes. Ties use owner-name agreement, golden coverage,
+longest matching name, then path order. A golden with no function evidence remains directly on one
+best parent, so matching coverage is not reduced.
+
 ## Generated output is separate
 
 The matching above controls which committed golden files appear in the list.

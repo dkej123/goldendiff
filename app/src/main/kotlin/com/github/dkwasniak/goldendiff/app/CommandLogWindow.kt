@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,11 +91,14 @@ private fun CommandLogHeader(state: AppState) {
             color = tokens.text,
             fontSize = Type.panelTitle,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
         Text(
             state.commandStatus.orEmpty(),
             color = tokens.textFaint,
             fontSize = Type.small,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         if (state.commandLog.isNotEmpty()) {

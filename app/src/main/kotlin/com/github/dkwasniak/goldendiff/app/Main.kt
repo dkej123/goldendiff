@@ -1,6 +1,7 @@
 package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -23,8 +24,12 @@ import androidx.compose.ui.window.rememberWindowState
 import com.github.dkwasniak.goldendiff.app.generated.resources.Res
 import com.github.dkwasniak.goldendiff.app.generated.resources.app_icon
 import com.github.dkwasniak.goldendiff.platform.Os
+import java.awt.Desktop
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
 fun main(args: Array<String>) {
@@ -60,6 +65,26 @@ fun main(args: Array<String>) {
             // them on an empty window. The walkthrough itself opens the project and fills in settings.
             if (!AppConfig.onboardingCompleted()) state.onboardingVisible = true
             state.checkForUpdates()
+            // Registers with Notification Center, which is also what lists the app in System Settings
+            // → Notifications. Done unconditionally: the toggle decides whether we post, not whether
+            // the user is allowed to find the switch.
+            MacNotifications.register { granted, error ->
+                DevLog.record("notification", "authorization granted=$granted${error?.let { " error=$it" }.orEmpty()}")
+            }
+            // macOS already gives every app a menu named after its bundle. Declaring our own
+            // `MenuBar { Menu("Golden Diff") }` produced a second one right next to it; registering the
+            // preferences handler instead puts Settings where the platform expects it — in the
+            // application menu, with the standard ⌘, shortcut attached by AppKit.
+            runCatching {
+                val desktop = Desktop.getDesktop()
+                if (desktop.isSupported(Desktop.Action.APP_PREFERENCES)) {
+                    desktop.setPreferencesHandler { scope.launch { state.settingsVisible = true } }
+                }
+            }
+            MacNotifications.onNotificationClicked {
+                // Arrives on an AppKit thread; the window flag belongs to the composition.
+                scope.launch { state.commandLogVisible = true }
+            }
         }
         CliConfigReloadEffect(state)
         DeferredWindowCloseEffect(mainWindowVisible) {
@@ -92,6 +117,15 @@ fun main(args: Array<String>) {
                 }
             },
         ) {
+            // Coming back to the window is the acknowledgement; nothing is left pending after it.
+            DisposableEffect(window) {
+                val listener = object : WindowAdapter() {
+                    override fun windowGainedFocus(event: WindowEvent) = AppBadge.clear()
+                }
+                window.addWindowFocusListener(listener)
+                if (window.isFocused) AppBadge.clear()
+                onDispose { window.removeWindowFocusListener(listener) }
+            }
             GoldenDiffWindow(state)
         }
 

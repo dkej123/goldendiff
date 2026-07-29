@@ -44,8 +44,11 @@ data class Tokens(
     val accentBorder: Color,
     val changed: Color,
     val changedBg: Color,
+    val modified: Color,
+    val modifiedBg: Color,
     val new: Color,
     val newBg: Color,
+    val accept: Color,
     val hover: Color,
     val inputBackground: Color,
     val scrim: Color,
@@ -69,8 +72,11 @@ val DarkTokens = Tokens(
     accentBorder = Color(0xFF548AF7).copy(alpha = 0.50f),
     changed = Color(0xFFE0656B),
     changedBg = Color(0xFFE0656B).copy(alpha = 0.16f),
+    modified = Color(0xFFD9A441),
+    modifiedBg = Color(0xFFD9A441).copy(alpha = 0.16f),
     new = Color(0xFF66B578),
     newBg = Color(0xFF66B578).copy(alpha = 0.16f),
+    accept = Color(0xFFE0507E),
     hover = Color(0xFFFFFFFF).copy(alpha = 0.055f),
     inputBackground = Color(0xFF1A1B1E),
     scrim = Color(0xFF08090B).copy(alpha = 0.60f),
@@ -91,8 +97,11 @@ val LightTokens = Tokens(
     accentBorder = Color(0xFF3574F0).copy(alpha = 0.55f),
     changed = Color(0xFFC9424A),
     changedBg = Color(0xFFC9424A).copy(alpha = 0.10f),
+    modified = Color(0xFFA9761F),
+    modifiedBg = Color(0xFFA9761F).copy(alpha = 0.10f),
     new = Color(0xFF2F8F52),
     newBg = Color(0xFF2F8F52).copy(alpha = 0.10f),
+    accept = Color(0xFFE0507E),
     hover = Color(0xFF000000).copy(alpha = 0.045f),
     inputBackground = Color(0xFFFFFFFF),
     scrim = Color(0xFF1E2024).copy(alpha = 0.32f),
@@ -119,9 +128,8 @@ object Type {
 
 /** The 4px grid, named where a value repeats across panes. */
 object Dimens {
-    // Half the handoff's 10px: at the app's real window size those gaps read as wasted space.
-    val paneGap = 5.dp
-    val panePadding = 5.dp
+    val paneGap = 10.dp
+    val panePadding = 10.dp
     val panelRadius = 10.dp
     val controlRadius = 6.dp
     val barRadius = 8.dp
