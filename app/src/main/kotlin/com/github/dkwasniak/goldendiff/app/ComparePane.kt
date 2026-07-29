@@ -122,10 +122,16 @@ fun ComparePane(state: AppState, modifier: Modifier) {
             actions = {
                 val merged = state.selectedMergedItem
                 if (merged?.workingCopy != null && merged.testOutput != null) {
-                    Segment("Test", state.selectedSource == BuiltInSource.GENERATED) {
+                    Segment(
+                        sourceLabel(BuiltInSource.GENERATED),
+                        state.selectedSource == BuiltInSource.GENERATED,
+                    ) {
                         state.selectGoldenSource(BuiltInSource.GENERATED)
                     }
-                    Segment("Working", state.selectedSource == BuiltInSource.WORKING_COPY) {
+                    Segment(
+                        sourceLabel(BuiltInSource.WORKING_COPY),
+                        state.selectedSource == BuiltInSource.WORKING_COPY,
+                    ) {
                         state.selectGoldenSource(BuiltInSource.WORKING_COPY)
                     }
                 }
