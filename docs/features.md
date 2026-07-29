@@ -25,8 +25,10 @@ test method, or supported story/function whose name matches one or more goldens.
 collapsed; goldens without function-level evidence remain on the view row.
 
 Search covers the view path, generator path, and case name and reveals matching descendants.
-The **Failed**, **Modified**, and **New** status filters are combined with OR; with no status selected
-the list shows everything, while selecting all three still excludes unchanged views and cases.
+The **Failed**, **Modified**, and **New** status filters are combined with OR and match every status
+represented by a view or case, not only its highest-priority badge. A view containing both Modified
+and New goldens therefore remains visible under either filter. With no status selected the list shows
+everything, while selecting all three still excludes unchanged views and cases.
 Labeled statuses are sorted above unchanged entries. A failed unmatched golden remains visible on its
 view. A view is Failed when any associated Test output is new or differs from HEAD, while Working-copy
 changes remain Modified or New. Folder counters count failed views rather than methods.

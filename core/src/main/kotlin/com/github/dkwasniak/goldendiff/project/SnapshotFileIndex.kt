@@ -23,6 +23,8 @@ data class SnapshotSourceFile(
     val cases: List<SnapshotCase> = emptyList(),
     /** Goldens retained on the view row because no function-level match was found. */
     val unmatchedGoldenPaths: List<String> = emptyList(),
+    /** Every status represented by the associated goldens, used by multi-status filters. */
+    val statuses: Set<SnapshotFileStatus> = setOf(status),
 )
 
 data class SnapshotCase(
@@ -33,6 +35,8 @@ data class SnapshotCase(
     val goldenPaths: List<String>,
     val status: SnapshotFileStatus,
     val failedCount: Int,
+    /** Every status represented by this case's goldens, used by multi-status filters. */
+    val statuses: Set<SnapshotFileStatus> = setOf(status),
 )
 
 /**
@@ -207,14 +211,16 @@ data class SnapshotFileIndex(
                 val parentCases = parentByCase.filterValues { it.relativePath == parentPath }.keys
                     .map { case ->
                         val paths = ownedCaseGoldens.getValue(case).sorted()
+                        val statuses = statusesFor(paths, mergedByPath)
                         SnapshotCase(
                             id = "$parentPath\u0000${case.generator.relativePath}\u0000${case.methodName}",
                             methodName = case.methodName,
                             generatorPath = case.generator.relativePath,
                             className = case.generator.screen.classNames.firstOrNull(),
                             goldenPaths = paths,
-                            status = statusFor(paths, mergedByPath),
+                            status = primaryStatus(statuses),
                             failedCount = failedCount(paths, mergedByPath),
+                            statuses = statuses,
                         )
                     }
                     .sortedWith(
@@ -223,13 +229,15 @@ data class SnapshotFileIndex(
                     )
                 val unmatchedPaths = unmatched.filter { it.first.relativePath == parentPath }.map { it.second }.sorted()
                 val paths = (parentCases.flatMap { it.goldenPaths } + unmatchedPaths).distinct()
+                val statuses = statusesFor(paths, mergedByPath)
                 SnapshotSourceFile(
                     relativePath = parentPath,
                     goldenPaths = paths,
-                    status = statusFor(paths, mergedByPath),
+                    status = primaryStatus(statuses),
                     failedCount = failedCount(paths, mergedByPath),
                     cases = parentCases,
                     unmatchedGoldenPaths = unmatchedPaths,
+                    statuses = statuses,
                 )
             }.sortedWith(compareBy(ProjectFileIndex.PATH_ORDER) { it.relativePath })
 
@@ -342,17 +350,26 @@ data class SnapshotFileIndex(
             return false
         }
 
-        private fun statusFor(
+        private fun statusesFor(
             paths: Collection<String>,
             mergedByPath: Map<String, MergedGoldenItem>,
-        ): SnapshotFileStatus {
-            val associated = paths.mapNotNull(mergedByPath::get)
-            return when {
-                associated.any { it.displayStatus == MergedGoldenStatus.FAILED } -> SnapshotFileStatus.FAILED
-                associated.any { it.displayStatus == MergedGoldenStatus.MODIFIED } -> SnapshotFileStatus.MODIFIED
-                associated.any { it.displayStatus == MergedGoldenStatus.NEW } -> SnapshotFileStatus.NEW
-                else -> SnapshotFileStatus.UNCHANGED
-            }
+        ): Set<SnapshotFileStatus> =
+            paths.mapTo(linkedSetOf()) { path ->
+                mergedByPath[path]?.displayStatus.toSnapshotStatus()
+            }.ifEmpty { setOf(SnapshotFileStatus.UNCHANGED) }
+
+        private fun primaryStatus(statuses: Set<SnapshotFileStatus>): SnapshotFileStatus = when {
+            SnapshotFileStatus.FAILED in statuses -> SnapshotFileStatus.FAILED
+            SnapshotFileStatus.MODIFIED in statuses -> SnapshotFileStatus.MODIFIED
+            SnapshotFileStatus.NEW in statuses -> SnapshotFileStatus.NEW
+            else -> SnapshotFileStatus.UNCHANGED
+        }
+
+        private fun MergedGoldenStatus?.toSnapshotStatus(): SnapshotFileStatus = when (this) {
+            MergedGoldenStatus.FAILED -> SnapshotFileStatus.FAILED
+            MergedGoldenStatus.MODIFIED -> SnapshotFileStatus.MODIFIED
+            MergedGoldenStatus.NEW -> SnapshotFileStatus.NEW
+            MergedGoldenStatus.UNCHANGED, null -> SnapshotFileStatus.UNCHANGED
         }
 
         private fun failedCount(
@@ -380,33 +397,33 @@ data class SnapshotFileIndex(
             val updates = mergedItems.associateBy { it.golden.normalize().path }
             val files = index.files.map { file ->
                 val cases = file.cases.map { case ->
+                    val statuses = statusesFor(case.goldenPaths, updates, case.statuses)
                     case.copy(
-                        status = statusFor(case.goldenPaths, updates, case.status),
+                        status = primaryStatus(statuses),
                         failedCount = failedCount(case.goldenPaths, updates, case.failedCount),
+                        statuses = statuses,
                     )
                 }
+                val statuses = statusesFor(file.goldenPaths, updates, file.statuses)
                 file.copy(
                     cases = cases,
-                    status = statusFor(file.goldenPaths, updates, file.status),
+                    status = primaryStatus(statuses),
                     failedCount = failedCount(file.goldenPaths, updates, file.failedCount),
+                    statuses = statuses,
                 )
             }
             return index.copy(files = files, failedFilesByDirectory = aggregateFailedDirectories(files))
         }
 
-        private fun statusFor(
+        private fun statusesFor(
             paths: Collection<String>,
             updates: Map<String, MergedGoldenItem>,
-            fallback: SnapshotFileStatus,
-        ): SnapshotFileStatus {
-            val statuses = paths.map { updates[it]?.displayStatus }
-            if (statuses.all { it == null }) return fallback
-            return when {
-                statuses.any { it == MergedGoldenStatus.FAILED } -> SnapshotFileStatus.FAILED
-                statuses.any { it == MergedGoldenStatus.MODIFIED } -> SnapshotFileStatus.MODIFIED
-                statuses.any { it == MergedGoldenStatus.NEW } -> SnapshotFileStatus.NEW
-                else -> SnapshotFileStatus.UNCHANGED
-            }
+            fallback: Set<SnapshotFileStatus>,
+        ): Set<SnapshotFileStatus> {
+            if (paths.none(updates::containsKey)) return fallback
+            return paths.mapTo(linkedSetOf()) { path ->
+                updates[path]?.displayStatus.toSnapshotStatus()
+            }.ifEmpty { setOf(SnapshotFileStatus.UNCHANGED) }
         }
 
         private fun failedCount(
