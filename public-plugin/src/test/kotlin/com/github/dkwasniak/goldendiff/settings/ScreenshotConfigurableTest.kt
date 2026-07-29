@@ -35,6 +35,7 @@ class ScreenshotConfigurableTest : BasePlatformTestCase() {
                 "Filtering",
                 "Display",
                 "Commands",
+                "Notifications",
                 "Privacy",
             ),
             labels,

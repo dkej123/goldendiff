@@ -71,6 +71,7 @@
 
         <!-- Proactive, channel-aware "a newer Golden Diff is available" balloon (bottom-right). -->
         <notificationGroup id="Golden Diff Updates" displayType="BALLOON"/>
+        <notificationGroup id="Golden Diff Tasks" displayType="BALLOON"/>
         <postStartupActivity implementation="com.github.dkwasniak.goldendiff.update.PluginUpdateStartupActivity"/>
 
         <!-- Recommend Golden Diff when the project uses a supported screenshot-test library. -->

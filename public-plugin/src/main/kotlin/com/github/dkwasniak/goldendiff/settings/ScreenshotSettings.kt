@@ -51,6 +51,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         var generateFileCommand: String = ""
         var verifyAllCommand: String = ""
         var verifyFileCommand: String = ""
+        var notifyWhenTasksFinish: Boolean = true
     }
 
     private var state = State()
@@ -124,6 +125,12 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
             state.verifyFileCommand = value
         }
 
+    var notifyWhenTasksFinish: Boolean
+        get() = state.notifyWhenTasksFinish
+        set(value) {
+            state.notifyWhenTasksFinish = value
+        }
+
     var matchMode: MatchMode
         get() = MatchMode.fromName(state.matchMode)
         set(value) {
@@ -168,6 +175,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         generateFileCommand = generateFileCommand,
         verifyAllCommand = verifyAllCommand,
         verifyFileCommand = verifyFileCommand,
+        notifyWhenTasksFinish = notifyWhenTasksFinish,
     )
 
     fun resolvedPaths(project: Project): List<File> =
