@@ -83,6 +83,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
     private val verifyFileCommandField = singleLineField()
     private val trimTransparentPaddingCheckbox =
         JCheckBox("Trim transparent padding around image content")
+    private val notifyWhenTasksFinishCheckbox = JCheckBox("Notify when tasks finish")
     private val analyticsCheckbox = JCheckBox("Share anonymous product analytics")
     private val diagnosticsCheckbox = JCheckBox("Share diagnostic error reports")
     private val previewCountLabel = JBLabel()
@@ -178,6 +179,25 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
                         "Commands",
                         "Configure the framework-agnostic shell commands exposed by the tool window.",
                         commandsSection(),
+                    ),
+                ),
+            )
+            add(
+                SettingsPage(
+                    "Notifications",
+                    formPage(
+                        "Notifications",
+                        "Notify after successful or failed screenshot commands while the IDE is in the background.",
+                        JPanel().apply {
+                            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                            add(notifyWhenTasksFinishCheckbox)
+                            add(
+                                labelBlock(
+                                    "Completion notifications:",
+                                    "Manual cancellation is silent. Open the notification action to return to the command Run output.",
+                                ),
+                            )
+                        },
                     ),
                 ),
             )
@@ -849,6 +869,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
             generateFileCommandField.text != settings.generateFileCommand ||
             verifyAllCommandField.text != settings.verifyAllCommand ||
             verifyFileCommandField.text != settings.verifyFileCommand ||
+            notifyWhenTasksFinishCheckbox.isSelected != settings.notifyWhenTasksFinish ||
             trimTransparentPaddingCheckbox.isSelected != settings.trimTransparentPadding ||
             analyticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().analyticsEnabled ||
             diagnosticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().diagnosticsEnabled ||
@@ -904,6 +925,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         settings.generateFileCommand = generateFileCommandField.text.trim()
         settings.verifyAllCommand = verifyAllCommandField.text.trim()
         settings.verifyFileCommand = verifyFileCommandField.text.trim()
+        settings.notifyWhenTasksFinish = notifyWhenTasksFinishCheckbox.isSelected
         settings.trimTransparentPadding = trimTransparentPaddingCheckbox.isSelected
         val telemetrySettings = PluginTelemetrySettings.getInstance()
         telemetrySettings.analyticsEnabled = analyticsCheckbox.isSelected
@@ -956,6 +978,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         generateFileCommandField.text = settings.generateFileCommand
         verifyAllCommandField.text = settings.verifyAllCommand
         verifyFileCommandField.text = settings.verifyFileCommand
+        notifyWhenTasksFinishCheckbox.isSelected = settings.notifyWhenTasksFinish
         directoryRegexField.text = ""
         trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding
         val telemetrySettings = PluginTelemetrySettings.getInstance()

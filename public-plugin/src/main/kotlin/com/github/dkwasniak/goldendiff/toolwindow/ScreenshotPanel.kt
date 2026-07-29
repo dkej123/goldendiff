@@ -8,6 +8,13 @@ import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.compare.PixelDiff
 import com.github.dkwasniak.goldendiff.compare.toArgbImage
 import com.github.dkwasniak.goldendiff.command.GoldenAccept
+import com.github.dkwasniak.goldendiff.command.CompletionCommandKind
+import com.github.dkwasniak.goldendiff.command.CompletionCommandScope
+import com.github.dkwasniak.goldendiff.command.CompletionNotificationPolicy
+import com.github.dkwasniak.goldendiff.command.CompletionResult
+import com.intellij.notification.NotificationAction
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
@@ -820,7 +827,7 @@ class ScreenshotPanel(
                 ApplicationManager.getApplication().invokeLater {
                     commandRunning = false
                     updateCommandButtons()
-                    onScreenshotCommandFinished(kind, exitCode)
+                    onScreenshotCommandFinished(kind, perFile, exitCode)
                 }
             },
         )
@@ -831,7 +838,7 @@ class ScreenshotPanel(
         }
     }
 
-    private fun onScreenshotCommandFinished(kind: CommandKind, exitCode: Int?) {
+    private fun onScreenshotCommandFinished(kind: CommandKind, perFile: Boolean, exitCode: Int?) {
         // Surface the freshly written output: refresh VFS for the generated dirs, switch to Test
         // output and rescan so the new comparison shows without a manual refresh.
         LocalFileSystem.getInstance().refreshIoFiles(settings.resolvedGeneratedPaths(project))
@@ -845,6 +852,32 @@ class ScreenshotPanel(
         }
         loadedFile = null
         scheduleRefresh(force = true, trigger = "command_finished")
+        notifyCommandFinished(kind, perFile, exitCode)
+    }
+
+    private fun notifyCommandFinished(kind: CommandKind, perFile: Boolean, exitCode: Int?) {
+        val target = if (perFile) {
+            CompletionCommandScope.File(currentScreen?.fileName ?: "Current file")
+        } else {
+            CompletionCommandScope.Project(project.name)
+        }
+        val message = CompletionNotificationPolicy.decide(
+            enabled = settings.notifyWhenTasksFinish,
+            hostForeground = ApplicationManager.getApplication().isActive,
+            kind = if (kind == CommandKind.GENERATE) CompletionCommandKind.GENERATE else CompletionCommandKind.VERIFY,
+            scope = target,
+            result = if (exitCode == 0) CompletionResult.SUCCESS else CompletionResult.FAILURE,
+        ) ?: return
+        val type = if (exitCode == 0) NotificationType.INFORMATION else NotificationType.ERROR
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup("Golden Diff Tasks")
+            .createNotification(message.title, message.body, type)
+            .addAction(NotificationAction.createSimple("Open command log") {
+                com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                    .getToolWindow(com.intellij.openapi.wm.ToolWindowId.RUN)
+                    ?.activate(null)
+            })
+            .notify(project)
     }
 
     // endregion
