@@ -116,6 +116,7 @@ object GoldenDiffCli {
         parsed.value("generate-file-cmd")?.let { config = config.copy(generateFileCommand = it) }
         parsed.value("verify-all-cmd")?.let { config = config.copy(verifyAllCommand = it) }
         parsed.value("verify-file-cmd")?.let { config = config.copy(verifyFileCommand = it) }
+        parsed.value("verify-case-cmd")?.let { config = config.copy(verifyCaseCommand = it) }
         parsed.value("command-java-home")?.let { config = config.copy(commandJavaHome = it) }
 
         if (config.goldenPaths.isEmpty()) {
@@ -309,6 +310,7 @@ object GoldenDiffCli {
         println("  Generate file cmd:     ${orNone(config.generateFileCommand)}")
         println("  Verify all cmd:        ${orNone(config.verifyAllCommand)}")
         println("  Verify file cmd:       ${orNone(config.verifyFileCommand)}")
+        println("  Verify case cmd:       ${orNone(config.verifyCaseCommand)}")
         println("  Command JAVA_HOME:     ${orNone(config.commandJavaHome)}")
     }
 
@@ -335,6 +337,7 @@ object GoldenDiffCli {
         append(jsonField("generateFileCommand", config.generateFileCommand)).append(",")
         append(jsonField("verifyAllCommand", config.verifyAllCommand)).append(",")
         append(jsonField("verifyFileCommand", config.verifyFileCommand)).append(",")
+        append(jsonField("verifyCaseCommand", config.verifyCaseCommand)).append(",")
         append(jsonField("commandJavaHome", config.commandJavaHome)).append(",")
         append("\"isConfigured\":${config.isConfigured}")
         append("}")
@@ -461,6 +464,9 @@ object GoldenDiffCli {
               --verify-all-cmd <cmd>        Shell command that verifies all screenshots. Blank clears it.
               --verify-file-cmd <cmd>       Command that verifies one file's screenshots. Blank clears it.
                                             May use {file_name}, {class_name}, {file_path} placeholders.
+              --verify-case-cmd <cmd>       Optional command for one snapshot test or preview.
+                                            Also supports {snapshot_file_name}, {snapshot_class_name},
+                                            {snapshot_file_path}, and {snapshot_method_name}.
               --command-java-home <path>    JDK/JBR exported as JAVA_HOME when running the commands
                                             above (e.g. Android Studio's bundled JBR). Blank clears it.
               --trim-transparent-padding | --no-trim-transparent-padding
@@ -537,7 +543,7 @@ object GoldenDiffCli {
             private val VALUE_OPTIONS = setOf(
                 "project", "golden-dir", "golden-dir-regex", "generated-dir", "match-mode", "annotation-regex",
                 "golden-pattern", "generated-regex", "exclude-suffix", "source-file",
-                "generate-all-cmd", "generate-file-cmd", "verify-all-cmd", "verify-file-cmd",
+                "generate-all-cmd", "generate-file-cmd", "verify-all-cmd", "verify-file-cmd", "verify-case-cmd",
                 "command-java-home",
             )
             private val FLAG_OPTIONS = setOf(

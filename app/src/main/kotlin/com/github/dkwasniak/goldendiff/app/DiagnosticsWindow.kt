@@ -44,8 +44,13 @@ import com.github.dkwasniak.goldendiff.app.ui.HairLine
 import com.github.dkwasniak.goldendiff.app.ui.LightTokens
 import com.github.dkwasniak.goldendiff.app.ui.LocalTokens
 import com.github.dkwasniak.goldendiff.app.ui.Type
+import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
+import com.github.dkwasniak.goldendiff.command.CompletionCommandKind
+import com.github.dkwasniak.goldendiff.command.CompletionCommandScope
+import com.github.dkwasniak.goldendiff.command.CompletionNotificationPolicy
+import com.github.dkwasniak.goldendiff.command.CompletionResult
 
 /**
  * Developer-only diagnostics log, as a separate window. Shows what the app is doing — analytics
@@ -83,25 +88,60 @@ fun ApplicationScope.DiagnosticsWindow(state: AppState, onClose: () -> Unit) {
 
 @Composable
 private fun DiagnosticsHeader() {
-    Row(
-        Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    WrappingPaneHeader(
+        minHeight = 44.dp,
+        horizontalPadding = 14.dp,
+        verticalPadding = 9.dp,
+        spacing = 10.dp,
+        leading = {
+            Text("Diagnostics", color = tokens.text, fontSize = Type.panelTitle, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${DevLog.entries.size} entries",
+                color = tokens.textFaint,
+                fontSize = Type.small,
+                modifier = Modifier.weight(1f),
+            )
+        },
+        actions = {
+            if (AppTelemetry.metadata.isDeveloperBuild) {
+                DiagnosticsAction("Test success") {
+                    sendTestNotification(CompletionResult.SUCCESS)
+                }
+                DiagnosticsAction("Test failure") {
+                    sendTestNotification(CompletionResult.FAILURE)
+                }
+            }
+            DiagnosticsAction("Clear", DevLog::clear)
+        },
+    )
+}
+
+@Composable
+private fun DiagnosticsAction(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(5.dp)).hoverWash().clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
-        Text("Diagnostics", color = tokens.text, fontSize = Type.panelTitle, fontWeight = FontWeight.SemiBold)
-        Text(
-            "${DevLog.entries.size} entries",
-            color = tokens.textFaint,
-            fontSize = Type.small,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            Modifier.clip(RoundedCornerShape(5.dp)).hoverWash().clickable(onClick = DevLog::clear)
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-        ) {
-            Text("Clear", color = tokens.textDim, fontSize = Type.small)
-        }
+        Text(label, color = tokens.textDim, fontSize = Type.small)
     }
+}
+
+private fun sendTestNotification(result: CompletionResult) {
+    val notification = CompletionNotificationPolicy.decide(
+        enabled = true,
+        hostForeground = false,
+        kind = CompletionCommandKind.VERIFY,
+        scope = CompletionCommandScope.Project("Diagnostics test"),
+        result = result,
+    ) ?: return
+    MacNotifications.deliver(notification.title, notification.body)
+    DevLog.record(
+        "notification",
+        "test ${result.name.lowercase()} via ${MacNotifications.backend}: " +
+            "${notification.title} — ${notification.body}",
+    )
+    // Asynchronous, so it lands as a second line: a silent banner is almost always this value.
+    MacNotifications.authorizationStatus { DevLog.record("notification", "authorization status: $it") }
 }
 
 @Composable
@@ -146,6 +186,7 @@ private fun CategoryChip(category: String) {
         "update" -> tokens.accent
         "exception" -> Color(0xFFE05252)
         "analytics" -> Color(0xFF4FAF6D)
+        "notification" -> Color(0xFF9B72CF)
         else -> tokens.textFaint
     }
     Box(

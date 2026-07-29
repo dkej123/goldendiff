@@ -4,6 +4,7 @@ import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -49,6 +50,98 @@ class GoldenAcceptTest {
         assertFalse(GoldenAccept.canAccept(golden, config(), root))
         File(root, "generated/LoginScreen_actual.png").apply { parentFile.mkdirs(); writeBytes(byteArrayOf(2)) }
         assertTrue(GoldenAccept.canAccept(golden, config(), root))
+    }
+
+    @Test fun `bulk accept continues after failure and cleans successful generated files`() {
+        val root = tempProject()
+        fun golden(name: String, byte: Byte) = File(root, "golden/$name.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(byte))
+        }
+        fun generated(name: String, byte: Byte) = File(root, "generated/${name}_actual.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(byte))
+        }
+        val first = golden("First", 1)
+        val missing = golden("Missing", 2)
+        val third = golden("Third", 3)
+        val firstOutput = generated("First", 8)
+        val thirdOutput = generated("Third", 9)
+        val progress = mutableListOf<Pair<Int, Int>>()
+
+        val result = GoldenAccept.acceptAll(listOf(first, missing, third), config(), root) { done, total ->
+            progress += done to total
+        }
+
+        assertEquals(listOf(first, third), result.accepted)
+        assertEquals(listOf(missing), result.failed.map { it.golden })
+        assertTrue(result.failed.single().failure is GoldenAccept.Failure.NoGeneratedCounterpart)
+        assertArrayEquals(byteArrayOf(8), first.readBytes())
+        assertArrayEquals(byteArrayOf(9), third.readBytes())
+        assertFalse(firstOutput.exists())
+        assertFalse(thirdOutput.exists())
+        assertEquals(listOf(1 to 3, 2 to 3, 3 to 3), progress)
+    }
+
+    @Test fun `bulk accept reports all success and cleans every generated file`() {
+        val root = tempProject()
+        val first = File(root, "golden/First.png").apply { parentFile.mkdirs(); writeBytes(byteArrayOf(1)) }
+        val second = File(root, "golden/Second.png").apply { writeBytes(byteArrayOf(2)) }
+        val firstOutput = File(root, "generated/First_actual.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(8))
+        }
+        val secondOutput = File(root, "generated/Second_actual.png").apply { writeBytes(byteArrayOf(9)) }
+
+        val result = GoldenAccept.acceptAll(listOf(first, second), config(), root)
+
+        assertEquals(listOf(first, second), result.accepted)
+        assertTrue(result.failed.isEmpty())
+        assertArrayEquals(byteArrayOf(8), first.readBytes())
+        assertArrayEquals(byteArrayOf(9), second.readBytes())
+        assertFalse(firstOutput.exists())
+        assertFalse(secondOutput.exists())
+    }
+
+    @Test fun `bulk accept reports read failure and leaves generated file untouched`() {
+        val root = tempProject()
+        val golden = File(root, "golden/Unreadable.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(1))
+        }
+        val generated = File(root, "generated/Unreadable_actual.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(7))
+            setReadable(false, false)
+        }
+        assumeFalse("filesystem does not support an unreadable test file", generated.canRead())
+
+        try {
+            val result = GoldenAccept.acceptAll(listOf(golden), config(), root)
+
+            assertTrue(result.accepted.isEmpty())
+            assertTrue(result.failed.single().failure is GoldenAccept.Failure.Io)
+            assertArrayEquals(byteArrayOf(1), golden.readBytes())
+            assertTrue("failed generated output must remain retryable", generated.exists())
+        } finally {
+            generated.setReadable(true, false)
+        }
+    }
+
+    @Test fun `bulk accept reports write failure and leaves generated file untouched`() {
+        val root = tempProject()
+        val golden = File(root, "golden/Directory.png").apply { mkdirs() }
+        val generated = File(root, "generated/Directory_actual.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(7))
+        }
+
+        val result = GoldenAccept.acceptAll(listOf(golden), config(), root)
+
+        assertTrue(result.accepted.isEmpty())
+        assertTrue(result.failed.single().failure is GoldenAccept.Failure.Io)
+        assertTrue("failed generated output must remain retryable", generated.exists())
+        assertArrayEquals(byteArrayOf(7), generated.readBytes())
     }
 
     private fun assertEquals(expected: Any?, actual: Any?) = org.junit.Assert.assertEquals(expected, actual)

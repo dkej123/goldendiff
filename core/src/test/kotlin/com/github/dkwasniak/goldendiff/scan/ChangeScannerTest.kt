@@ -7,6 +7,7 @@ import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -147,5 +148,66 @@ class ChangeScannerTest {
             "nested/deep/Screen.png",
             ChangeScanner.invariantPathIn(nested, listOf(File(root, "goldens"))),
         )
+    }
+
+    @Test
+    fun `merged current-file item keeps independent working and test variants`() {
+        val golden = golden("Login.png", byteArrayOf(2))
+        File(root, "out").mkdirs()
+        val output = File(root, "out/Login_actual.png").apply { writeBytes(byteArrayOf(3)) }
+
+        val item = scanner(
+            head = mapOf(golden.normalize() to byteArrayOf(1)),
+            config = GoldenDiffConfig(goldenPaths = listOf("goldens"), generatedPaths = listOf("out")),
+        ).mergedItemsFor(listOf(golden, golden)).single()
+
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, item.workingCopy?.status)
+        assertEquals(output.normalize(), item.testOutput?.file?.normalize())
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, item.testOutput?.status)
+        assertEquals(MergedGoldenStatus.FAILED, item.displayStatus)
+    }
+
+    @Test
+    fun `missing generated counterpart stays absent`() {
+        val golden = golden("Lonely.png")
+        val item = scanner(head = mapOf(golden.normalize() to golden.readBytes()))
+            .mergedItemsFor(listOf(golden)).single()
+
+        assertNull(item.testOutput)
+        assertEquals(MergedGoldenStatus.UNCHANGED, item.displayStatus)
+    }
+
+    @Test
+    fun `merged project changes deduplicate and sort by status then invariant path`() {
+        val modified = golden("z/Modified.png", byteArrayOf(2))
+        val failedB = golden("b/FailedB.png", byteArrayOf(1))
+        val failedA = golden("a/FailedA.png", byteArrayOf(1))
+        val fresh = golden("New.png", byteArrayOf(4))
+        File(root, "out/a").mkdirs()
+        File(root, "out/b").mkdirs()
+        File(root, "out/a/FailedA_actual.png").writeBytes(byteArrayOf(9))
+        File(root, "out/b/FailedB_actual.png").writeBytes(byteArrayOf(9))
+
+        val items = scanner(
+            head = mapOf(
+                modified.normalize() to byteArrayOf(1),
+                failedA.normalize() to byteArrayOf(1),
+                failedB.normalize() to byteArrayOf(1),
+            ),
+            changes = listOf(
+                GitChange(modified, ExtraComparisonItemStatus.MODIFIED),
+                GitChange(failedA, ExtraComparisonItemStatus.MODIFIED),
+                GitChange(fresh, ExtraComparisonItemStatus.NEW),
+            ),
+            config = GoldenDiffConfig(goldenPaths = listOf("goldens"), generatedPaths = listOf("out")),
+        ).mergedChanges()
+
+        assertEquals(
+            listOf("a/FailedA.png", "b/FailedB.png", "z/Modified.png", "New.png"),
+            items.map { ChangeScanner.invariantPathIn(it.golden, listOf(File(root, "goldens"))) },
+        )
+        assertEquals(4, items.map { it.golden.normalize().path }.distinct().size)
+        assertEquals(MergedGoldenStatus.FAILED, items.first().displayStatus)
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, items.first().workingCopy?.status)
     }
 }

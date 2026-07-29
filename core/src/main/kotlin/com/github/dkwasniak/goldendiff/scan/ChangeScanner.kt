@@ -9,7 +9,6 @@ import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import java.io.File
-import java.util.stream.Collectors
 
 /** Which built-in side a golden is compared against. */
 enum class BuiltInSource {
@@ -45,6 +44,43 @@ class ChangeScanner(
     fun itemsFor(files: List<File>, source: BuiltInSource): List<ExtraComparisonItem> =
         buildItems(files) { statusOf(it, source) }
 
+    /** Both built-in variants for an already matched current-file list. */
+    fun mergedItemsFor(files: List<File>): List<MergedGoldenItem> {
+        val roots = goldenRoots
+        val normalizedFiles = files.distinctBy { it.normalize().path }
+        return normalizedFiles.map { golden ->
+            val generated = generatedFor(golden)
+            MergedGoldenItem(
+                golden = golden,
+                workingCopy = GoldenSourceVariant(golden, statusOf(golden, BuiltInSource.WORKING_COPY)),
+                testOutput = generated?.let { GoldenSourceVariant(it, generatedStatus(golden, it)) },
+            )
+        }.sortedWith(mergedComparator(roots))
+    }
+
+    /**
+     * Project changes from both built-in sources, merged by normalized golden path.
+     *
+     * A golden changed in both places occurs once and retains both statuses. Unchanged generated
+     * counterparts do not make an otherwise clean golden a project change.
+     */
+    fun mergedChanges(): List<MergedGoldenItem> {
+        val roots = goldenRoots
+        val working = workingCopyChanges().associateBy { it.file.normalize().path }
+        val generated = generatedChanges()
+            .filter { it.status != ExtraComparisonItemStatus.UNCHANGED }
+            .associateBy { it.file.normalize().path }
+        return (working.keys + generated.keys).distinct().map { path ->
+            val golden = working[path]?.file ?: generated.getValue(path).file
+            val output = generated[path]?.let { generatedFor(golden) }
+            MergedGoldenItem(
+                golden = golden,
+                workingCopy = working[path]?.let { GoldenSourceVariant(golden, it.status) },
+                testOutput = output?.let { GoldenSourceVariant(it, generated.getValue(path).status) },
+            )
+        }.sortedWith(mergedComparator(roots))
+    }
+
     /**
      * Every changed golden in the project, taken from `git status`.
      *
@@ -66,40 +102,17 @@ class ChangeScanner(
         val roots = goldenRoots
         val generated = generatedRoots
         if (generated.none { it.isDirectory }) return emptyList()
-        val pattern = runCatching { Regex(config.generatedFileRegex) }.getOrNull() ?: return emptyList()
-        val suffixes = config.excludedSuffixes.filter { it.isNotBlank() }
-
-        // Walk the generated tree once and index by base name, so resolving a golden's counterpart is
-        // an O(1) lookup instead of re-walking the whole tree per golden.
-        val generatedByBaseName = HashMap<String, File>()
-        generated
-            .asSequence()
-            .filter { it.isDirectory }
-            .flatMap { it.walkTopDown().asSequence() }
-            .filter { it.isFile && it.extension.equals("png", ignoreCase = true) }
-            .forEach { file ->
-                generatedBaseName(file, pattern, suffixes)?.let {
-                    generatedByBaseName.putIfAbsent(it.lowercase(), file)
-                }
-            }
-        if (generatedByBaseName.isEmpty()) return emptyList()
-
         val goldens = GoldenFinder.findAll(roots, config.excludedSuffixes)
-            .asSequence()
-            .filter { it.nameWithoutExtension.lowercase() in generatedByBaseName }
-            .distinctBy { it.normalize().path }
-            .sortedBy { invariantPathIn(it, roots).lowercase() }
+        // Resolution deliberately uses GeneratedImageSource for every golden. Its same-relative-dir
+        // preference is load-bearing when two modules have goldens with the same basename.
+        val variants = goldens.parallelStream()
+            .map { golden -> golden to generatedFor(golden) }
+            .filter { it.second != null }
             .toList()
-
-        // Each status still needs a per-golden HEAD revision fetch; compute them in parallel so a
-        // large change set isn't a serial chain of blocking git reads.
-        val statusByGolden: Map<File, ExtraComparisonItemStatus> = goldens.parallelStream().collect(
-            Collectors.toConcurrentMap(
-                { it },
-                { golden -> generatedStatus(golden, generatedByBaseName[golden.nameWithoutExtension.lowercase()]) },
-            ),
-        )
-        return buildItems(goldens) { statusByGolden.getValue(it) }
+        val statusByGolden = variants.associate { (golden, output) ->
+            golden to generatedStatus(golden, output)
+        }
+        return buildItems(variants.map { it.first }) { statusByGolden.getValue(it) }
     }
 
     fun statusOf(file: File, source: BuiltInSource): ExtraComparisonItemStatus {
@@ -122,6 +135,18 @@ class ChangeScanner(
             else -> ExtraComparisonItemStatus.UNCHANGED
         }
     }
+
+    private fun generatedFor(golden: File): File? = GeneratedImageSource.findForGolden(
+        golden = golden,
+        goldenRoots = goldenRoots,
+        generatedRoots = generatedRoots,
+        generatedFileRegex = config.generatedFileRegex,
+        excludedSuffixes = config.excludedSuffixes,
+    )
+
+    private fun mergedComparator(roots: List<File>): Comparator<MergedGoldenItem> =
+        compareBy<MergedGoldenItem> { mergedStatusSortRank(it.displayStatus) }
+            .thenBy(ProjectFileIndexPathComparator) { invariantPathIn(it.golden, roots) }
 
     private fun generatedStatus(golden: File, generated: File?): ExtraComparisonItemStatus {
         val sourceBytes = generated?.let(ImageBytes::workingBytes) ?: return ExtraComparisonItemStatus.UNCHANGED
@@ -147,15 +172,6 @@ class ChangeScanner(
             .sortedWith(compareBy<IndexedValue<ExtraComparisonItem>> { statusSortRank(it.value.status) }.thenBy { it.index })
             .map { it.value }
 
-    private fun generatedBaseName(file: File, pattern: Regex, suffixes: List<String>): String? {
-        val match = pattern.matchEntire(file.name)
-        return match?.groups?.getOrNull(1)?.value
-            ?: suffixes.fold(file.nameWithoutExtension) { acc, suffix -> acc.removeSuffix(suffix) }
-    }
-
-    private fun MatchGroupCollection.getOrNull(index: Int): MatchGroup? =
-        runCatching { get(index) }.getOrNull()
-
     private fun isGoldenCandidate(file: File, roots: List<File>): Boolean =
         file.isFile &&
             file.extension.equals("png", ignoreCase = true) &&
@@ -170,6 +186,16 @@ class ChangeScanner(
                 ExtraComparisonItemStatus.NEW -> 1
                 ExtraComparisonItemStatus.UNCHANGED -> 2
             }
+
+        fun mergedStatusSortRank(status: MergedGoldenStatus): Int = when (status) {
+            MergedGoldenStatus.FAILED -> 0
+            MergedGoldenStatus.MODIFIED -> 1
+            MergedGoldenStatus.NEW -> 2
+            MergedGoldenStatus.UNCHANGED -> 3
+        }
+
+        private val ProjectFileIndexPathComparator =
+            String.CASE_INSENSITIVE_ORDER.thenBy { it }
 
         private fun File.isDescendantOf(root: File): Boolean {
             val relative = runCatching { normalize().relativeTo(root.normalize()) }.getOrNull() ?: return false

@@ -133,6 +133,7 @@ class AppConfigTest {
             generateFileCommand = "./gradlew recordRoborazziDebug --tests '*{file_name}Kt*'",
             verifyAllCommand = "./gradlew verifyRoborazziDebug",
             verifyFileCommand = "xcodebuild test -only-testing:App/{class_name}",
+            verifyCaseCommand = "xcodebuild test -only-testing:App/{snapshot_class_name}/{snapshot_method_name}",
         )
 
         AppConfig.save(project, config)
@@ -142,6 +143,7 @@ class AppConfigTest {
         assertEquals(config.generateFileCommand, loaded.generateFileCommand)
         assertEquals(config.verifyAllCommand, loaded.verifyAllCommand)
         assertEquals(config.verifyFileCommand, loaded.verifyFileCommand)
+        assertEquals(config.verifyCaseCommand, loaded.verifyCaseCommand)
     }
 
     @Test
@@ -152,6 +154,7 @@ class AppConfigTest {
         val loaded = AppConfig.load(project)
         assertEquals("", loaded.generateAllCommand)
         assertEquals("", loaded.verifyFileCommand)
+        assertEquals("", loaded.verifyCaseCommand)
     }
 
     @Test

@@ -113,7 +113,8 @@ fun buildCliAgentPrompt(projectPath: String): String {
          [--generate-all-cmd '<command that regenerates all goldens>'] \
          [--generate-file-cmd '<command scoped to one file>'] \
          [--verify-all-cmd '<command that verifies all goldens>'] \
-         [--verify-file-cmd '<command scoped to one file>']
+         [--verify-file-cmd '<command scoped to one file>'] \
+         [--verify-case-cmd '<optional command scoped to one snapshot method/preview>']
        In the per-file variants use {file_name}, {class_name} and {file_path} where the framework needs
        the edited file's name, its declaring class, or its project-relative path. If a framework guide
        matched, use exactly the command examples it gives; otherwise derive them from the project's own
@@ -131,6 +132,9 @@ fun buildCliAgentPrompt(projectPath: String): String {
        guess a device model, and never save an example placeholder. Do NOT run the configured commands
        yourself — the project stays read-only; you only WRITE them into Golden Diff's settings. If you
        cannot determine a command with confidence, leave it unset rather than guessing.
+       Case commands may additionally use {snapshot_file_name}, {snapshot_class_name},
+       {snapshot_file_path}, and {snapshot_method_name}; these describe the generator while the legacy
+       placeholders continue to describe the visible view file.
 
        Before saving, audit the four final command strings as one coherent set:
          • all four use the same user-confirmed scheme and destination;

@@ -133,3 +133,41 @@ internal class PngDirectoryWatcher(
         )
     }
 }
+
+internal enum class PngRefreshMode {
+    NONE,
+    IN_PLACE,
+    RESCAN,
+}
+
+/** Exact file state produced by an app-owned write. Content is included so a fast Git undo with the
+ * same size cannot be mistaken for the write we intended to ignore. */
+internal data class PngFileState(
+    val exists: Boolean,
+    val size: Long,
+    val contentHash: Int,
+)
+
+internal fun pngFileState(file: File): PngFileState =
+    if (!file.isFile) {
+        PngFileState(exists = false, size = 0L, contentHash = 0)
+    } else {
+        val bytes = runCatching { file.readBytes() }.getOrDefault(byteArrayOf())
+        PngFileState(exists = true, size = bytes.size.toLong(), contentHash = bytes.contentHashCode())
+    }
+
+/**
+ * Chooses the state transition for a debounced, already-filtered watcher batch.
+ *
+ * Structural changes can alter list membership and therefore require an atomic soft rescan.
+ * Modifying a PNG that is already on screen can update its merged item in place.
+ */
+internal fun pngRefreshMode(
+    events: List<PngDirectoryWatcher.Event>,
+    overflow: Boolean,
+): PngRefreshMode = when {
+    !overflow && events.isEmpty() -> PngRefreshMode.NONE
+    overflow || events.any { it.kind != PngDirectoryWatcher.Kind.MODIFIED } ->
+        PngRefreshMode.RESCAN
+    else -> PngRefreshMode.IN_PLACE
+}

@@ -54,6 +54,21 @@ Configure the command templates so the tool-window Generate/Verify buttons work.
 run through the normal test flow, so **Verify** is just running the tests; scope a single file with
 `-only-testing:<Target>/<Class>`.
 
+The standalone method tree can scope a separate generator file and method. When test target names are
+encoded by the first segment after `Tests/`, derive the target from `{snapshot_file_path}` and use:
+
+```bash
+# View refresh (the app runs this once per unique generator file):
+TEST_PATH='{snapshot_file_path}'; TARGET="${TEST_PATH#*Tests/}"; TARGET="${TARGET%%/*}"; \
+xcodebuild test … -only-testing:"$TARGET/{snapshot_class_name}"
+
+# Case refresh:
+TEST_PATH='{snapshot_file_path}'; TARGET="${TEST_PATH#*Tests/}"; TARGET="${TARGET%%/*}"; \
+xcodebuild test … -only-testing:"$TARGET/{snapshot_class_name}/{snapshot_method_name}"
+```
+
+Only use this form when the inspected project layout really encodes the target that way.
+
 Resolve the test destination with the user; **never copy a device model from a guide example or
 choose one silently**:
 
@@ -115,6 +130,7 @@ confirmed by the user; preserve `$PWD` literally so it expands when GoldenDiff r
 --generate-file-cmd 'TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
 --verify-all-cmd    'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>"'
 --verify-file-cmd   'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
+--verify-case-cmd   'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{snapshot_class_name}/{snapshot_method_name}'
 ```
 
 Generate and Verify intentionally share the same underlying test command; Generate differs by the
@@ -127,7 +143,9 @@ Before saving, audit the four commands together:
 - all four use the user-confirmed scheme and exact destination from `xcodebuild -showdestinations`;
 - all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS` to the directory configured by `--generated-dir`;
 - only Generate All/File set `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`;
-- only Generate File/Verify File use `-only-testing:<test-target>/{class_name}`;
+- only Generate File/Verify File use `-only-testing:` for file scope;
+- only per-file/per-case commands use `-only-testing`; a case ends in
+  `/{snapshot_class_name}/{snapshot_method_name}`;
 - any required `-skipPackagePluginValidation` / `-skipMacroValidation` flags are present consistently
   in all four commands and were justified by the project's setup or a matching validation failure;
 - none contains an unresolved `<…>` placeholder, example device, stale OS value or simulator UUID.

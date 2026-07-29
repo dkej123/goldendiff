@@ -55,4 +55,26 @@ class CommandTemplateTest {
             CommandTemplate.expand("./gradlew verifyRoborazziDebug", screen()),
         )
     }
+
+    @Test
+    fun `snapshot placeholders describe generator while legacy placeholders keep the visible view`() {
+        val command = CommandTemplate.expand(
+            "run {file_name}:{class_name}:{file_path} " +
+                "{snapshot_file_name}:{snapshot_class_name}:{snapshot_file_path}:{snapshot_method_name}",
+            screen(fileName = "LoginView", classNames = listOf("LoginView")),
+            relativePath = "Sources/LoginView",
+            snapshot = CommandTemplate.SnapshotContext(
+                fileName = "LoginSnapshotTests",
+                className = "LoginSnapshotTests",
+                filePath = "Tests/LoginSnapshotTests",
+                methodName = "testDefault",
+            ),
+        )
+
+        assertEquals(
+            "run LoginView:LoginView:Sources/LoginView " +
+                "LoginSnapshotTests:LoginSnapshotTests:Tests/LoginSnapshotTests:testDefault",
+            command,
+        )
+    }
 }

@@ -32,13 +32,15 @@ object ThumbnailScale {
  *
  * Kept apart from [AppConfig], which is keyed per project: it would be surprising for the thumbnail
  * size or the theme to change just because a different repository was opened. Every setter writes
- * through immediately — there are three fields and no meaningful write cost.
+ * through immediately; the file is tiny and changes only after explicit UI actions.
  */
 class UiPreferences private constructor(
     appearance: Appearance,
     thumbnailScale: Int,
     leftPaneCollapsed: Boolean,
     settingsPreviewWidth: Int,
+    projectPaneWidth: Int,
+    goldensPaneWidth: Int,
 ) {
     var appearance by mutableStateOf(appearance)
         private set
@@ -48,6 +50,10 @@ class UiPreferences private constructor(
     var leftPaneCollapsed by mutableStateOf(leftPaneCollapsed)
         private set
     var settingsPreviewWidth by mutableStateOf(settingsPreviewWidth)
+        private set
+    var projectPaneWidth by mutableStateOf(projectPaneWidth)
+        private set
+    var goldensPaneWidth by mutableStateOf(goldensPaneWidth)
         private set
 
     fun selectAppearance(value: Appearance) = update { appearance = value }
@@ -60,6 +66,14 @@ class UiPreferences private constructor(
 
     fun rememberSettingsPreviewWidth(width: Int) = update {
         settingsPreviewWidth = width.coerceIn(SETTINGS_PREVIEW_MIN_WIDTH, SETTINGS_PREVIEW_MAX_WIDTH)
+    }
+
+    fun rememberProjectPaneWidth(width: Int) = update {
+        projectPaneWidth = width.coerceAtLeast(RESIZABLE_PANE_MIN_WIDTH)
+    }
+
+    fun rememberGoldensPaneWidth(width: Int) = update {
+        goldensPaneWidth = width.coerceAtLeast(RESIZABLE_PANE_MIN_WIDTH)
     }
 
     /** Resolves [Appearance.SYSTEM] against the OS; anything else is taken literally. */
@@ -81,6 +95,8 @@ class UiPreferences private constructor(
             setProperty("thumbnailScale", thumbnailScale.toString())
             setProperty("leftPaneCollapsed", leftPaneCollapsed.toString())
             setProperty("settingsPreviewWidth", settingsPreviewWidth.toString())
+            setProperty("projectPaneWidth", projectPaneWidth.toString())
+            setProperty("goldensPaneWidth", goldensPaneWidth.toString())
         }
         runCatching {
             file.parentFile.mkdirs()
@@ -103,12 +119,21 @@ class UiPreferences private constructor(
                 settingsPreviewWidth =
                     (props.getProperty("settingsPreviewWidth")?.toIntOrNull() ?: SETTINGS_PREVIEW_DEFAULT_WIDTH)
                         .coerceIn(SETTINGS_PREVIEW_MIN_WIDTH, SETTINGS_PREVIEW_MAX_WIDTH),
+                projectPaneWidth =
+                    (props.getProperty("projectPaneWidth")?.toIntOrNull() ?: PROJECT_PANE_DEFAULT_WIDTH)
+                        .coerceAtLeast(RESIZABLE_PANE_MIN_WIDTH),
+                goldensPaneWidth =
+                    (props.getProperty("goldensPaneWidth")?.toIntOrNull() ?: GOLDENS_PANE_DEFAULT_WIDTH)
+                        .coerceAtLeast(RESIZABLE_PANE_MIN_WIDTH),
             )
         }
 
         private const val SETTINGS_PREVIEW_MIN_WIDTH = 220
         private const val SETTINGS_PREVIEW_MAX_WIDTH = 2_000
         private const val SETTINGS_PREVIEW_DEFAULT_WIDTH = 320
+        private const val RESIZABLE_PANE_MIN_WIDTH = 120
+        private const val PROJECT_PANE_DEFAULT_WIDTH = 240
+        private const val GOLDENS_PANE_DEFAULT_WIDTH = 340
 
         /**
          * Read once at startup rather than observed.

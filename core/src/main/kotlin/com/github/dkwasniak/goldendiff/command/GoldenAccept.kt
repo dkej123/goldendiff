@@ -3,6 +3,7 @@ package com.github.dkwasniak.goldendiff.command
 import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import java.io.File
+import java.io.IOException
 
 /**
  * Promotes a freshly verified screenshot to its committed golden — the missing step for frameworks
@@ -19,6 +20,16 @@ import java.io.File
  * File I/O — never call on a UI thread.
  */
 object GoldenAccept {
+
+    data class BulkResult(
+        val accepted: List<File>,
+        val failed: List<BulkFailure>,
+    )
+
+    data class BulkFailure(
+        val golden: File,
+        val failure: Failure,
+    )
 
     sealed interface Failure {
         /** No generated file could be resolved for the golden (nothing to accept). */
@@ -51,7 +62,9 @@ object GoldenAccept {
             // Move, not copy: remove the leftover generated file so it does not linger as a spurious
             // change. Only if it is a different file (a generated regex could resolve to the golden
             // itself for tools that write in place, which must not be deleted).
-            if (generated.canonicalPath != golden.canonicalPath) generated.delete()
+            if (generated.canonicalPath != golden.canonicalPath && !generated.delete()) {
+                throw IOException("Could not remove accepted generated file: ${generated.path}")
+            }
             generated
         }.recoverCatching { throw AcceptException(Failure.Io(it)) }
     }
@@ -66,6 +79,33 @@ object GoldenAccept {
             generatedFileRegex = normalized.generatedFileRegex,
             excludedSuffixes = config.excludedSuffixes,
         ) != null
+    }
+
+    /**
+     * Accepts every explicit golden and reports all outcomes. A failure never aborts the remaining
+     * files, which lets hosts offer a retry for precisely the unresolved subset.
+     */
+    fun acceptAll(
+        goldens: Collection<File>,
+        config: GoldenDiffConfig,
+        projectRoot: File?,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): BulkResult {
+        val distinct = goldens.distinctBy { it.normalize().path }
+        val accepted = mutableListOf<File>()
+        val failed = mutableListOf<BulkFailure>()
+        distinct.forEachIndexed { index, golden ->
+            accept(golden, config, projectRoot)
+                .onSuccess { accepted += golden }
+                .onFailure { error ->
+                    failed += BulkFailure(
+                        golden,
+                        (error as? AcceptException)?.failure ?: Failure.Io(error),
+                    )
+                }
+            onProgress(index + 1, distinct.size)
+        }
+        return BulkResult(accepted, failed)
     }
 
     /** Carries a typed [Failure] out of [accept] while still using [Result]. */

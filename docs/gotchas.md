@@ -134,3 +134,10 @@ The plugin does **not** use `:core`'s `CommandRunner`: it runs commands through 
 layer (`GeneralCommandLine` + `OSProcessHandler` + `RunContentExecutor`, stable since 241) so output
 lands in the Run tool window with a Stop button. Only the standalone app uses `CommandRunner` plus its
 own log window. Keep that split — do not pull the IntelliJ execution API into `:core`.
+
+## Merged snapshot refreshes must update both variants
+The standalone app no longer has a global Working/Test source. Watcher events under either golden or
+generated roots must refresh the affected `MergedGoldenItem` and snapshot-file failure counts even
+when the currently displayed local variant is Working copy. Filtering generated events by the active
+variant leaves stale Failed badges. Structural events still use a soft rescan so the existing list and
+selection remain visible until replacement state is ready.

@@ -75,7 +75,9 @@ object AppConfig {
             generateFileCommand = props.getProperty("generateFileCommand").orEmpty(),
             verifyAllCommand = props.getProperty("verifyAllCommand").orEmpty(),
             verifyFileCommand = props.getProperty("verifyFileCommand").orEmpty(),
+            verifyCaseCommand = props.getProperty("verifyCaseCommand").orEmpty(),
             commandJavaHome = props.getProperty("commandJavaHome").orEmpty(),
+            notifyWhenTasksFinish = props.getProperty("notifyWhenTasksFinish")?.toBooleanStrictOrNull() ?: true,
         )
     }
 
@@ -110,7 +112,9 @@ object AppConfig {
             setProperty("generateFileCommand", effective.generateFileCommand)
             setProperty("verifyAllCommand", effective.verifyAllCommand)
             setProperty("verifyFileCommand", effective.verifyFileCommand)
+            setProperty("verifyCaseCommand", effective.verifyCaseCommand)
             setProperty("commandJavaHome", effective.commandJavaHome)
+            setProperty("notifyWhenTasksFinish", effective.notifyWhenTasksFinish.toString())
         }
         return runCatching {
             configDir.mkdirs()

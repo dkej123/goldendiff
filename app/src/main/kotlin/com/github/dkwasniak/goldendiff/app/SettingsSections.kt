@@ -17,9 +17,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,7 @@ import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
+import kotlinx.coroutines.launch
 
 /**
  * The settings form, decomposed into one composable per section plus the small controls they share.
@@ -88,8 +91,8 @@ internal fun DirectoriesSection(state: AppState) {
 internal fun OutputMatchingSection(state: AppState) {
     SectionHeader(
         "Test output matching",
-        "Used only after you select a golden and choose Compare: Test output. The first capture " +
-            "group must be the matching golden's base name.",
+        "Maps a local Test output variant to its golden. The first capture group must be the matching " +
+            "golden's base name.",
     )
     FieldLabel("Generated output filename regex")
     MonoField(
@@ -214,7 +217,9 @@ internal fun DisplaySection(state: AppState) {
 
 @Composable
 internal fun CommandsSection(state: AppState) {
-    val placeholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+    val placeholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS.take(3)
+        .joinToString("   ") { (token, meaning) -> "$token = $meaning" }
+    val casePlaceholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS.drop(3)
         .joinToString("   ") { (token, meaning) -> "$token = $meaning" }
     SectionHeader(
         "Commands",
@@ -239,6 +244,12 @@ internal fun CommandsSection(state: AppState) {
         state.config.verifyFileCommand,
     ) { state.updateConfig(state.config.copy(verifyFileCommand = it)) }
     CommandField(
+        "Verify current case",
+        "Optional method/preview command. Leave blank to run Verify current file for its generator. " +
+            "Case placeholders: $casePlaceholders.",
+        state.config.verifyCaseCommand,
+    ) { state.updateConfig(state.config.copy(verifyCaseCommand = it)) }
+    CommandField(
         "JDK for commands (JAVA_HOME)",
         "Optional. Absolute path to a JDK/JBR exported as JAVA_HOME when running the commands above. " +
             "Use this when the toolchain lives outside the app's shell — e.g. Android Studio's bundled " +
@@ -255,6 +266,103 @@ internal fun CommandsSection(state: AppState) {
                 .clickable { state.updateConfig(state.config.copy(commandJavaHome = bundledJbr)) }
                 .padding(bottom = 8.dp),
         )
+    }
+}
+
+@Composable
+internal fun NotificationsSection(state: AppState) {
+    SectionHeader(
+        "Notifications",
+        "Get a system notification when a screenshot command finishes while Golden Diff is in the background.",
+    )
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Toggle(state.config.notifyWhenTasksFinish) {
+            state.updateConfig(
+                state.config.copy(notifyWhenTasksFinish = !state.config.notifyWhenTasksFinish),
+            )
+        }
+        Column {
+            Text("Notify when tasks finish", color = tokens.text, fontSize = Type.panelTitle)
+            Text(
+                "Success and failure only; manual cancellation is silent. Clicking a notification opens the command log.",
+                color = tokens.textDim,
+                fontSize = 11.5.sp,
+            )
+        }
+    }
+    if (state.config.notifyWhenTasksFinish) {
+        NotificationPermission()
+        NotificationPreview("Verify finished", "Demo project · whole project", success = true)
+        Spacer(Modifier.height(8.dp))
+        NotificationPreview("Generate failed", "Login.kt · current file", success = false)
+    }
+}
+
+/**
+ * Surfaces Notification Center's answer, so a switched-on toggle that delivers nothing is explained
+ * in the one place the user already went looking.
+ */
+@Composable
+private fun NotificationPermission() {
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf(MacNotifications.Authorization.UNKNOWN) }
+    // The framework replies on its own thread; the hop puts the state write back on the composition.
+    val refresh = { MacNotifications.authorizationStatus { result -> scope.launch { status = result } } }
+    LaunchedEffect(Unit) { refresh() }
+
+    val notice = when {
+        MacNotifications.backend == MacNotifications.Backend.APPLESCRIPT ->
+            "Development build: notifications are posted by the scripting host, not by Golden Diff, and " +
+                "macOS may drop them. The packaged app uses Notification Center."
+        status == MacNotifications.Authorization.DENIED ->
+            "macOS is blocking notifications for Golden Diff. Allow them in System Settings → Notifications."
+        status == MacNotifications.Authorization.NOT_DETERMINED ->
+            "macOS has not been asked yet. Allow notifications when prompted."
+        else -> null
+    } ?: return
+
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(notice, color = tokens.textDim, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
+        if (status == MacNotifications.Authorization.NOT_DETERMINED) {
+            Text(
+                "Ask now",
+                color = tokens.accent,
+                fontSize = 11.5.sp,
+                modifier = Modifier.clickable { MacNotifications.register { _, _ -> refresh() } },
+            )
+        } else {
+            Text(
+                "Open System Settings",
+                color = tokens.accent,
+                fontSize = 11.5.sp,
+                modifier = Modifier.clickable(onClick = MacNotifications::openSystemSettings),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotificationPreview(title: String, body: String, success: Boolean) {
+    val color = if (success) tokens.new else tokens.changed
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Dimens.controlRadius))
+            .background(tokens.panel).border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(5.dp)).background(color))
+        Column {
+            Text(title, color = tokens.text, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
+            Text(body, color = tokens.textDim, fontSize = Type.small)
+        }
     }
 }
 

@@ -7,6 +7,10 @@ import androidx.compose.runtime.setValue
 import com.github.dkwasniak.goldendiff.command.CommandRunner
 import com.github.dkwasniak.goldendiff.command.CommandTemplate
 import com.github.dkwasniak.goldendiff.command.GoldenAccept
+import com.github.dkwasniak.goldendiff.command.CompletionCommandKind
+import com.github.dkwasniak.goldendiff.command.CompletionCommandScope
+import com.github.dkwasniak.goldendiff.command.CompletionNotificationPolicy
+import com.github.dkwasniak.goldendiff.command.CompletionResult
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
@@ -20,14 +24,21 @@ import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.project.FuzzyFileMatcher
 import com.github.dkwasniak.goldendiff.project.ProjectFileIndex
+import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
+import com.github.dkwasniak.goldendiff.project.SnapshotIndexFingerprint
+import com.github.dkwasniak.goldendiff.project.SnapshotCase
+import com.github.dkwasniak.goldendiff.project.SnapshotSourceCache
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
 import com.github.dkwasniak.goldendiff.scan.ChangeScanner
+import com.github.dkwasniak.goldendiff.scan.MergedGoldenItem
+import com.github.dkwasniak.goldendiff.scan.MergedGoldenStatus
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryBuckets
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryClient
 import com.github.dkwasniak.goldendiff.telemetry.TelemetrySpanStatus
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
+import com.github.dkwasniak.goldendiff.ui.CompareMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,10 +48,76 @@ import kotlinx.coroutines.withContext
 import java.awt.image.BufferedImage
 import java.io.File
 
-/** Mirrors the plugin's Scope control. */
-enum class Browse(val label: String) {
-    FILES("Current file"),
-    CHANGED("Project changes"),
+internal fun snapshotViewGeneratorPaths(
+    view: com.github.dkwasniak.goldendiff.project.SnapshotSourceFile?,
+    parentPath: String,
+): List<String> = view?.cases?.map(SnapshotCase::generatorPath).orEmpty()
+    .ifEmpty { listOf(parentPath) }
+    .distinct()
+    .sortedWith(ProjectFileIndex.PATH_ORDER)
+
+internal fun deduplicateSnapshotCommands(commands: List<String>): List<String> = commands.distinct()
+
+internal data class GoldenTreeLocation(val parentPath: String, val caseId: String?)
+
+internal data class QuickOpenResult(
+    val path: String,
+    val label: String,
+    val caseId: String? = null,
+)
+
+internal fun snapshotQuickOpenResults(
+    index: SnapshotFileIndex?,
+    query: String,
+    limit: Int = 30,
+): List<QuickOpenResult> {
+    val trimmed = query.trim()
+    if (index == null || trimmed.isEmpty()) return emptyList()
+    data class Scored(val result: QuickOpenResult, val score: Int)
+
+    return index.files.asSequence()
+        .flatMap { file ->
+            sequence {
+                FuzzyFileMatcher.score(file.relativePath, trimmed)?.let { score ->
+                    yield(
+                        Scored(
+                            QuickOpenResult(file.relativePath, File(file.relativePath).name),
+                            score,
+                        ),
+                    )
+                }
+                file.cases.forEach { case ->
+                    FuzzyFileMatcher.score(case.methodName, trimmed)?.let { score ->
+                        yield(Scored(QuickOpenResult(file.relativePath, case.methodName, case.id), score))
+                    }
+                }
+            }
+        }
+        .sortedWith(
+            compareByDescending<Scored> { it.score }
+                .thenBy { it.result.label.length }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.result.label }
+                .thenBy(ProjectFileIndex.PATH_ORDER) { it.result.path },
+        )
+        .take(limit)
+        .map { it.result }
+        .toList()
+}
+
+internal fun goldenTreeLocation(
+    index: SnapshotFileIndex?,
+    preferredParentPath: String?,
+    goldenPath: String,
+): GoldenTreeLocation? {
+    val normalized = File(goldenPath).normalize().path
+    val preferred = index?.files?.firstOrNull {
+        it.relativePath == preferredParentPath && normalized in it.goldenPaths
+    }
+    val owner = preferred ?: index?.files?.firstOrNull { normalized in it.goldenPaths } ?: return null
+    return GoldenTreeLocation(
+        owner.relativePath,
+        owner.cases.firstOrNull { normalized in it.goldenPaths }?.id,
+    )
 }
 
 /** What the app is currently unable to do, if anything. */
@@ -69,21 +146,33 @@ class AppState(
     var blocker by mutableStateOf<Blocker?>(null)
         private set
 
-    var browse by mutableStateOf(Browse.FILES)
-        private set
     var source by mutableStateOf(BuiltInSource.WORKING_COPY)
         private set
 
     var selectedSourcePath by mutableStateOf<String?>(null)
         private set
+    var selectedSnapshotCaseId by mutableStateOf<String?>(null)
+        private set
 
-    // The project-tree row a single click highlights without opening it. Opening a file (double-click,
-    // a tab, quick-open) realigns this to the opened path so the tree marks whatever is actually shown.
+    data class TreeRevealRequest(val sourcePath: String, val caseId: String?, val sequence: Long)
+
+    // The project-tree row associated with the active comparison.
     var treeHighlight by mutableStateOf<String?>(null)
+    var treeHighlightCaseId by mutableStateOf<String?>(null)
+        private set
+    var treeRevealRequest by mutableStateOf<TreeRevealRequest?>(null)
+        private set
+    private var treeRevealSequence = 0L
 
     var fileIndex by mutableStateOf<ProjectFileIndex?>(null)
         private set
+    var snapshotFileIndex by mutableStateOf<SnapshotFileIndex?>(null)
+        private set
+    var snapshotIndexing by mutableStateOf(false)
+        private set
     var items by mutableStateOf<List<ExtraComparisonItem>>(emptyList())
+        private set
+    var mergedItems by mutableStateOf<List<MergedGoldenItem>>(emptyList())
         private set
     /**
      * Goldens accepted since the last scan, by absolute path. Drives the transient "Accepted" marker
@@ -94,6 +183,10 @@ class AppState(
         private set
     var selected by mutableStateOf<File?>(null)
         private set
+    data class GoldenScrollRequest(val path: String, val sequence: Long)
+    var goldenScrollRequest by mutableStateOf<GoldenScrollRequest?>(null)
+        private set
+    private var goldenScrollSequence = 0L
     var busy by mutableStateOf(false)
         private set
     var status by mutableStateOf("")
@@ -101,6 +194,22 @@ class AppState(
 
     var comparison by mutableStateOf<Comparison?>(null)
         private set
+    var compareMode by mutableStateOf(CompareMode.TWO_UP)
+        private set
+
+    fun selectCompareMode(value: CompareMode, location: String) {
+        if (compareMode == value) return
+        compareMode = value
+        compareModeSelected(
+            when (value) {
+                CompareMode.TWO_UP -> "side_by_side"
+                CompareMode.SWIPE -> "swipe"
+                CompareMode.ONION -> "onion"
+                CompareMode.DIFF -> "diff"
+            },
+            location,
+        )
+    }
 
     // Screenshot-test commands. `commandStatus` is the one-line summary shown in the toolbar/status
     // bar; `commandLog` is the full streamed output the expandable log window renders.
@@ -111,6 +220,10 @@ class AppState(
     var commandKind by mutableStateOf<CommandKind?>(null)
         private set
     var commandPerFile by mutableStateOf(false)
+        private set
+    var commandSourcePath by mutableStateOf<String?>(null)
+        private set
+    var commandCaseId by mutableStateOf<String?>(null)
         private set
     var commandLabel by mutableStateOf<String?>(null)
         private set
@@ -136,6 +249,84 @@ class AppState(
     var onboardingVisible by mutableStateOf(false)
     var compareWindowVisible by mutableStateOf(false)
     var diagnosticsVisible by mutableStateOf(false)
+
+    sealed interface AcceptAllState {
+        data class Confirm(val candidates: List<File>) : AcceptAllState
+        data class Progress(val completed: Int, val total: Int) : AcceptAllState
+        data class Success(val count: Int) : AcceptAllState
+        data class Partial(val accepted: Int, val total: Int, val failed: List<GoldenAccept.BulkFailure>) : AcceptAllState
+        data object NothingToAccept : AcceptAllState
+    }
+
+    var acceptAllState by mutableStateOf<AcceptAllState?>(null)
+        private set
+
+    val acceptableCurrentFileGoldens: List<File>
+        get() = mergedItems.filter { it.hasAcceptableTestOutput }.map { it.golden }
+
+    fun requestAcceptAll() {
+        acceptAllState = acceptableCurrentFileGoldens
+            .takeIf { it.isNotEmpty() }
+            ?.let(AcceptAllState::Confirm)
+            ?: AcceptAllState.NothingToAccept
+    }
+
+    fun dismissAcceptAll() {
+        acceptAllState = null
+    }
+
+    fun confirmAcceptAll(candidates: List<File>) = runAcceptAll(candidates)
+
+    fun retryAcceptAll(failures: List<GoldenAccept.BulkFailure>) =
+        runAcceptAll(failures.map { it.golden })
+
+    private fun runAcceptAll(candidates: List<File>) {
+        if (candidates.isEmpty()) {
+            acceptAllState = AcceptAllState.NothingToAccept
+            return
+        }
+        val root = projectRoot
+        acceptAllState = AcceptAllState.Progress(0, candidates.size)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                GoldenAccept.acceptAll(candidates, config, root) { completed, total ->
+                    scope.launch { acceptAllState = AcceptAllState.Progress(completed, total) }
+                }
+            }
+            result.accepted.forEach(::suppressPngEvent)
+            acceptedGoldens = acceptedGoldens + result.accepted.map { it.absolutePath }
+            result.accepted.forEach(::invalidateCachesFor)
+            val acceptedPaths = result.accepted.mapTo(hashSetOf()) { it.normalize().path }
+            mergedItems = mergedItems.map { item ->
+                if (item.golden.normalize().path in acceptedPaths) {
+                    item.copy(
+                        workingCopy = item.workingCopy?.copy(status = ExtraComparisonItemStatus.MODIFIED),
+                        testOutput = null,
+                    )
+                } else {
+                    item
+                }
+            }
+            items = mergedItems.toLegacyItems()
+            selectedSourcePath?.let {
+                val key = selectionKey(it)
+                itemsCache[key] = items
+                mergedItemsCache[key] = mergedItems
+            }
+            pngRevision++
+            acceptAllState = if (result.failed.isEmpty()) {
+                AcceptAllState.Success(result.accepted.size)
+            } else {
+                AcceptAllState.Partial(result.accepted.size, candidates.size, result.failed)
+            }
+            selected?.takeIf { it.normalize().path in acceptedPaths }?.let { golden ->
+                sourceByGolden[golden.absolutePath] = BuiltInSource.WORKING_COPY
+                source = BuiltInSource.WORKING_COPY
+                select(golden, "accept_all")
+            }
+            refreshSnapshotStatuses()
+        }
+    }
 
     /** A newer app build on this install's channel, once the launch check has found one. */
     var update by mutableStateOf<UpdateChecker.UpdateInfo?>(null)
@@ -169,14 +360,34 @@ class AppState(
     /** Whether [installUpdate] will upgrade in place via Homebrew rather than download a `.dmg`. */
     val updateViaHomebrew: Boolean get() = updateHomebrew != null
 
-    /**
-     * Project files the user has opened, shown as editor-style tabs above the panes.
-     *
-     * Relative paths (the same values as [selectedSourcePath]) — the file drives golden matching, so
-     * a tab reopens that file rather than a single golden. Only meaningful in [Browse.FILES] scope.
-     */
-    var openTabs by mutableStateOf<List<String>>(emptyList())
-        private set
+    private val sourceByGolden = HashMap<String, BuiltInSource>()
+    private val onionOpacityByGolden = HashMap<String, Float>()
+
+    val selectedMergedItem: MergedGoldenItem?
+        get() = selected?.normalize()?.path?.let { path ->
+            mergedItems.firstOrNull { it.golden.normalize().path == path }
+        }
+
+    val selectedSource: BuiltInSource
+        get() = selected?.absolutePath?.let { sourceByGolden[it] } ?: source
+
+    fun selectGoldenSource(value: BuiltInSource) {
+        val golden = selected ?: return
+        val merged = selectedMergedItem ?: return
+        if (merged.variant(value) == null) return
+        sourceByGolden[golden.absolutePath] = value
+        source = value
+        comparison = null
+        comparisonGeneration++
+        select(golden, "source_switch")
+    }
+
+    fun onionOpacity(golden: File?): Float =
+        golden?.absolutePath?.let { onionOpacityByGolden[it] } ?: 0.5f
+
+    fun rememberOnionOpacity(golden: File?, value: Float) {
+        golden?.absolutePath?.let { onionOpacityByGolden[it] = value }
+    }
 
     /** Free-text filter over the project tree; empty means "show everything". */
     var treeFilter by mutableStateOf("")
@@ -197,16 +408,38 @@ class AppState(
     private var refreshGeneration = 0L
     private var comparisonGeneration = 0L
     private var pendingProjectOpenTrigger: String? = null
+    private var snapshotIndexGeneration = 0L
+    private data class CachedProjectIndexes(
+        val files: ProjectFileIndex,
+        val snapshots: SnapshotFileIndex?,
+        val sources: SnapshotSourceCache,
+    )
+    private val projectIndexCache = object : LinkedHashMap<String, CachedProjectIndexes>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedProjectIndexes>?): Boolean =
+            size > MAX_CACHED_PROJECTS
+    }
+    private var snapshotSourceCache = SnapshotSourceCache()
 
-    // Per-tab state so switching between open files is instant instead of re-scanning and re-decoding.
-    // Match results per opened file, the golden last selected in each, and decoded comparisons keyed
+    // Per-source state so switching files is instant instead of re-scanning and re-decoding.
+    // Match results per selected file, the golden last selected in each, and decoded comparisons keyed
     // by golden + source + mtime + trim. Decoded thumbnails are cached the same way for the grid.
     // File mtime is part of every image key, so a re-run that rewrites a golden re-decodes on its own;
     // Configuration changes clear the caches wholesale via [clearCaches].
     private val itemsCache = HashMap<String, List<ExtraComparisonItem>>()
+    private val mergedItemsCache = HashMap<String, List<MergedGoldenItem>>()
     private val tabSelection = HashMap<String, File>()
     private val comparisonCache = HashMap<String, Comparison>()
     val thumbnailCache = HashMap<String, ImageBitmap>()
+
+    /**
+     * Last known width/height of each golden's thumbnail, keyed by absolute path.
+     *
+     * Kept out of [clearCaches] and never invalidated: it is only a layout hint, and a slightly
+     * stale ratio still reserves roughly the right cell height. Without it a card that scrolls back
+     * into view is first laid out at the placeholder ratio and then resizes once its bitmap arrives,
+     * which changes the grid's content height under an in-flight scroll.
+     */
+    val thumbnailRatios = HashMap<String, Float>()
     var pngRevision by mutableStateOf(0L)
         private set
     private var pngWatcher: PngDirectoryWatcher? = null
@@ -214,20 +447,29 @@ class AppState(
     private val pendingPngEvents = mutableListOf<PngDirectoryWatcher.Event>()
     private var pendingPngOverflow = false
     private var pngUpdateGeneration = 0L
-    private val suppressedPngPaths = HashMap<String, Long>()
+    private data class SuppressedPngWrite(val state: PngFileState, val expiresAt: Long)
+    private val suppressedPngPaths = HashMap<String, SuppressedPngWrite>()
 
-    private fun comparisonKey(golden: File, source: BuiltInSource): String =
-        "${source.name}|${golden.absolutePath}|${golden.lastModified()}|${config.trimTransparentPadding}"
+    private fun comparisonKey(golden: File, source: BuiltInSource): String {
+        val variantMtime = mergedItems
+            .firstOrNull { it.golden.normalize() == golden.normalize() }
+            ?.variant(source)?.file?.lastModified()
+            ?: golden.lastModified()
+        return "${source.name}|${golden.absolutePath}|$variantMtime|${config.trimTransparentPadding}"
+    }
 
     private fun clearCaches() {
         itemsCache.clear()
+        mergedItemsCache.clear()
         comparisonCache.clear()
         thumbnailCache.clear()
     }
 
-    val quickOpenResults: List<String>
-        get() = fileIndex?.let { FuzzyFileMatcher.search(it.paths, quickOpenQuery, limit = 30).map { m -> m.path } }
-            .orEmpty()
+    private fun selectionKey(path: String, caseId: String? = selectedSnapshotCaseId): String =
+        caseId ?: path
+
+    internal val quickOpenResults: List<QuickOpenResult>
+        get() = snapshotQuickOpenResults(snapshotFileIndex, quickOpenQuery)
 
     data class Comparison(
         val old: ImageBitmap?,
@@ -256,72 +498,133 @@ class AppState(
         val hasDiff: Boolean get() = !identical && old != null && new != null
     }
 
-    fun closeTab(path: String) {
-        val index = openTabs.indexOf(path)
-        if (index < 0) return
-        val remaining = openTabs.toMutableList().apply { removeAt(index) }
-        openTabs = remaining
-        telemetry.event("product.feature_used", mapOf("feature" to "tab_close"))
-        if (selectedSourcePath != path) {
-            persistOpenFiles()
-            return
-        }
-        // Land on the tab that slides into the closed one's place, else the previous, else nothing.
-        val next = remaining.getOrNull(index) ?: remaining.getOrNull(index - 1)
-        if (next != null) {
-            selectSourceFile(next)
-        } else {
-            clearSelection()
-            persistOpenFiles()
-        }
-    }
-
-    /** Drops the current file selection and its comparison — used when the last tab closes. */
+    /** Drops the current source-file selection and its comparison. */
     private fun clearSelection() {
         selectedSourcePath = null
+        selectedSnapshotCaseId = null
         selected = null
         comparison = null
         comparisonGeneration++
         items = emptyList()
+        mergedItems = emptyList()
         acceptedGoldens = emptySet()
         status = "Choose a project file to find its screenshots."
     }
 
     fun openProject(root: File, restored: Boolean = false) {
+        rememberCurrentProjectIndexes()
         pendingProjectOpenTrigger = if (restored) "restored" else "manual"
+        val loadedConfig = AppConfig.load(root)
+        val cached = projectIndexCache[projectCacheKey(root)]
+        val cachedSnapshots = cached?.snapshots?.takeIf {
+            it.fingerprint == SnapshotIndexFingerprint.from(root, loadedConfig)
+        }
+        // Invalidate both the visible tree and every in-flight index build before publishing the new
+        // root. Otherwise Compose can briefly render the previous project's tree under the new name,
+        // and a slower old scan can race the new one.
+        val openingGeneration = ++snapshotIndexGeneration
+        fileIndex = cached?.files
+        snapshotFileIndex = cachedSnapshots
+        val sourceCache = cached?.sources ?: SnapshotSourceCache()
+        snapshotSourceCache = sourceCache
+        snapshotIndexing = true
         projectRoot = root
-        config = AppConfig.load(root)
+        config = loadedConfig
         restartPngWatcher()
-        val restoredFiles = AppConfig.loadOpenFiles(root)
-        val restoredSelection = restoredFiles.selectedPath ?: restoredFiles.paths.lastOrNull()
         AppConfig.rememberProject(root)
-        browse = Browse.FILES
-        selectedSourcePath = restoredSelection
-        treeHighlight = restoredSelection
+        selectedSourcePath = null
+        selectedSnapshotCaseId = null
+        treeHighlight = null
+        treeHighlightCaseId = null
+        treeRevealRequest = null
         selected = null
         comparison = null
-        openTabs = restoredFiles.paths
+        sourceByGolden.clear()
+        onionOpacityByGolden.clear()
         treeFilter = ""
         clearCaches()
         tabSelection.clear()
-        if (restoredSelection != null && !File(root, restoredSelection).isFile) {
-            showMissingSourceFile(restoredSelection)
-        } else {
-            refresh("automatic")
-        }
+        refresh("automatic")
         scope.launch {
-            val index = withContext(Dispatchers.IO) { ProjectFileIndex.scan(root) }
+            val (index, refreshed) = withContext(Dispatchers.IO) {
+                val scanned = ProjectFileIndex.scan(root)
+                val reused = cachedSnapshots
+                    ?.takeIf { sourceCache.isCurrent(scanned, loadedConfig) }
+                    ?.let { existing ->
+                        val allGoldens = GoldenFinder.findAll(
+                            loadedConfig.resolvedGoldenPaths(root),
+                            loadedConfig.excludedSuffixes,
+                        )
+                        val inventory = allGoldens.mapTo(linkedSetOf()) { it.normalize().path }
+                        if (inventory != existing.goldenInventory) {
+                            null
+                        } else {
+                            SnapshotFileIndex.refreshStatuses(
+                                existing,
+                                scanner(root, loadedConfig).mergedItemsFor(allGoldens),
+                            )
+                        }
+                    }
+                scanned to reused
+            }
+            if (projectRoot != root || snapshotIndexGeneration != openingGeneration) return@launch
             fileIndex = index
+            if (refreshed != null) {
+                snapshotFileIndex = refreshed
+                snapshotIndexing = false
+                projectIndexCache[projectCacheKey(root)] = CachedProjectIndexes(index, refreshed, sourceCache)
+                refreshed.files.firstOrNull()?.let { selectSourceFile(it.relativePath, "automatic") }
+            } else {
+                rebuildSnapshotIndex(index, selectFirst = true)
+            }
         }
     }
 
-    private fun persistOpenFiles() {
+    private suspend fun rebuildSnapshotIndex(index: ProjectFileIndex, selectFirst: Boolean = false) {
         val root = projectRoot ?: return
-        AppConfig.saveOpenFiles(root, AppConfig.OpenFilesSession(openTabs, selectedSourcePath))
-            .onFailure { error ->
-                DevLog.record("session", "Could not save open files: ${error.message.orEmpty()}")
+        if (index.root.normalize() != root.normalize()) return
+        val requestedConfig = config
+        val sourceCache = snapshotSourceCache
+        val generation = ++snapshotIndexGeneration
+        snapshotIndexing = true
+        val rebuilt = withContext(Dispatchers.IO) {
+            val scanner = scanner(root, requestedConfig)
+            val allGoldens = GoldenFinder.findAll(
+                requestedConfig.resolvedGoldenPaths(root),
+                requestedConfig.excludedSuffixes,
+            )
+            SnapshotFileIndex.build(index, requestedConfig, scanner.mergedItemsFor(allGoldens), sourceCache)
+        }
+        if (
+            generation != snapshotIndexGeneration ||
+            projectRoot != root ||
+            SnapshotIndexFingerprint.from(root, config) != rebuilt.fingerprint
+        ) {
+            return
+        }
+        snapshotFileIndex = rebuilt
+        snapshotIndexing = false
+        projectIndexCache[projectCacheKey(root)] = CachedProjectIndexes(index, rebuilt, sourceCache)
+        val selectedPath = selectedSourcePath
+        when {
+            selectedPath != null && rebuilt.files.any { it.relativePath == selectedPath } -> {
+                selectedSnapshotCaseId = selectedSnapshotCaseId
+                    ?.takeIf { id -> rebuilt.files.any { file -> file.cases.any { it.id == id } } }
             }
+            selectFirst -> rebuilt.files.firstOrNull()?.let { selectSourceFile(it.relativePath, "automatic") }
+            selectedPath != null -> clearSelection()
+        }
     }
+
+    private fun rememberCurrentProjectIndexes() {
+        val root = projectRoot ?: return
+        val files = fileIndex ?: return
+        projectIndexCache[projectCacheKey(root)] =
+            CachedProjectIndexes(files, snapshotFileIndex, snapshotSourceCache)
+    }
+
+    private fun projectCacheKey(root: File): String =
+        runCatching { root.canonicalPath }.getOrElse { root.normalize().absolutePath }
 
     /** Keeps a stale tab selectable without trying to scan a source file that no longer exists. */
     private fun showMissingSourceFile(relativePath: String) {
@@ -332,6 +635,7 @@ class AppState(
         selected = null
         comparison = null
         items = emptyList()
+        mergedItems = emptyList()
         acceptedGoldens = emptySet()
         status = "${File(relativePath).name} no longer exists."
     }
@@ -455,7 +759,6 @@ class AppState(
             return
         }
         config = newConfig
-        restartPngWatcher()
         telemetry.event(
             "product.configuration_saved",
             mapOf(
@@ -475,9 +778,7 @@ class AppState(
                 "changed_display" to (old.trimTransparentPadding != newConfig.trimTransparentPadding).toString(),
             ),
         )
-        // Directories, matching and trim all change what is matched or how it decodes.
-        clearCaches()
-        refresh("config_change")
+        applyConfigChanges(root, old, newConfig, "config_change")
     }
 
     /**
@@ -498,22 +799,49 @@ class AppState(
         val reloaded = AppConfig.load(root)
         if (old == reloaded) return false
         config = reloaded
-        restartPngWatcher()
-
-        val scanChanged =
-            old.goldenPaths != reloaded.goldenPaths ||
-                old.generatedPaths != reloaded.generatedPaths ||
-                old.generatedFileRegex != reloaded.generatedFileRegex ||
-                old.matchMode != reloaded.matchMode ||
-                old.annotatedFunctionRegex != reloaded.annotatedFunctionRegex ||
-                old.goldenFilePatterns != reloaded.goldenFilePatterns ||
-                old.excludedSuffixes != reloaded.excludedSuffixes ||
-                old.trimTransparentPadding != reloaded.trimTransparentPadding
-        if (scanChanged) {
-            clearCaches()
-            refresh("cli_config_change")
-        }
+        applyConfigChanges(root, old, reloaded, "cli_config_change")
         return true
+    }
+
+    /**
+     * Invalidates only the layer affected by a settings change. Command edits are configuration-only;
+     * image presentation edits evict decoded bitmaps; generated-output edits rescan statuses; only
+     * source-to-golden association changes rebuild the snapshot method index.
+     */
+    private fun applyConfigChanges(
+        root: File,
+        old: GoldenDiffConfig,
+        updated: GoldenDiffConfig,
+        trigger: String,
+    ) {
+        val rootsChanged =
+            old.goldenPaths != updated.goldenPaths ||
+                old.generatedPaths != updated.generatedPaths
+        if (rootsChanged) restartPngWatcher()
+
+        val associationsChanged =
+            SnapshotIndexFingerprint.from(root, old) != SnapshotIndexFingerprint.from(root, updated)
+        val generatedMatchingChanged =
+            old.generatedPaths != updated.generatedPaths ||
+                old.generatedFileRegex != updated.generatedFileRegex
+        when {
+            associationsChanged -> {
+                clearCaches()
+                refresh(trigger)
+                fileIndex?.let { index -> scope.launch { rebuildSnapshotIndex(index) } }
+            }
+            generatedMatchingChanged -> {
+                clearCaches()
+                refresh(trigger)
+                scope.launch { refreshSnapshotStatuses() }
+            }
+            old.trimTransparentPadding != updated.trimTransparentPadding -> {
+                comparisonCache.clear()
+                thumbnailCache.clear()
+                pngRevision++
+                selected?.let { select(it, "config_change") }
+            }
+        }
     }
 
     private fun restartPngWatcher() {
@@ -560,22 +888,23 @@ class AppState(
         if (commandRunning) return
         val root = projectRoot ?: return
         val now = System.currentTimeMillis()
-        suppressedPngPaths.entries.removeIf { it.value < now }
+        suppressedPngPaths.entries.removeIf { it.value.expiresAt < now }
         val relevant = events
             .distinctBy { "${it.kind}:${it.file.absolutePath}" }
-            .filterNot { suppressedPngPaths.containsKey(it.file.absolutePath) }
+            .filterNot { event -> suppressesExpectedPngWrite(event.file, now) }
             .filter { event ->
                 config.containsGoldenFile(root, event.file) ||
-                    (source == BuiltInSource.GENERATED && config.containsGeneratedFile(root, event.file))
+                    config.containsGeneratedFile(root, event.file)
             }
-        if (!overflow && relevant.isEmpty()) return
+        val refreshMode = pngRefreshMode(events = relevant, overflow = overflow)
+        if (refreshMode == PngRefreshMode.NONE) return
 
         relevant.forEach { invalidateCachesFor(it.file) }
         pngRevision++
-        val structural = overflow || relevant.any { it.kind != PngDirectoryWatcher.Kind.MODIFIED }
-        if (structural || browse == Browse.CHANGED) {
-            selectedSourcePath?.let(itemsCache::remove)
+        if (refreshMode == PngRefreshMode.RESCAN) {
+            selectedSourcePath?.let { itemsCache.remove(selectionKey(it)) }
             refresh("filesystem_change")
+            fileIndex?.let { index -> scope.launch { rebuildSnapshotIndex(index) } }
             return
         }
 
@@ -583,7 +912,7 @@ class AppState(
         val affected = linkedSetOf<File>()
         relevant.forEach { event ->
             visibleByPath[event.file.absolutePath]?.file?.let(affected::add)
-            if (source == BuiltInSource.GENERATED && config.containsGeneratedFile(root, event.file)) {
+            if (config.containsGeneratedFile(root, event.file)) {
                 generatedGoldenBase(event.file)?.let { base ->
                     items.asSequence()
                         .filter { it.file.nameWithoutExtension.equals(base, ignoreCase = true) }
@@ -597,20 +926,33 @@ class AppState(
 
     private fun refreshItemsInPlace(affected: Set<File>) {
         val root = projectRoot ?: return
-        val requestedSource = source
-        val requestedBrowse = browse
         val generation = ++pngUpdateGeneration
         scope.launch {
-            val refreshed = withContext(Dispatchers.IO) {
-                scanner(root).itemsFor(affected.toList(), requestedSource).associateBy { it.file.absolutePath }
+            val (refreshedMerged, indexedStatuses) = withContext(Dispatchers.IO) {
+                val changeScanner = scanner(root)
+                val visible = changeScanner.mergedItemsFor(affected.toList()).associateBy { it.golden.absolutePath }
+                val indexed = snapshotFileIndex?.files
+                    ?.flatMap { it.goldenPaths }
+                    ?.distinct()
+                    ?.let { paths -> changeScanner.mergedItemsFor(paths.map(::File)) }
+                    .orEmpty()
+                visible to indexed
             }
-            if (generation != pngUpdateGeneration || source != requestedSource || browse != requestedBrowse) return@launch
-            items = items.map { item -> refreshed[item.file.absolutePath] ?: item }
-            selectedSourcePath?.let { itemsCache[it] = items }
+            if (generation != pngUpdateGeneration) return@launch
+            mergedItems = mergedItems.map { item -> refreshedMerged[item.golden.absolutePath] ?: item }
+            items = mergedItems.toLegacyItems()
+            selectedSourcePath?.let {
+                val key = selectionKey(it)
+                itemsCache[key] = items
+                mergedItemsCache[key] = mergedItems
+            }
             val selectedFile = selected
             if (selectedFile != null && selectedFile in affected) {
                 invalidateCachesFor(selectedFile)
                 select(selectedFile, "filesystem", keepCurrentPreview = true)
+            }
+            snapshotFileIndex?.let { current ->
+                snapshotFileIndex = SnapshotFileIndex.refreshStatuses(current, indexedStatuses)
             }
         }
     }
@@ -622,7 +964,21 @@ class AppState(
     }
 
     private fun suppressPngEvent(file: File) {
-        suppressedPngPaths[file.absolutePath] = System.currentTimeMillis() + PNG_SUPPRESSION_MS
+        suppressedPngPaths[file.absolutePath] = SuppressedPngWrite(
+            state = pngFileState(file),
+            expiresAt = System.currentTimeMillis() + PNG_SUPPRESSION_MS,
+        )
+    }
+
+    private fun suppressesExpectedPngWrite(file: File, now: Long): Boolean {
+        val expected = suppressedPngPaths[file.absolutePath] ?: return false
+        if (expected.expiresAt < now) {
+            suppressedPngPaths.remove(file.absolutePath)
+            return false
+        }
+        val unchanged = pngFileState(file) == expected.state
+        if (!unchanged) suppressedPngPaths.remove(file.absolutePath)
+        return unchanged
     }
 
     // region screenshot-test commands
@@ -643,11 +999,58 @@ class AppState(
      * [commandLog], and followed by a rescan (switching to Test output after a successful Verify).
      */
     fun runCommand(kind: CommandKind, perFile: Boolean) {
+        val path = selectedSourcePath
+        if (kind == CommandKind.VERIFY && perFile && path != null) {
+            runVerifyView(path)
+        } else {
+            runCommand(kind, perFile, path)
+        }
+    }
+
+    /** Runs a per-file command against [relativePath], independently of the current selection. */
+    fun runFileCommand(kind: CommandKind, relativePath: String) =
+        if (kind == CommandKind.VERIFY) runVerifyView(relativePath) else
+            runCommand(kind, perFile = true, relativePath = relativePath)
+
+    fun hasVerifyCaseCommand(): Boolean =
+        hasCaseCommand(CommandKind.VERIFY)
+
+    fun hasCaseCommand(kind: CommandKind): Boolean = when (kind) {
+        CommandKind.GENERATE -> config.generateFileCommand.isNotBlank()
+        CommandKind.VERIFY -> config.verifyCaseCommand.isNotBlank() || config.verifyFileCommand.isNotBlank()
+    }
+
+    fun runVerifyCase(parentPath: String, caseId: String) =
+        runCaseCommand(CommandKind.VERIFY, parentPath, caseId)
+
+    fun runCaseCommand(kind: CommandKind, parentPath: String, caseId: String) {
+        val case = snapshotFileIndex?.files
+            ?.firstOrNull { it.relativePath == parentPath }
+            ?.cases?.firstOrNull { it.id == caseId } ?: return
+        val template = when (kind) {
+            CommandKind.GENERATE -> config.generateFileCommand
+            CommandKind.VERIFY -> config.verifyCaseCommand.ifBlank { config.verifyFileCommand }
+        }
+        if (template.isBlank()) return
+        val command = expandSnapshotCommand(template, parentPath, case.generatorPath, case)
+        startCommands(kind, parentPath, case.id, listOf(command), "${kind.label} (current case)")
+    }
+
+    fun runVerifyView(relativePath: String) {
+        val template = config.verifyFileCommand
+        if (template.isBlank()) return
+        val view = snapshotFileIndex?.files?.firstOrNull { it.relativePath == relativePath }
+        val commands = snapshotViewGeneratorPaths(view, relativePath).map { generator ->
+            expandSnapshotCommand(template, relativePath, generator, null)
+        }.let(::deduplicateSnapshotCommands)
+        startCommands(CommandKind.VERIFY, relativePath, null, commands, "Verify (current file)")
+    }
+
+    private fun runCommand(kind: CommandKind, perFile: Boolean, relativePath: String?) {
         if (commandRunning) return
         val root = projectRoot ?: return
         val template = commandFor(kind, perFile)
         if (template.isBlank()) return
-        val relativePath = selectedSourcePath
         val command = if (perFile) {
             val file = relativePath?.let { File(root, it) }?.takeIf { it.isFile } ?: return
             val screen = GenericScreenExtractor.extract(
@@ -660,53 +1063,141 @@ class AppState(
             template
         }
 
+        startCommands(
+            kind = kind,
+            relativePath = relativePath.takeIf { perFile },
+            caseId = null,
+            commands = listOf(command),
+            label = "${kind.label}${if (perFile) " (current file)" else ""}",
+            perFile = perFile,
+        )
+    }
+
+    private fun expandSnapshotCommand(
+        template: String,
+        parentPath: String,
+        generatorPath: String,
+        case: SnapshotCase?,
+    ): String {
+        val root = projectRoot ?: return template
+        fun screen(path: String) = File(root, path).let { file ->
+            GenericScreenExtractor.extract(
+                file.nameWithoutExtension,
+                runCatching { file.readText() }.getOrDefault(""),
+                config.normalizedForMatching().annotatedFunctionRegex,
+                includeTestFunctions = true,
+            )
+        }
+        val parent = screen(parentPath)
+        val generator = screen(generatorPath)
+        return CommandTemplate.expand(
+            template,
+            parent,
+            parentPath.substringBeforeLast('.', parentPath),
+            CommandTemplate.SnapshotContext(
+                fileName = File(generatorPath).nameWithoutExtension,
+                className = case?.className ?: generator.classNames.firstOrNull(),
+                filePath = generatorPath.substringBeforeLast('.', generatorPath),
+                methodName = case?.methodName ?: CommandTemplate.SNAPSHOT_METHOD_NAME,
+            ),
+        )
+    }
+
+    private fun startCommands(
+        kind: CommandKind,
+        relativePath: String?,
+        caseId: String?,
+        commands: List<String>,
+        label: String,
+        perFile: Boolean = true,
+    ) {
+        if (commandRunning || commands.isEmpty()) return
+        val root = projectRoot ?: return
         commandCancelled = false
         commandStatusDismissed = false
         commandRunning = true
         commandKind = kind
         commandPerFile = perFile
-        commandLabel = "${kind.label}${if (perFile) " (current file)" else ""}"
+        commandSourcePath = relativePath
+        commandCaseId = caseId
+        commandLabel = label
         commandStatus = "Running…"
         commandLog.clear()
-        commandLog.add("$ $command")
         featureUsed(if (kind == CommandKind.GENERATE) "generate_run" else "verify_run")
 
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                CommandRunner.run(
-                    command = command,
-                    workingDir = root,
-                    javaHome = config.commandJavaHome.ifBlank { null },
-                    isCancelled = { commandCancelled },
-                ) { line ->
-                    // Compose snapshot state must be mutated on the UI thread. `scope` is the
-                    // composition scope (rememberCoroutineScope), so launching from it already
-                    // dispatches on Compose's UI dispatcher — do NOT pass Dispatchers.Main here: the
-                    // kotlinx Main dispatcher is provided via ServiceLoader and that service entry does
-                    // not survive jpackage, so `Dispatchers.Main` throws "Main dispatcher is missing"
-                    // in the packaged app (works only in :app:run).
-                    scope.launch {
-                        commandLog.add(line)
-                        commandStatus = line
+            val results = withContext(Dispatchers.IO) {
+                buildList {
+                    commands.forEachIndexed { index, command ->
+                        if (commandCancelled) return@forEachIndexed
+                        scope.launch {
+                            if (commands.size > 1) commandLog.add("— ${index + 1}/${commands.size} —")
+                            commandLog.add("$ $command")
+                        }
+                        add(
+                            CommandRunner.run(
+                                command = command,
+                                workingDir = root,
+                                javaHome = config.commandJavaHome.ifBlank { null },
+                                isCancelled = { commandCancelled },
+                            ) { line ->
+                                // The composition scope dispatches mutations onto the Compose UI thread.
+                                scope.launch {
+                                    commandLog.add(line)
+                                    commandStatus = line
+                                }
+                            },
+                        )
                     }
                 }
             }
             commandRunning = false
+            val succeeded = results.isNotEmpty() && results.all(CommandRunner.Result::succeeded)
             commandStatus = when {
                 commandCancelled -> "${kind.label} cancelled."
-                result.succeeded -> "${kind.label} finished."
-                result.exitCode == null -> "${kind.label} could not start."
-                else -> "${kind.label} failed (exit ${result.exitCode})."
+                succeeded -> "${kind.label} finished (${results.size}/${commands.size})."
+                else -> "${kind.label} finished with failures (${results.count(CommandRunner.Result::succeeded)}/${commands.size})."
             }
             commandLog.add(commandStatus.orEmpty())
+            CompletionNotificationPolicy.decide(
+                enabled = config.notifyWhenTasksFinish,
+                hostForeground = MacNotifications.hostForeground(),
+                kind = if (kind == CommandKind.GENERATE) {
+                    CompletionCommandKind.GENERATE
+                } else {
+                    CompletionCommandKind.VERIFY
+                },
+                scope = if (perFile) {
+                    CompletionCommandScope.File(relativePath?.let(::File)?.name ?: "Current file")
+                } else {
+                    CompletionCommandScope.Project(root.name)
+                },
+                result = when {
+                    commandCancelled -> CompletionResult.CANCELLED
+                    succeeded -> CompletionResult.SUCCESS
+                    else -> CompletionResult.FAILURE
+                },
+            )?.let { MacNotifications.deliver(it.title, it.body) }
             // Show the freshly written output without a manual refresh.
             clearCaches()
             restartPngWatcher()
-            if (result.succeeded && kind == CommandKind.VERIFY && source != BuiltInSource.GENERATED) {
-                selectSource(BuiltInSource.GENERATED)
+            refresh("command_finished")
+            if (kind == CommandKind.GENERATE) {
+                fileIndex?.let { rebuildSnapshotIndex(it) }
             } else {
-                refresh("command_finished")
+                refreshSnapshotStatuses()
             }
+        }
+    }
+
+    private suspend fun refreshSnapshotStatuses() {
+        val root = projectRoot ?: return
+        val current = snapshotFileIndex ?: return
+        val statuses = withContext(Dispatchers.IO) {
+            scanner(root).mergedItemsFor(current.files.flatMap { it.goldenPaths }.distinct().map(::File))
+        }
+        if (projectRoot == root && snapshotFileIndex?.fingerprint == current.fingerprint) {
+            snapshotFileIndex = SnapshotFileIndex.refreshStatuses(current, statuses)
         }
     }
 
@@ -743,11 +1234,19 @@ class AppState(
             // Drop only this golden's stale image/comparison; the rest of the grid keeps its decodes.
             invalidateCachesFor(golden)
             acceptedGoldens = acceptedGoldens + golden.absolutePath
-            // The golden now matches its accepted output, so the change bar goes away. Same list, same
-            // order, same keys — the grid animates the one card instead of rebuilding.
-            items = items.map {
-                if (it.file == golden) it.copy(status = ExtraComparisonItemStatus.UNCHANGED) else it
+            mergedItems = mergedItems.map { item ->
+                if (item.golden == golden) {
+                    item.copy(
+                        workingCopy = item.workingCopy?.copy(status = ExtraComparisonItemStatus.MODIFIED),
+                        testOutput = null,
+                    )
+                } else {
+                    item
+                }
             }
+            items = mergedItems.toLegacyItems()
+            sourceByGolden[golden.absolutePath] = BuiltInSource.WORKING_COPY
+            source = BuiltInSource.WORKING_COPY
             status = "Accepted ${golden.name} as the golden."
             if (selected == golden) {
                 // Repaint from the freshly written golden with an "Accepted" banner. Reloading the
@@ -771,6 +1270,7 @@ class AppState(
                     comparison = accepted
                 }
             }
+            refreshSnapshotStatuses()
         }
     }
 
@@ -817,27 +1317,11 @@ class AppState(
         }
     }
 
-    private fun scanner(root: File): ChangeScanner {
+    private fun scanner(root: File, scannerConfig: GoldenDiffConfig = config): ChangeScanner {
         val git = GitCli(root)
         // Unlike the plugin, which uses the IDE's VCS layer for HEAD reads, the app has only the CLI.
         // normalizedForMatching fills the structural defaults the settings leave blank on purpose.
-        return ChangeScanner(root, config.normalizedForMatching(), git, git)
-    }
-
-    fun selectBrowse(value: Browse) {
-        if (browse == value) return
-        val previous = browse
-        browse = value
-        telemetry.event(
-            "product.browse_scope_selected",
-            mapOf("from" to previous.wireValue(), "to" to value.wireValue()),
-        )
-        selected = null
-        comparison = null
-        // Project-changes scope is not driven by an opened file. Keep the file tabs in memory (and on
-        // disk) while they are hidden so returning to Current-file restores the complete session.
-        comparisonGeneration++
-        refresh("scope_change")
+        return ChangeScanner(root, scannerConfig.normalizedForMatching(), git, git)
     }
 
     fun selectSource(value: BuiltInSource) {
@@ -860,15 +1344,14 @@ class AppState(
         val root = projectRoot ?: return
         val started = System.nanoTime()
         val generation = ++refreshGeneration
-        val requestedBrowse = browse
-        val requestedSource = source
         val requestedSourcePath = selectedSourcePath
+        val requestedCaseId = selectedSnapshotCaseId
         busy = true
         status = "Scanning…"
         scope.launch {
             val span = telemetry.startSpan(
                 "golden.scan",
-                mapOf("scope" to requestedBrowse.wireValue(), "source" to requestedSource.wireValue()),
+                mapOf("scope" to CURRENT_FILE_SCOPE, "source" to "merged"),
             )
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
@@ -878,25 +1361,10 @@ class AppState(
                         !git.isInsideWorkTree() -> ScanOutcome(Blocker.NotARepository, emptyList())
                         !config.isConfigured -> ScanOutcome(Blocker.NoGoldenDirectories, emptyList())
                         else -> {
-                            val found = when (requestedBrowse) {
-                                Browse.CHANGED -> {
-                                    val scanner = scanner(root)
-                                    when (requestedSource) {
-                                        BuiltInSource.GENERATED -> telemetry.measureSpan(
-                                            "generated.lookup",
-                                            mapOf("scope" to "project_changes", "source" to "test_output"),
-                                        ) { scanner.generatedChanges() }
-                                        BuiltInSource.WORKING_COPY -> telemetry.measureSpan(
-                                            "git.status",
-                                            mapOf("scope" to "project_changes", "source" to "working_copy"),
-                                        ) { scanner.workingCopyChanges() }
-                                    }
-                                }
-                                Browse.FILES -> requestedSourcePath
-                                    ?.let { findForSourceFile(root, it, requestedSource) }
-                                    .orEmpty()
-                            }
-                            ScanOutcome(null, found)
+                            val merged = requestedSourcePath
+                                ?.let { findMergedForSourceFile(root, it, requestedCaseId) }
+                                .orEmpty()
+                            ScanOutcome(null, merged.toLegacyItems(), mergedItems = merged)
                         }
                     }
                 }.getOrElse { ScanOutcome(null, emptyList(), it) }
@@ -913,8 +1381,8 @@ class AppState(
                         "operation" to "scan",
                         "error_category" to if (outcome.error is java.io.IOException) "io" else "internal",
                         "retryable" to "true",
-                        "scope" to requestedBrowse.wireValue(),
-                        "source" to requestedSource.wireValue(),
+                        "scope" to CURRENT_FILE_SCOPE,
+                        "source" to "merged",
                     ),
                 )
             }
@@ -929,8 +1397,8 @@ class AppState(
                 "product.scan_completed",
                 mapOf(
                     "trigger" to trigger,
-                    "scope" to requestedBrowse.wireValue(),
-                    "source" to requestedSource.wireValue(),
+                    "scope" to CURRENT_FILE_SCOPE,
+                    "source" to "merged",
                     "result" to when {
                         outcome.error != null -> "failure"
                         outcome.blocker != null -> "blocked"
@@ -967,23 +1435,21 @@ class AppState(
             }
             blocker = outcome.blocker
             items = outcome.items
+            mergedItems = outcome.mergedItems
             acceptedGoldens = emptySet()
             busy = false
             status = when {
                 outcome.error != null -> "Could not scan this project."
                 outcome.blocker != null -> ""
-                requestedBrowse == Browse.FILES && requestedSourcePath == null -> "Choose a project file to find its screenshots."
-                outcome.items.isEmpty() -> if (requestedBrowse == Browse.CHANGED) {
-                    "No golden changes found."
-                } else {
-                    "No screenshots match ${File(requestedSourcePath.orEmpty()).name}."
-                }
-                requestedBrowse == Browse.CHANGED -> "${outcome.items.size} changed screenshot(s) found."
+                requestedSourcePath == null -> "Choose a project file to find its screenshots."
+                outcome.items.isEmpty() -> "No screenshots match ${File(requestedSourcePath).name}."
                 else -> "${outcome.items.size} screenshot(s) found."
             }
-            if (requestedBrowse == Browse.FILES && requestedSourcePath != null && outcome.blocker == null) {
-                itemsCache[requestedSourcePath] = outcome.items
-                restoreSelectionFor(requestedSourcePath, outcome.items)
+            if (requestedSourcePath != null && outcome.blocker == null) {
+                val key = selectionKey(requestedSourcePath, requestedCaseId)
+                itemsCache[key] = outcome.items
+                mergedItemsCache[key] = outcome.mergedItems
+                restoreSelectionFor(key, outcome.items)
             } else {
                 select(outcome.items.firstOrNull()?.file, "automatic")
             }
@@ -999,13 +1465,11 @@ class AppState(
     /** Selecting a source file replaces the editor the plugin relies on: it drives golden matching. */
     fun selectSourceFile(relativePath: String, trigger: String = "project_tree") {
         val root = projectRoot ?: return
-        val alreadyOpen = relativePath in openTabs
-        browse = Browse.FILES
+        val alreadyOpen = selectedSourcePath == relativePath && selectedSnapshotCaseId == null
         selectedSourcePath = relativePath
+        selectedSnapshotCaseId = null
         treeHighlight = relativePath
-        // Opening a file adds a tab (an already-open file just reactivates its tab).
-        if (relativePath !in openTabs) openTabs = openTabs + relativePath
-        persistOpenFiles()
+        treeHighlightCaseId = null
         val file = File(root, relativePath)
         telemetry.sourceFileSelected(
             memoryKey = file.absolutePath,
@@ -1013,7 +1477,6 @@ class AppState(
             fileFamily = fileFamily(file.extension),
             alreadyOpen = alreadyOpen,
         )
-        if (!alreadyOpen) telemetry.event("product.feature_used", mapOf("feature" to "tab_open"))
         if (!file.isFile) {
             showMissingSourceFile(relativePath)
             return
@@ -1024,9 +1487,36 @@ class AppState(
             return
         }
         // Reopening a tab shows its remembered result immediately; the images come from the caches.
-        itemsCache[relativePath]?.let { cached ->
+        val cacheKey = selectionKey(relativePath)
+        itemsCache[cacheKey]?.let { cached ->
+            mergedItems = mergedItemsCache[cacheKey].orEmpty()
             val label = if (cached.isEmpty()) "No screenshots match ${file.name}." else "${cached.size} screenshot(s) found."
-            applyCachedItems(relativePath, cached, label)
+            applyCachedItems(cacheKey, cached, label)
+            return
+        }
+        refresh("automatic")
+    }
+
+    /** Selects one method/preview under its visible view parent. */
+    fun selectSnapshotCase(parentPath: String, caseId: String, trigger: String = "project_tree") {
+        val root = projectRoot ?: return
+        val case = snapshotFileIndex?.files
+            ?.firstOrNull { it.relativePath == parentPath }
+            ?.cases?.firstOrNull { it.id == caseId } ?: return
+        selectedSourcePath = parentPath
+        selectedSnapshotCaseId = case.id
+        treeHighlight = parentPath
+        treeHighlightCaseId = case.id
+        val key = selectionKey(parentPath, case.id)
+        telemetry.sourceFileSelected(
+            memoryKey = "${File(root, parentPath).absolutePath}#${case.id}",
+            trigger = trigger,
+            fileFamily = "snapshot_case",
+            alreadyOpen = false,
+        )
+        itemsCache[key]?.let { cached ->
+            mergedItems = mergedItemsCache[key].orEmpty()
+            applyCachedItems(key, cached, "${cached.size} screenshot(s) in ${case.methodName}.")
             return
         }
         refresh("automatic")
@@ -1044,14 +1534,21 @@ class AppState(
         restoreSelectionFor(path, list)
     }
 
-    private fun findForSourceFile(
+    private fun findMergedForSourceFile(
         root: File,
         relativePath: String,
-        requestedSource: BuiltInSource,
-    ): List<ExtraComparisonItem> = telemetry.measureSpan(
+        caseId: String?,
+    ): List<MergedGoldenItem> = telemetry.measureSpan(
         "golden.match",
-        mapOf("scope" to "current_file", "source" to requestedSource.wireValue()),
+        mapOf("scope" to "current_file", "source" to "merged"),
     ) {
+        val indexed = snapshotFileIndex?.files?.firstOrNull { it.relativePath == relativePath }
+        val indexedPaths = caseId
+            ?.let { id -> indexed?.cases?.firstOrNull { it.id == id }?.goldenPaths }
+            ?: indexed?.goldenPaths
+        if (indexedPaths != null) {
+            return@measureSpan scanner(root).mergedItemsFor(indexedPaths.map(::File))
+        }
         val file = File(root, relativePath)
         // In annotated mode the regex filters which functions count as screenshot candidates, exactly
         // like the plugin; other modes ignore function names, so the regex is only passed there.
@@ -1069,7 +1566,7 @@ class AppState(
             config.excludedSuffixes,
             config.normalizedForMatching().goldenFilePatterns,
         )
-        scanner(root).itemsFor(goldens, requestedSource)
+        scanner(root).mergedItemsFor(goldens)
     }
 
     fun select(
@@ -1079,14 +1576,21 @@ class AppState(
     ) {
         selected = file
         val generation = ++comparisonGeneration
-        val requestedSource = source
         val root = projectRoot
         if (file == null || root == null) {
             comparison = null
             return
         }
-        // Remember the choice for the active tab so returning to it restores this golden.
-        selectedSourcePath?.let { tabSelection[it] = file }
+        val merged = mergedItems.firstOrNull { it.golden.normalize() == file.normalize() }
+        val rememberedSource = sourceByGolden[file.absolutePath]
+        val requestedSource = preferredGoldenSource(merged, rememberedSource)
+        sourceByGolden[file.absolutePath] = requestedSource
+        source = requestedSource
+        // Picking a golden never touches the tree. The tree's highlight follows the tree's own
+        // selection and the explicit reveal action; clearing it from here dropped the highlight of
+        // the file whose goldens are on screen the moment one of them was clicked.
+        // Remember the choice for the active source file so returning to it restores this golden.
+        selectedSourcePath?.let { tabSelection[selectionKey(it)] = file }
         // A cached comparison shows at once — no null flash, no re-decode.
         comparisonCache[comparisonKey(file, requestedSource)]?.let {
             comparison = it
@@ -1098,7 +1602,7 @@ class AppState(
             val started = System.nanoTime()
             val span = telemetry.startSpan(
                 "comparison.load",
-                mapOf("scope" to browse.wireValue(), "source" to requestedSource.wireValue(), "cache_hit" to "false"),
+                mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue(), "cache_hit" to "false"),
             )
             val loaded = withContext(Dispatchers.IO) {
                 runCatching { loadComparison(root, file, requestedSource) }
@@ -1112,7 +1616,7 @@ class AppState(
                         "operation" to "comparison_load",
                         "error_category" to if (error is java.io.IOException) "io" else "internal",
                         "retryable" to "true",
-                        "scope" to browse.wireValue(),
+                        "scope" to CURRENT_FILE_SCOPE,
                         "source" to requestedSource.wireValue(),
                     ),
                 )
@@ -1137,20 +1641,55 @@ class AppState(
         val current = items.indexOfFirst { it.file == selected }
         val start = current.takeIf { it >= 0 } ?: if (delta > 0) -1 else items.size
         val next = (start + delta).coerceIn(0, items.lastIndex)
-        if (next != current) select(items[next].file, "keyboard")
+        if (next != current) {
+            val file = items[next].file
+            select(file, "keyboard")
+            goldenScrollRequest = GoldenScrollRequest(file.normalize().path, ++goldenScrollSequence)
+        }
+    }
+
+    internal fun consumeGoldenScrollRequest(sequence: Long) {
+        if (goldenScrollRequest?.sequence == sequence) goldenScrollRequest = null
+    }
+
+    /** Locates the selected golden on demand without changing the active view/case filter. */
+    fun revealSelectedGoldenInTree() {
+        val golden = selected ?: return
+        val location = goldenTreeLocation(snapshotFileIndex, selectedSourcePath, golden.path) ?: return
+        revealInTree(location.parentPath, location.caseId)
+    }
+
+    internal fun openQuickOpenResult(result: QuickOpenResult) {
+        quickOpenVisible = false
+        if (result.caseId == null) {
+            selectSourceFile(result.path, "quick_open")
+        } else {
+            selectSnapshotCase(result.path, result.caseId, "quick_open")
+        }
+        revealInTree(result.path, result.caseId)
+    }
+
+    private fun revealInTree(parentPath: String, caseId: String?) {
+        treeHighlight = parentPath
+        treeHighlightCaseId = caseId
+        treeRevealRequest = TreeRevealRequest(
+            parentPath,
+            caseId,
+            ++treeRevealSequence,
+        )
     }
 
     private fun loadComparison(root: File, golden: File, requestedSource: BuiltInSource): Comparison {
         val git = GitCli(root)
         val headBytes = telemetry.measureSpan(
             "git.head_read",
-            mapOf("scope" to browse.wireValue(), "source" to requestedSource.wireValue()),
+            mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue()),
         ) { git.headBytes(golden) }
         val sourceFile = when (requestedSource) {
             BuiltInSource.WORKING_COPY -> golden
             BuiltInSource.GENERATED -> telemetry.measureSpan(
                 "generated.lookup",
-                mapOf("scope" to browse.wireValue(), "source" to "test_output"),
+                mapOf("scope" to CURRENT_FILE_SCOPE, "source" to "test_output"),
             ) {
                 com.github.dkwasniak.goldendiff.compare.GeneratedImageSource.findForGolden(
                     golden = golden,
@@ -1170,7 +1709,7 @@ class AppState(
         val trim = config.trimTransparentPadding
         val (oldImage, newImage) = telemetry.measureSpan(
             "image.decode",
-            mapOf("scope" to browse.wireValue(), "source" to requestedSource.wireValue()),
+            mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue()),
         ) {
             ImageBytes.decode(headBytes)?.let { trimIfEnabled(it, trim) } to
                 ImageBytes.decode(newBytes)?.let { trimIfEnabled(it, trim) }
@@ -1179,7 +1718,7 @@ class AppState(
         val diff = if (!identical && oldImage != null && newImage != null) {
             telemetry.measureSpan(
                 "pixel_diff.compute",
-                mapOf("scope" to browse.wireValue(), "source" to requestedSource.wireValue()),
+                mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue()),
             ) { PixelDiff.compute(oldImage.toArgbImage(), newImage.toArgbImage()) }
         } else {
             null
@@ -1258,13 +1797,12 @@ class AppState(
                 "selection_trigger" to selectionTrigger,
             ),
         )
-        telemetry.activationCompleted(browse.wireValue(), requestedSource.wireValue())
+        telemetry.activationCompleted(CURRENT_FILE_SCOPE, requestedSource.wireValue())
     }
 
     override fun close() {
         pngDebounceJob?.cancel()
         pngWatcher?.close()
-        persistOpenFiles()
         telemetry.close()
     }
 
@@ -1272,15 +1810,35 @@ class AppState(
         val blocker: Blocker?,
         val items: List<ExtraComparisonItem>,
         val error: Throwable? = null,
+        val mergedItems: List<MergedGoldenItem> = emptyList(),
     )
 
     private companion object {
+        const val MAX_CACHED_PROJECTS = 6
         const val PNG_DEBOUNCE_MS = 400L
         const val PNG_SUPPRESSION_MS = 2_000L
     }
 }
 
-private fun Browse.wireValue(): String = if (this == Browse.FILES) "current_file" else "project_changes"
+private fun List<MergedGoldenItem>.toLegacyItems(): List<ExtraComparisonItem> = map { merged ->
+    ExtraComparisonItem(
+        file = merged.golden,
+        title = merged.golden.name,
+        isLoading = false,
+        status = when (merged.displayStatus) {
+            MergedGoldenStatus.FAILED, MergedGoldenStatus.MODIFIED -> ExtraComparisonItemStatus.MODIFIED
+            MergedGoldenStatus.NEW -> ExtraComparisonItemStatus.NEW
+            MergedGoldenStatus.UNCHANGED -> ExtraComparisonItemStatus.UNCHANGED
+        },
+    )
+}
+
+/**
+ * The app dropped its Scope control - it only ever works from the opened file now. The telemetry
+ * dimension stays, pinned to that one value, because the plugin still has both scopes and the events
+ * are compared across surfaces.
+ */
+private const val CURRENT_FILE_SCOPE = "current_file"
 
 private fun BuiltInSource.wireValue(): String =
     if (this == BuiltInSource.WORKING_COPY) "working_copy" else "test_output"

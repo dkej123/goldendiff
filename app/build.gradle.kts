@@ -25,6 +25,9 @@ dependencies {
     implementation(project(":telemetry"))
     // Parses the GitHub releases feed for the standalone-app update check.
     implementation("org.json:json:20231013")
+    // Calls the Objective-C runtime so notifications go through UNUserNotificationCenter under the
+    // app's own bundle identifier. App-only: neither plugin posts notifications itself.
+    implementation("net.java.dev.jna:jna:5.15.0")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material)

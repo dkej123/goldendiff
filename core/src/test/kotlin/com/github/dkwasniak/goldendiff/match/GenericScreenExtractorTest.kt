@@ -141,6 +141,22 @@ class GenericScreenExtractorTest {
     }
 
     @Test
+    fun `annotated mode associates a function with a multiline annotation`() {
+        val text = """
+            @Preview(
+                name = "Dark",
+                device = "spec:width=360dp,height=708dp",
+            )
+            @Composable
+            fun LoginFigmaPreview() { }
+        """.trimIndent()
+
+        val functions = GenericScreenExtractor.extract("Login.kt", text, previewOrTest).functionNames
+
+        assertTrue(functions.toString(), "LoginFigmaPreview" in functions)
+    }
+
+    @Test
     fun `an inline annotation does not leak onto the following function`() {
         val text = """
             @Preview fun AlphaPreview() { }

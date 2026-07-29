@@ -11,6 +11,11 @@ import java.io.File
  */
 object GoldenFinder {
 
+    data class FunctionMatch(
+        val functionName: String,
+        val golden: File,
+    )
+
     fun findAll(
         roots: List<File>,
         excludedSuffixes: List<String> = emptyList(),
@@ -35,7 +40,29 @@ object GoldenFinder {
         generalPatterns: List<String> = MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS,
     ): List<File> {
         val suffixes = excludedSuffixes.filter { it.isNotBlank() }
+        val goldens = roots.asSequence()
+            .filter(File::isDirectory)
+            .flatMap { root ->
+                root.walkTopDown().filter {
+                    it.isFile && it.extension.equals("png", ignoreCase = true) &&
+                        suffixes.none { suffix -> it.nameWithoutExtension.endsWith(suffix) }
+                }
+            }
+            .toList()
+        return matchFiles(goldens, roots, screen, mode, generalPatterns)
+    }
 
+    /**
+     * Pure counterpart of [find] for callers that already indexed the golden roots. It prevents the
+     * standalone source index from walking the complete golden tree once per source file.
+     */
+    fun matchFiles(
+        goldens: Collection<File>,
+        roots: List<File>,
+        screen: Screen,
+        mode: MatchMode = MatchingDefaults.DEFAULT_MATCH_MODE,
+        generalPatterns: List<String> = MatchingDefaults.DEFAULT_FILE_CLASS_PATTERNS,
+    ): List<File> {
         val methodCandidates = screen.functionNames
             .map { it.trim() }
             .filter { isUsefulCandidate(it) }
@@ -48,23 +75,15 @@ object GoldenFinder {
         // screen, not on the individual golden file, so recompiling them per file is pure waste.
         val expandedRegexes = if (mode == MatchMode.FILE_CLASS_REGEX) patterns.compileExpanded(screen) else emptyList()
 
-        val matches = LinkedHashSet<File>()
-        for (root in roots) {
-            if (!root.isDirectory) continue
-            root.walkTopDown()
-                .filter { it.isFile && it.extension.equals("png", ignoreCase = true) }
-                .filter { file -> suffixes.none { file.nameWithoutExtension.endsWith(it) } }
-                .filter { file ->
-                    val relativePath = file.relativeTo(root).invariantPath()
-                    when (mode) {
-                        MatchMode.ANNOTATED_METHOD ->
-                            methodCandidates.any { relativePath.matchesCandidate(it, allowCamelSuffix = false) }
-                        MatchMode.FILE_CLASS_REGEX ->
-                            expandedRegexes.any { it.containsMatchIn(relativePath) }
-                    }
-                }
-                .forEach { matches.add(it) }
-        }
+        val matches = goldens.asSequence().filter { file ->
+            val relativePath = file.invariantPathIn(roots)
+            when (mode) {
+                MatchMode.ANNOTATED_METHOD ->
+                    methodCandidates.any { relativePath.matchesCandidate(it, allowCamelSuffix = false) }
+                MatchMode.FILE_CLASS_REGEX ->
+                    expandedRegexes.any { it.containsMatchIn(relativePath) }
+            }
+        }.toCollection(LinkedHashSet())
 
         // Sort so that the golden matching the caret symbol comes first (annotated-method mode only),
         // then by name. The sort key is precomputed once per file so the comparator doesn't re-scan
@@ -79,6 +98,30 @@ object GoldenFinder {
             }
             .sortedWith(compareByDescending<SortKey> { it.caretMatch }.thenBy { it.lowerName })
             .map { it.file }
+    }
+
+    /**
+     * Returns the function-level evidence used by the standalone snapshot index. This deliberately
+     * does not alter [find]: callers provide the already admitted goldens and function candidates,
+     * and this pure projection applies the exact same name boundaries as annotated-method matching.
+     */
+    fun functionMatches(
+        goldens: Collection<File>,
+        functionNames: Collection<String>,
+        roots: List<File> = emptyList(),
+    ): List<FunctionMatch> {
+        val candidates = functionNames
+            .map(String::trim)
+            .filter(::isUsefulCandidate)
+            .distinct()
+        return goldens.flatMap { golden ->
+            val path = golden.invariantPathIn(roots)
+            candidates.mapNotNull { function ->
+                FunctionMatch(function, golden).takeIf {
+                    path.matchesCandidate(function, allowCamelSuffix = false)
+                }
+            }
+        }
     }
 
     private data class SortKey(val file: File, val caretMatch: Boolean, val lowerName: String)

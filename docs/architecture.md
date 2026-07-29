@@ -8,7 +8,7 @@ intentionally keep separate UI layers. `:core-ui` contains Compose canvases for 
 
 | Module | What it is | May depend on |
 |---|---|---|
-| `:core` | All tool-agnostic logic: golden matching, git access, pixel diff, change scanning, project file index, config. | JDK only — **never** IntelliJ, Swing or Compose |
+| `:core` | All tool-agnostic logic: golden matching, git access, pixel diff, merged change scanning, snapshot file index, bulk accept, notification policy, config. | JDK only — **never** IntelliJ, Swing or Compose |
 | `:core-ui` | Compose comparison canvases for the desktop app. Compose is `compileOnly`. | `:core` |
 | `:public-plugin` | Golden Diff — Swing tool window/settings, Kotlin PSI, VCS. | `:core` (`implementation`) |
 | `:internal-plugin` | Golden Diff — Figma. | `:core` (`compileOnly`), `:public-plugin` |
@@ -109,6 +109,22 @@ never a fork of the public plugin.
    Source defaults to the working-copy golden, or can be switched to test-generated output.
    - Bytes equal → the Swing single-image panel with "No changes vs HEAD".
    - Otherwise → the Swing comparison view with all four modes.
+
+The standalone app adds a snapshot-aware layer:
+
+1. `ProjectFileIndex` supplies source candidates; `SnapshotFileIndex` scans golden roots once, runs
+   pure `GenericScreenExtractor` + `GoldenFinder.matchFiles` projections, and retains
+   view → snapshot-case → golden associations. PNG-only refreshes reuse these associations and
+   recompute statuses instead of reparsing every source.
+2. `ChangeScanner.mergedItemsFor` / `mergedChanges` produce one `MergedGoldenItem` per golden with
+   independent Working-copy and Test-output variants.
+3. The Files pane projects Folder → View → Snapshot case, the Goldens pane controls one active
+   comparison, and the Compare pane chooses a source locally per golden.
+4. `GoldenAccept.acceptAll` returns complete per-file outcomes, allowing partial-failure retry.
+
+Completion notification eligibility and copy live in the pure `CompletionNotificationPolicy`.
+Delivery remains host-specific: macOS Notification Center in `:app`, IntelliJ notifications in
+`:public-plugin`; no platform notification API crosses into `:core`.
 
 ## Threading
 PSI reads via `ReadAction.compute`; scanning / git / image decode on

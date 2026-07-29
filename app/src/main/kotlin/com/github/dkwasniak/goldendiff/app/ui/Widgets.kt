@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,6 +85,76 @@ fun Pane(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> U
             .border(1.dp, tokens.border, RoundedCornerShape(Dimens.panelRadius)),
     ) {
         content()
+    }
+}
+
+/**
+ * A pane heading whose action group moves below the title when both no longer fit on one line.
+ *
+ * The decision is based on measured intrinsic widths rather than a window-size breakpoint, so the
+ * same header also adapts when labels or actions change.
+ */
+@Composable
+fun WrappingPaneHeader(
+    modifier: Modifier = Modifier,
+    minHeight: Dp,
+    horizontalPadding: Dp,
+    verticalPadding: Dp,
+    spacing: Dp,
+    leading: @Composable RowScope.() -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    Layout(
+        content = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+                content = leading,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+                content = actions,
+            )
+        },
+        modifier = modifier.fillMaxWidth().heightIn(min = minHeight)
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+    ) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        val action = measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val leadingIntrinsicWidth = measurables[0].maxIntrinsicWidth(constraints.maxHeight)
+        val singleLineLeadingWidth = (constraints.maxWidth - action.width - gap).coerceAtLeast(0)
+        val wraps = leadingIntrinsicWidth > singleLineLeadingWidth
+        val leadingWidth = if (wraps) constraints.maxWidth else singleLineLeadingWidth
+        val leadingPlaceable = measurables[0].measure(
+            constraints.copy(
+                minWidth = leadingWidth,
+                maxWidth = leadingWidth,
+                minHeight = 0,
+            ),
+        )
+        val contentHeight = if (wraps) {
+            leadingPlaceable.height + gap + action.height
+        } else {
+            maxOf(leadingPlaceable.height, action.height)
+        }
+        val height = contentHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+
+        layout(constraints.maxWidth, height) {
+            if (wraps) {
+                leadingPlaceable.placeRelative(0, 0)
+                action.placeRelative(
+                    x = (constraints.maxWidth - action.width).coerceAtLeast(0),
+                    y = leadingPlaceable.height + gap,
+                )
+            } else {
+                leadingPlaceable.placeRelative(0, (height - leadingPlaceable.height) / 2)
+                action.placeRelative(
+                    x = constraints.maxWidth - action.width,
+                    y = (height - action.height) / 2,
+                )
+            }
+        }
     }
 }
 
@@ -415,6 +488,22 @@ fun GearIcon(color: Color, size: Dp = 15.dp) {
         }
         drawCircle(color, radius = radius * 0.6f, center = center, style = Stroke(width = 1.7.dp.toPx()))
         drawCircle(color, radius = radius * 0.22f, center = center)
+    }
+}
+
+/** IntelliJ-style target glyph used to locate the selected golden in the snapshot method tree. */
+@Composable
+fun TargetIcon(color: Color, size: Dp = 14.dp) {
+    Canvas(Modifier.size(size)) {
+        val center = Offset(this.size.width / 2f, this.size.height / 2f)
+        val stroke = 1.15.dp.toPx()
+        val radius = this.size.minDimension * 0.38f
+        val gap = radius * 0.48f
+        drawCircle(color, radius = radius, center = center, style = Stroke(width = stroke))
+        drawLine(color, Offset(center.x, 0f), Offset(center.x, center.y - gap), strokeWidth = stroke)
+        drawLine(color, Offset(center.x, center.y + gap), Offset(center.x, this.size.height), strokeWidth = stroke)
+        drawLine(color, Offset(0f, center.y), Offset(center.x - gap, center.y), strokeWidth = stroke)
+        drawLine(color, Offset(center.x + gap, center.y), Offset(this.size.width, center.y), strokeWidth = stroke)
     }
 }
 

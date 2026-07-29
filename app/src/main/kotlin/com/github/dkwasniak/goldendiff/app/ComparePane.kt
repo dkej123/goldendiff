@@ -63,6 +63,7 @@ import com.github.dkwasniak.goldendiff.app.ui.Pane
 import com.github.dkwasniak.goldendiff.app.ui.Segment
 import com.github.dkwasniak.goldendiff.app.ui.StatusDot
 import com.github.dkwasniak.goldendiff.app.ui.Type
+import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.compare.ImageLayout
@@ -101,49 +102,66 @@ private fun firstZoomIndexAbove(scale: Double): Int {
 fun ComparePane(state: AppState, modifier: Modifier) {
     val selected = state.selected
     Pane(modifier) {
-        Row(
-            Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                selected?.let { shortGoldenName(it.name) } ?: "Compare",
-                color = tokens.text,
-                fontSize = Type.panelTitle,
-                fontFamily = if (selected != null) Type.Mono else null,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            // Per-file Generate/Verify for the open golden — run the command scoped to this one file
-            // without leaving the compare view.
-            if (selected != null) {
-                PerFileCommandButton(state, AppState.CommandKind.GENERATE)
-                PerFileCommandButton(state, AppState.CommandKind.VERIFY)
-            }
-            // Accept only makes sense for verify output: it promotes the generated image onto the
-            // golden. Generation writes the golden directly, so it is not offered there.
-            if (selected != null && state.acceptedGoldens.contains(selected.absolutePath)) {
-                AcceptedLabel()
-            } else if (selected != null && state.source == BuiltInSource.GENERATED && state.comparison?.hasDiff == true) {
-                AcceptButton(enabled = !state.commandRunning) { state.acceptGenerated(selected) }
-            }
-            if (selected != null) {
-                IconButton(size = 26.dp, onClick = {
-                    state.featureUsed("detached_comparison")
-                    state.compareWindowVisible = true
-                }) {
-                    ExpandIcon(tokens.textDim)
+        WrappingPaneHeader(
+            minHeight = 40.dp,
+            horizontalPadding = 14.dp,
+            verticalPadding = 7.dp,
+            spacing = 10.dp,
+            leading = {
+                Text(
+                    selected?.let { shortGoldenName(it.name) } ?: "Compare",
+                    color = tokens.text,
+                    fontSize = Type.panelTitle,
+                    fontFamily = if (selected != null) Type.Mono else null,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            },
+            actions = {
+                val merged = state.selectedMergedItem
+                if (merged?.workingCopy != null && merged.testOutput != null) {
+                    Segment("Test", state.selectedSource == BuiltInSource.GENERATED) {
+                        state.selectGoldenSource(BuiltInSource.GENERATED)
+                    }
+                    Segment("Working", state.selectedSource == BuiltInSource.WORKING_COPY) {
+                        state.selectGoldenSource(BuiltInSource.WORKING_COPY)
+                    }
                 }
-                IconButton(size = 26.dp, onClick = {
-                    state.featureUsed("copy_path")
-                    copyToClipboard(selected.absolutePath)
-                }) {
-                    CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
+                // Per-file Generate/Verify for the open golden — run the command scoped to this one
+                // file without leaving the compare view.
+                if (selected != null) {
+                    PerFileCommandButton(state, AppState.CommandKind.GENERATE)
+                    PerFileCommandButton(state, AppState.CommandKind.VERIFY)
                 }
-            }
-        }
+                // Accept only makes sense for verify output: it promotes the generated image onto
+                // the golden. Generation writes the golden directly, so it is not offered there.
+                if (selected != null && state.acceptedGoldens.contains(selected.absolutePath)) {
+                    AcceptedLabel()
+                } else if (
+                    selected != null &&
+                    state.selectedSource == BuiltInSource.GENERATED &&
+                    state.comparison?.hasDiff == true
+                ) {
+                    AcceptButton(enabled = !state.commandRunning) { state.acceptGenerated(selected) }
+                }
+                if (selected != null) {
+                    IconButton(size = 26.dp, onClick = {
+                        state.featureUsed("detached_comparison")
+                        state.compareWindowVisible = true
+                    }) {
+                        ExpandIcon(tokens.textDim)
+                    }
+                    IconButton(size = 26.dp, onClick = {
+                        state.featureUsed("copy_path")
+                        copyToClipboard(selected.absolutePath)
+                    }) {
+                        CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
+                    }
+                }
+            },
+        )
         HairLine()
         CompareContent(state, Modifier.weight(1f))
     }
@@ -226,7 +244,7 @@ private fun AcceptButton(enabled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Dimens.controlRadius)
     Row(
         Modifier.clip(shape)
-            .background(tokens.new.copy(alpha = if (enabled) 1f else 0.4f))
+            .background(tokens.accept.copy(alpha = if (enabled) 1f else 0.4f))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -245,16 +263,15 @@ private fun AcceptButton(enabled: Boolean, onClick: () -> Unit) {
  */
 @Composable
 fun CompareContent(state: AppState, modifier: Modifier, location: String = "main_pane") {
-    var mode by remember { mutableStateOf(CompareMode.TWO_UP) }
+    val comparison = state.comparison
+    val selected = state.selected
+    val mode = state.compareMode
     var zoomIndex by remember { mutableIntStateOf(FIT_INDEX) }
-    var opacity by remember { mutableStateOf(0.5f) }
+    var opacity by remember(selected) { mutableStateOf(state.onionOpacity(selected)) }
     var pendingZoomAction by remember { mutableStateOf<String?>(null) }
     // The scale Fit is currently rendering the image at, reported up from the canvas. Zooming in from
     // Fit steps up from this, so "+" always enlarges relative to what is on screen.
     var fitScale by remember { mutableStateOf(1.0) }
-    val comparison = state.comparison
-    val selected = state.selected
-
     // A new selection restarts at Fit: carrying a 400% zoom across to a differently sized golden
     // drops the viewer into an arbitrary corner of it.
     LaunchedEffect(selected) { zoomIndex = FIT_INDEX }
@@ -282,18 +299,7 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
             ) {
                 CompareMode.entries.forEach { candidate ->
                     Segment(candidate.label, mode == candidate) {
-                        if (mode != candidate) {
-                            mode = candidate
-                            state.compareModeSelected(
-                                when (candidate) {
-                                    CompareMode.TWO_UP -> "side_by_side"
-                                    CompareMode.SWIPE -> "swipe"
-                                    CompareMode.ONION -> "onion"
-                                    CompareMode.DIFF -> "diff"
-                                },
-                                location,
-                            )
-                        }
+                        state.selectCompareMode(candidate, location)
                     }
                 }
             }
@@ -302,6 +308,20 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
             AcceptedBanner()
         } else if (comparison?.identical == true) {
             UnchangedBanner()
+        }
+
+        if (comparison?.hasDiff == true && mode == CompareMode.ONION) {
+            Box(Modifier.fillMaxWidth().background(tokens.panelHeader), contentAlignment = Alignment.Center) {
+                OpacitySlider(
+                    state,
+                    opacity,
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
+                ) {
+                    opacity = it
+                    state.rememberOnionOpacity(selected, it)
+                }
+            }
+            HairLine()
         }
 
         Box(Modifier.weight(1f).fillMaxWidth().background(tokens.background)) {
@@ -360,16 +380,6 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
                 )
             }
         }
-        if (comparison?.hasDiff == true && mode == CompareMode.ONION) {
-            HairLine()
-            Box(Modifier.fillMaxWidth().background(tokens.panelHeader), contentAlignment = Alignment.Center) {
-                OpacitySlider(
-                    state,
-                    opacity,
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
-                ) { opacity = it }
-            }
-        }
         HairLine()
         Text(
             comparison?.statusText.orEmpty(),
@@ -407,7 +417,7 @@ private fun DiffBody(
                 OnionSkinView(comparison.old, comparison.new, zoom, opacity, canvas.padding(top = labelTop), colors)
             CompareMode.DIFF -> SingleImageView(comparison.diff, zoom, canvas.padding(top = labelTop), colors)
         }
-        SideLabels(comparison, mode, sourceLabel(state.source))
+        SideLabels(comparison, mode, sourceLabel(state.selectedSource))
     }
 }
 
@@ -492,7 +502,7 @@ private fun OpacitySlider(state: AppState, opacity: Float, modifier: Modifier, o
             ),
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
         )
-        Text(sourceLabel(state.source), color = tokens.textDim, fontSize = Type.small)
+        Text(sourceLabel(state.selectedSource), color = tokens.textDim, fontSize = Type.small)
     }
 }
 

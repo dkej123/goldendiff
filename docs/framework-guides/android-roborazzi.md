@@ -62,6 +62,7 @@ and the `Debug` variant with the project's actual task names (`./gradlew tasks -
 --verify-all-cmd    './gradlew :screenshotTests:verifyRoborazziDebug'
 --generate-file-cmd './gradlew :screenshotTests:recordRoborazziDebug --tests "*{file_name}Kt*"'
 --verify-file-cmd   './gradlew :screenshotTests:verifyRoborazziDebug --tests "*{file_name}Kt*"'
+--verify-case-cmd   './gradlew :screenshotTests:verifyRoborazziDebug --tests "*RoborazziPreviewParameterizedTests*{snapshot_method_name}*"'
 ```
 **Per-file scoping depends on how the project declares tests:**
 - With **auto-generated** preview tests (`generateComposePreviewRobolectricTests { enable = true }`),
@@ -69,6 +70,10 @@ and the `Debug` variant with the project's actual task names (`./gradlew tasks -
   preview functions are test *parameters*, not methods. Filtering by the declaring **`<FileName>Kt`**
   class — `--tests "*{file_name}Kt*"` — is the reliable scope; that is why `{file_name}` is used here,
   not `{class_name}`.
+- The optional case command therefore matches the generated
+  `RoborazziPreviewParameterizedTests*` display name containing `{snapshot_method_name}`. Do not
+  assume a hand-written class such as `ButtonPreviewTest`; generated previews are parameters of
+  sharded synthetic classes and use Gradle's standard `--tests` filtering.
 - With **hand-written** Roborazzi test classes, scope by the real class instead:
   `--tests "*{class_name}*"`.
 - If the project scopes runs through a custom task property (e.g. a `-P` selector), derive the real
