@@ -86,6 +86,44 @@ class SnapshotFileIndexTest {
     }
 
     @Test
+    fun `view retains every represented status while failed remains the primary status`() {
+        source("ui/Login.kt")
+        val failed = golden("Login_failed.png")
+        val modified = golden("Login_modified.png")
+        val fresh = golden("Login_new.png")
+        val output = File(root, "out/Login_failed_actual.png")
+        val merged = listOf(
+            MergedGoldenItem(
+                failed,
+                GoldenSourceVariant(failed, ExtraComparisonItemStatus.UNCHANGED),
+                GoldenSourceVariant(output, ExtraComparisonItemStatus.NEW),
+            ),
+            MergedGoldenItem(
+                modified,
+                GoldenSourceVariant(modified, ExtraComparisonItemStatus.MODIFIED),
+                null,
+            ),
+            MergedGoldenItem(
+                fresh,
+                GoldenSourceVariant(fresh, ExtraComparisonItemStatus.NEW),
+                null,
+            ),
+        )
+
+        val view = SnapshotFileIndex.build(ProjectFileIndex.scan(root), config(), merged).files.single()
+
+        assertEquals(SnapshotFileStatus.FAILED, view.status)
+        assertEquals(
+            setOf(
+                SnapshotFileStatus.FAILED,
+                SnapshotFileStatus.MODIFIED,
+                SnapshotFileStatus.NEW,
+            ),
+            view.statuses,
+        )
+    }
+
+    @Test
     fun `fingerprint changes for association settings but not display settings`() {
         val base = config()
         val first = SnapshotIndexFingerprint.from(root, base)

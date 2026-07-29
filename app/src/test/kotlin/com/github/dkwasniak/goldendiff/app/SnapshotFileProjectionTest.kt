@@ -51,6 +51,81 @@ class SnapshotFileProjectionTest {
     }
 
     @Test
+    fun `mixed view remains visible for every represented status filter`() {
+        val mixed = file("ui/Mixed.kt", SnapshotFileStatus.FAILED).copy(
+            statuses = setOf(
+                SnapshotFileStatus.FAILED,
+                SnapshotFileStatus.MODIFIED,
+                SnapshotFileStatus.NEW,
+            ),
+        )
+
+        val visibleByFilter = listOf(
+            SnapshotFileStatus.FAILED,
+            SnapshotFileStatus.MODIFIED,
+            SnapshotFileStatus.NEW,
+        ).associateWith { filter ->
+            projectSnapshotFiles(listOf(mixed), "", setOf(filter)).first.map { it.relativePath }
+        }
+
+        assertEquals(
+            mapOf(
+                SnapshotFileStatus.FAILED to listOf("ui/Mixed.kt"),
+                SnapshotFileStatus.MODIFIED to listOf("ui/Mixed.kt"),
+                SnapshotFileStatus.NEW to listOf("ui/Mixed.kt"),
+            ),
+            visibleByFilter,
+        )
+    }
+
+    @Test
+    fun `expanded mixed view filters cases by every represented case status`() {
+        val modifiedAndNew = SnapshotCase(
+            "mixed",
+            "MixedPreview",
+            "tests/MixedTests.kt",
+            "MixedTests",
+            listOf("modified", "new"),
+            SnapshotFileStatus.MODIFIED,
+            0,
+            statuses = setOf(SnapshotFileStatus.MODIFIED, SnapshotFileStatus.NEW),
+        )
+        val failed = SnapshotCase(
+            "failed",
+            "FailedPreview",
+            "tests/MixedTests.kt",
+            "MixedTests",
+            listOf("failed"),
+            SnapshotFileStatus.FAILED,
+            1,
+        )
+        val view = file("ui/Mixed.kt", SnapshotFileStatus.FAILED).copy(
+            cases = listOf(modifiedAndNew, failed),
+            statuses = setOf(
+                SnapshotFileStatus.FAILED,
+                SnapshotFileStatus.MODIFIED,
+                SnapshotFileStatus.NEW,
+            ),
+        )
+
+        val newRows = projectSnapshotTree(
+            listOf(view),
+            "",
+            statusFilters = setOf(SnapshotFileStatus.NEW),
+            expandedViews = setOf(view.relativePath),
+        )
+
+        assertEquals(
+            listOf("MixedPreview"),
+            newRows.filterIsInstance<SnapshotTreeRow.Case>().map { it.entry.methodName },
+        )
+        assertEquals(
+            listOf("ui/Mixed.kt"),
+            newRows.filterIsInstance<SnapshotTreeRow.File>().map { it.entry.relativePath },
+        )
+    }
+
+    @Test
     fun `group header survives while any file matches and count ignores search`() {
         val files = listOf(
             file("ui/Login.kt", SnapshotFileStatus.FAILED),

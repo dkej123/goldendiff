@@ -114,7 +114,7 @@ internal fun projectSnapshotFiles(
     query: String,
     statusFilters: Set<SnapshotFileStatus>,
 ): Pair<List<SnapshotSourceFile>, List<SnapshotFileGroup>> {
-    val admitted = files.filter { it.status.matches(statusFilters) }
+    val admitted = files.filter { it.matches(statusFilters) }
     val needle = query.trim()
     val visible = admitted.filter {
         needle.isEmpty() ||
@@ -165,7 +165,7 @@ internal fun projectSnapshotTree(
     collapsedFolders: Set<String> = emptySet(),
     expandedViews: Set<String> = emptySet(),
 ): List<SnapshotTreeRow> {
-    val admitted = files.filter { it.status.matches(statusFilters) }
+    val admitted = files.filter { it.matches(statusFilters) }
     val needle = query.trim()
     val visible = admitted.filter {
         needle.isEmpty() ||
@@ -228,7 +228,7 @@ internal fun projectSnapshotTree(
                     val parentMatches = needle.isNotEmpty() &&
                         entry.relativePath.contains(needle, ignoreCase = true)
                     val cases = entry.cases.filter { case ->
-                        case.status.matches(statusFilters) &&
+                        case.matches(statusFilters) &&
                             (
                                 needle.isEmpty() ||
                                     parentMatches ||
@@ -280,7 +280,7 @@ internal fun projectSnapshotFlatRows(
         visible.forEach { entry ->
             val parentMatches = needle.isNotEmpty() && entry.relativePath.contains(needle, ignoreCase = true)
             val cases = entry.cases.filter { case ->
-                case.status.matches(statusFilters) &&
+                case.matches(statusFilters) &&
                     (
                         needle.isEmpty() ||
                             parentMatches ||
@@ -303,8 +303,11 @@ private val SnapshotFileStatus.sortOrder: Int
         SnapshotFileStatus.UNCHANGED -> 3
     }
 
-private fun SnapshotFileStatus.matches(filters: Set<SnapshotFileStatus>): Boolean =
-    filters.isEmpty() || this in filters
+private fun SnapshotSourceFile.matches(filters: Set<SnapshotFileStatus>): Boolean =
+    filters.isEmpty() || statuses.any(filters::contains)
+
+private fun SnapshotCase.matches(filters: Set<SnapshotFileStatus>): Boolean =
+    filters.isEmpty() || statuses.any(filters::contains)
 
 private fun SnapshotFolderBuilder.hasLabeledStatus(): Boolean =
     files.any { it.status != SnapshotFileStatus.UNCHANGED } ||
@@ -383,8 +386,8 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
         val targetFile = index?.files?.firstOrNull { it.relativePath == target } ?: return@LaunchedEffect
         val targetCase = revealRequest.caseId?.let { id -> targetFile.cases.firstOrNull { it.id == id } }
         if (
-            !targetFile.status.matches(statusFilters) ||
-            targetCase != null && !targetCase.status.matches(statusFilters)
+            !targetFile.matches(statusFilters) ||
+            targetCase != null && !targetCase.matches(statusFilters)
         ) {
             statusFilters = emptySet()
         }
