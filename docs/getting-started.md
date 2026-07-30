@@ -9,9 +9,9 @@ This page takes you from a freshly installed plugin to your first screenshot com
 
 ## 1. Open the tool window
 
-Open the **Golden Diff** tool window from the **right edge** of the IDE. On the first run it shows a
-single button, **Choose screenshots directory**, and the status **“Choose a screenshots directory to
-begin.”**
+Open the **Golden Diff** tool window from the **right edge** of the IDE. On first run, choose the
+directory containing your committed screenshots. The same setup is always available from
+**Settings → Tools → Golden Diff**.
 
 ![First run — Choose screenshots directory](images/getting-started-first-run.png)
 <!-- TODO(screenshot): tool window on first run, empty, with the "Choose screenshots directory" button -->
@@ -31,18 +31,23 @@ Open the Kotlin file for the screen, preview, or test you are working on. Golden
 extracts the relevant names (class names, the file name, and annotated screenshot-function names), and
 lists the goldens that match.
 
-- When goldens are found, the status reads **“N screenshot(s) found.”** and the list fills with
-  thumbnails.
-- If nothing matches, the status reads **“No screenshots found for this file. Check the directory or
-  record screenshots.”** — see [Matching goldens](matching.md) to adjust how matching works.
+- When goldens are found, their Views appear in **Files** and the selected scope fills **Goldens**
+  with cards.
+- If nothing matches, the empty state points to directory and matching settings — see
+  [Matching goldens](matching.md) to adjust how matching works.
 
-The list refreshes when you **switch files**, not while you type. After you re-record goldens, click
-**Refresh** to rebuild the list.
+The **Files** pane builds a project-wide Folder → View → Snapshot case tree. Search and the Failed /
+Modified / New filters narrow it without losing the active selection; use **Reveal** when the file
+selected in the editor is hidden by a filter.
+
+Golden Diff watches configured golden and generated-output directories. Image changes update
+automatically; structural changes use a selection-preserving rescan. Source-code edits still do not
+rematch while you type.
 
 ## 4. Review your first comparison
 
-Select a golden in the list. The viewer loads the **committed (HEAD)** version and compares it against
-your **Working copy** (the golden currently on disk):
+Select a golden card. The viewer loads the **committed (HEAD)** version and automatically chooses the
+useful local variant: differing Test output first, then Working copy, then the only available source.
 
 - If they are identical, you get a single preview labeled **“No changes vs HEAD — <file>”**.
 - If they differ, the mode toggle appears and you can switch between **Side by side**, **Swipe**,
@@ -55,11 +60,11 @@ your **Working copy** (the golden currently on disk):
 
 | Area | What it is |
 |---|---|
-| **Directories… / Choose screenshots directory** | Opens the folder picker (first run) or Settings (once configured). |
-| **Refresh** | Rebuilds the list for the current file. Use after recording goldens. |
-| **Compare:** | Switches the right-hand side of the comparison between **Working copy** and **Test output**. |
-| **Golden list** (left) | The goldens matching the current file; the caret’s function is preferred for the initial selection. |
-| **Comparison viewer** (right) | Shows HEAD vs the selected source, with the mode toggle and zoom. |
+| **Files** | Project-wide Folder → View → Case navigation with search and status filters. |
+| **Goldens** | Matching cards with independent Working and Test statuses; thumbnail density is adjustable. |
+| **Generate / Verify** | Runs configured project-, View-, or Case-scoped commands in the IDE Run tool window. |
+| **Accept / Accept all** | Promotes the exact displayed Test output to one golden or every actionable golden in the View. |
+| **Compare** | Shows HEAD vs the automatically derived source, with comparison modes, zoom, and a detachable window. |
 
 ## Where to go next
 

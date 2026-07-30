@@ -5,9 +5,9 @@
 [![Rating](https://img.shields.io/jetbrains/plugin/r/rating/32662-golden-diff.svg)](https://plugins.jetbrains.com/plugin/32662-golden-diff/reviews)
 
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
-the editor. Open the tool window for the screen you're working on and it lists the matching goldens,
-then compares the **committed (git HEAD)** version against your **working copy** or generated test
-output in four ways:
+the editor. Its snapshot-aware **Files → Goldens → Compare** workflow follows the file open in the
+editor, groups matching snapshots by View and Case, and compares the **committed (git HEAD)** version
+against your **working copy** or generated test output in four ways:
 
 - **Side by side** — old and new next to each other.
 - **Swipe** — drag a divider to reveal old vs new in the same frame.
@@ -19,16 +19,22 @@ comparison source, the comparison is skipped and you just get a single preview l
 *"No changes vs HEAD"*.
 
 ## Features
+- A project-wide **Folder → View → Snapshot case** tree with search, status filters, failing-view
+  counts, editor-tab synchronization, and selection-preserving refreshes.
 - Matches goldens to the file you're editing in two modes: by **annotated preview/test method**, or by
   a **file/class regex** (`{file_name}` / `{class_name}`). Matching runs against each golden's path, so
   nested (package/class-as-directory) layouts work too.
 - **Live preview** in Settings shows how many and which goldens match the current file for your config.
-- Compares Git HEAD with the working-copy golden.
-- Compares Git HEAD with generated verification output such as `_actual.png` files. Golden matching and
-  generated-output matching are separate steps: the list is built from the golden directories, then the
-  generated-file regex is used only to find the generated counterpart for the selected golden in Test
-  output mode.
+- Shows Working-copy and Test-output variants together and automatically compares the actionable Test
+  output, then Working copy, without a global source switch.
+- Runs project-, View-, and Case-scoped **Generate / Verify** commands in the IDE Run tool window, with
+  streamed output, cancellation, completion notifications, and automatic refresh.
+- **Accept** promotes the exact displayed Test output to its golden; **Accept all** handles every
+  actionable Test output in the selected View and reports partial failures.
+- Indexes generated-output roots once per refresh and reports ambiguous matches instead of choosing an
+  arbitrary same-named file.
 - Offers side-by-side, swipe, onion-skin, and pixel-diff comparison modes.
+- Supports a detachable, live-updating comparison window.
 - Keeps screenshot directories project-local.
 - Supports IntelliJ Platform 2024.1 and newer (build 241+) with no upper build limit.
 
@@ -66,8 +72,8 @@ Golden Diff config:
 - **Match**: by annotated preview method (annotation regex `Preview`) — goldens are named
   `…ScreenKt.<Name>Preview.<qualifier>.png`
 
-Run `./gradlew verifyRoborazziDebug` (or `recordRoborazziDebug` to refresh goldens), then open the
-previewed file and switch the compare source to *generated*.
+Configure those commands in Golden Diff, or run `./gradlew verifyRoborazziDebug` manually. Open the
+previewed file and select the failing golden; Golden Diff automatically chooses its Test output.
 
 ### Example: iOS · swift-snapshot-testing (pointfree)
 This library writes a failing test's freshly rendered image to
@@ -133,13 +139,16 @@ Use `brew upgrade --cask golden-diff@beta` for later beta builds.
 2. First run: click **Choose screenshots directory** and pick your golden folder
    (later: Settings → Tools → Golden Diff, or the **Directories…** button). Multiple folders OK.
 3. Optional: pick the matching mode (annotated method vs file/class regex) and check the live preview;
-   configure generated test-output directories and their filename regex.
-4. Open a screen/test file → pick a golden from the list → choose Working copy or Test output →
-   switch modes / zoom.
+   configure generated test-output directories, filename regex, and Generate/Verify commands.
+4. Pick a View or Case in **Files**, then a card in **Goldens**. **Compare** automatically shows the
+   useful Working-copy or Test-output variant.
+5. Run Generate/Verify from the header, review the result in any comparison mode, then use **Accept**
+   or View-scoped **Accept all** when the generated output is correct.
 
 The generated-file regex does not decide which goldens appear in the list. It filters and maps files
-from the generated-output directories after a golden is selected. The default `^(.+)_actual\.png$`
-matches `Foo_actual.png` and maps it to the selected golden `Foo.png`.
+from the generated-output directories after goldens are indexed. The default `^(.+)_actual\.png$`
+matches `Foo_actual.png` and maps it to `Foo.png`; unresolved basename/path ties remain visibly
+ambiguous and cannot be compared or accepted.
 
 ## Documentation
 Full end-user docs are published as a site at

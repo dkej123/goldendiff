@@ -5,26 +5,37 @@ nav_order: 5
 
 # Comparing screenshots
 
-Once a golden is selected, Golden Diff loads the **committed (git HEAD)** version and compares it
-against a **comparison source** of your choice. This page covers the source switch, the four comparison
-modes, zoom, and the single-preview states.
+Once a golden is selected, Golden Diff loads the **committed (git HEAD)** version and derives the
+local comparison source automatically. This page covers source selection, accepting generated
+output, the four comparison modes, zoom, and the single-preview states.
 
-## Comparison source
+## Automatic comparison source
 
-The **Compare:** dropdown in the header chooses what HEAD is compared against:
+Each golden card can carry independent **Working copy** and **Test output** variants. There is no
+global source dropdown. Golden Diff chooses, in order:
 
-- **Working copy** *(default)* — the selected golden file as it currently is on disk. This is what you
-  use to review a change to a golden before committing it.
-- **Test output** — a freshly **generated** screenshot from your verification tests (for example a
-  Roborazzi `_actual.png`). Golden Diff looks in the configured generated-output directories: first in
-  the same relative directory as the golden, then anywhere under those roots, and matches files with the
-  **generated output filename regex** (default `^(.+)_actual\.png$`, which maps `LoginScreen_actual.png`
-  back to the golden `LoginScreen.png`).
+1. An actionable, differing **Test output** from verification tests.
+2. The **Working copy** when it differs from HEAD.
+3. The only available local variant.
 
-> **Test output** requires you to configure generated-output directories and, if needed, the filename
-> regex. See the [settings reference](settings-reference.md). The regex is used **only** to map a
-> selected golden to its generated counterpart — it does **not** affect which goldens appear in the
-> list.
+Generated roots are indexed once per refresh. Golden Diff prefers the same relative directory, then
+the strongest directory-suffix match. If equally ranked candidates remain, the card reports
+**Ambiguous Test output** and blocks comparison and acceptance instead of guessing.
+
+> **Test output** requires configured generated-output directories and, if needed, a filename regex.
+> See the [settings reference](settings-reference.md). The regex maps generated files to existing
+> goldens; it does **not** decide which goldens appear.
+
+## Accepting Test output
+
+**Accept** promotes the exact generated file currently displayed to the selected golden. Before
+writing, Golden Diff validates the captured source path, size, modification time, and SHA-256, so a
+file changed after confirmation cannot silently overwrite a golden.
+
+**Accept all (N)** is scoped to the selected View. It freezes the current actionable set, processes
+each item, and reports successes and failures. After acceptance consumes the Test output, comparison
+falls back to Working copy automatically. Figma reference cards are review-only and cannot be
+accepted.
 
 ## The four comparison modes
 
@@ -66,6 +77,9 @@ The **Zoom:** control is always available: **Fit / 50% / 75% / 100% / 150% / 200
 to every mode and to the single preview; zoomed-in content scrolls. The zoom level persists as you move
 between files and modes.
 
+The action in the opposite corner opens a modeless, resizable comparison window. It follows live
+golden/source changes while keeping its own comparison mode and zoom.
+
 ## Single-preview states
 
 Sometimes there is nothing to compare, so the viewer shows a single image (or none) with an explanatory
@@ -76,8 +90,9 @@ status and hides the mode toggle:
 | **No changes vs HEAD — <file>** | The golden is byte-for-byte identical to the comparison source. |
 | **New file (not in git HEAD) — <name>** | The image is not committed yet, so there is no HEAD version. |
 | **Working copy missing — showing HEAD.** | The committed golden exists but the working-copy file is gone. |
-| **No generated test output found for <file>.** | *Test output* mode is on but no matching generated file was found. |
-| **Configure generated test output directories in Settings.** | *Test output* mode is on but no generated-output directories are configured. |
+| **No generated test output found for <file>.** | No generated counterpart matched this golden. |
+| **Ambiguous Test output** | Multiple equally ranked generated files matched; Compare and Accept stay disabled. |
+| **Configure generated test output directories in Settings.** | No generated-output directories are configured. |
 | **Could not read image.** | The file could not be decoded (for example an unsupported format). |
 
 **Next:** [Settings reference](settings-reference.md) · [Troubleshooting & FAQ](troubleshooting.md)
