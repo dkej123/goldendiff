@@ -115,11 +115,14 @@ audience, retention and adoption chart, and add `app_version` or `release_channe
 5. **Feature adoption**
    - `product.compare_mode_selected` by `mode`;
    - `product.feature_used` by `feature`;
-   - Project changes from `product.browse_scope_selected`;
-   - Test output from `product.comparison_source_selected`.
+   - detached comparison from `product.feature_used` = `detached_comparison`;
+   - Generate/Verify adoption from `product.feature_used`, with completion quality from
+     `product.command_completed`.
 6. **Workflow quality**
    - `product.scan_completed` by `result` and `blocker`;
    - comparisons by `result`, `scope`, `source` and `surface`;
+   - `product.command_completed` by `kind`, `scope` and `result`;
+   - `product.accept_completed` by `mode`, `result` and `failure_category`;
    - `product.operation_failed` by `operation` and `error_category`.
 
 These Amplitude retention reports are cohort retention: a denominator is formed from users who

@@ -6,6 +6,7 @@ import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
 import java.awt.image.BufferedImage
 import java.io.File
+import javax.swing.Icon
 import javax.swing.JComponent
 
 // ExtraComparisonItem and ExtraComparisonItemStatus are pure data and live in :core, in this same
@@ -27,6 +28,8 @@ data class ExtraFirstRunDefaults(
 interface ExtraComparisonSource {
     val id: String
     val title: String
+    val filterIcon: Icon?
+        get() = null
     val compareLabel: String
         get() = title
 

@@ -14,8 +14,9 @@ object EventCatalog {
     private val timeToValueBuckets = setOf("lt_1m", "1_4m", "5_14m", "15_59m", "1_23h", "1d_plus")
     private val diffBuckets = setOf("none", "zero", "lt_1pct", "1_5pct", "5_25pct", "gt_25pct")
     private val bool = setOf("true", "false")
-    private val scope = setOf("current_file", "project_changes")
-    private val source = setOf("working_copy", "test_output")
+    private val scope = setOf("current_file", "project_changes", "project_tree")
+    private val builtInSource = setOf("working_copy", "test_output")
+    private val scanSource = builtInSource + "merged"
     private val installationAgeBuckets =
         setOf("first_day", "day_1", "days_2_6", "days_7_29", "days_30_89", "days_90_plus")
 
@@ -48,7 +49,7 @@ object EventCatalog {
             "time_to_value_bucket" to timeToValueBuckets,
             "sessions_to_activation" to setOf("1", "2", "3_5", "6_plus"),
             "scope" to scope,
-            "source" to source,
+            "source" to builtInSource,
         ),
         "product.configuration_saved" to definition(
             "match_mode" to setOf("annotated_method", "file_class_regex"),
@@ -63,7 +64,7 @@ object EventCatalog {
             "changed_display" to bool,
         ),
         "product.browse_scope_selected" to definition("from" to scope, "to" to scope),
-        "product.comparison_source_selected" to definition("from" to source, "to" to source),
+        "product.comparison_source_selected" to definition("from" to builtInSource, "to" to builtInSource),
         "product.source_file_selected" to definition(
             "trigger" to setOf("project_tree", "quick_open", "tab", "direct_png", "ide_editor"),
             "file_family" to setOf("kotlin", "java", "js_ts", "swift", "png", "other"),
@@ -77,17 +78,28 @@ object EventCatalog {
                 "generate_run", "verify_run", "accept_golden", "accept_golden_failed",
             ),
         ),
-        "product.scan_completed" to definition(
-            "trigger" to setOf("automatic", "manual_refresh", "config_change", "scope_change", "source_change"),
-            "scope" to scope,
-            "source" to source,
-            "result" to setOf("success_nonempty", "success_empty", "blocked", "failure"),
-            "blocker" to setOf("none", "no_git", "not_repository", "no_configuration"),
-            "duration_bucket" to durationBuckets,
-            "item_count_bucket" to countBuckets,
-            "modified_count_bucket" to countBuckets,
-            "new_count_bucket" to countBuckets,
-            "cache_hit" to bool,
+        "product.scan_completed" to Definition(
+            required = setOf(
+                "trigger", "scope", "source", "result", "blocker", "duration_bucket",
+                "item_count_bucket", "modified_count_bucket", "new_count_bucket", "cache_hit",
+            ),
+            optional = setOf("failed_count_bucket"),
+            values = mapOf(
+                "trigger" to setOf(
+                    "automatic", "manual_refresh", "config_change", "scope_change", "source_change",
+                    "filesystem_change", "command_finished",
+                ),
+                "scope" to scope,
+                "source" to scanSource,
+                "result" to setOf("success_nonempty", "success_empty", "blocked", "failure"),
+                "blocker" to setOf("none", "no_git", "not_repository", "no_configuration"),
+                "duration_bucket" to durationBuckets,
+                "item_count_bucket" to countBuckets,
+                "modified_count_bucket" to countBuckets,
+                "new_count_bucket" to countBuckets,
+                "failed_count_bucket" to countBuckets,
+                "cache_hit" to bool,
+            ),
         ),
         "product.operation_failed" to Definition(
             required = setOf("operation", "error_category", "retryable"),
@@ -100,17 +112,25 @@ object EventCatalog {
                 "error_category" to setOf("io", "git", "decode", "invalid_config", "internal", "unknown"),
                 "retryable" to bool,
                 "scope" to scope,
-                "source" to source,
+                "source" to scanSource,
             ),
         ),
-        "product.comparison_viewed" to definition(
-            "source" to source,
-            "result" to setOf("identical", "modified", "new", "missing_counterpart", "decode_failed"),
-            "load_duration_bucket" to durationBuckets,
-            "diff_ratio_bucket" to diffBuckets,
-            "dimensions" to setOf("same", "different", "one_missing"),
-            "cache_hit" to bool,
-            "selection_trigger" to setOf("grid", "keyboard", "automatic"),
+        "product.comparison_viewed" to Definition(
+            required = setOf(
+                "source", "result", "load_duration_bucket", "diff_ratio_bucket", "dimensions",
+                "cache_hit", "selection_trigger",
+            ),
+            optional = setOf("scope"),
+            values = mapOf(
+                "source" to builtInSource,
+                "result" to setOf("identical", "modified", "new", "missing_counterpart", "decode_failed"),
+                "load_duration_bucket" to durationBuckets,
+                "diff_ratio_bucket" to diffBuckets,
+                "dimensions" to setOf("same", "different", "one_missing"),
+                "cache_hit" to bool,
+                "selection_trigger" to setOf("grid", "keyboard", "automatic"),
+                "scope" to scope,
+            ),
         ),
         "product.compare_mode_selected" to definition(
             "mode" to setOf("side_by_side", "swipe", "onion", "diff"),
@@ -124,6 +144,21 @@ object EventCatalog {
         "product.golden_deleted" to definition(
             "result" to setOf("success", "failure"),
             "source" to setOf("working_copy"),
+        ),
+        "product.command_completed" to definition(
+            "kind" to setOf("generate", "verify"),
+            "scope" to setOf("project", "view", "case"),
+            "result" to setOf("success", "partial_failure", "failure", "cancelled", "could_not_start"),
+            "command_count_bucket" to countBuckets,
+        ),
+        "product.accept_completed" to definition(
+            "mode" to setOf("single", "bulk"),
+            "result" to setOf("success", "partial", "failure", "nothing_to_accept"),
+            "failure_category" to setOf("none", "missing", "ambiguous", "stale", "io", "unknown"),
+            "candidate_count_bucket" to countBuckets,
+            "accepted_count_bucket" to countBuckets,
+            "failed_count_bucket" to countBuckets,
+            "retry" to bool,
         ),
     )
 

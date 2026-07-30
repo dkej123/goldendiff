@@ -1,8 +1,10 @@
 package com.github.dkwasniak.goldendiff.scan
 
-import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartIndex
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
 import com.github.dkwasniak.goldendiff.compare.HeadBytesSource
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
+import com.github.dkwasniak.goldendiff.git.GitCli
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
@@ -40,6 +42,14 @@ class ChangeScanner(
 
     private val generatedRoots: List<File> get() = config.resolvedGeneratedPaths(projectRoot)
 
+    private val generatedIndex: GeneratedCounterpartIndex by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        GeneratedCounterpartIndex.build(
+            generatedRoots = generatedRoots,
+            generatedFileRegex = config.normalizedForMatching().generatedFileRegex,
+            excludedSuffixes = config.excludedSuffixes,
+        )
+    }
+
     /** Wraps an already-matched set of goldens with their status against [source]. */
     fun itemsFor(files: List<File>, source: BuiltInSource): List<ExtraComparisonItem> =
         buildItems(files) { statusOf(it, source) }
@@ -49,11 +59,13 @@ class ChangeScanner(
         val roots = goldenRoots
         val normalizedFiles = files.distinctBy { it.normalize().path }
         return normalizedFiles.map { golden ->
-            val generated = generatedFor(golden)
+            val resolution = generatedResolution(golden)
+            val generated = (resolution as? GeneratedCounterpartResolution.Exact)?.file
             MergedGoldenItem(
                 golden = golden,
                 workingCopy = GoldenSourceVariant(golden, statusOf(golden, BuiltInSource.WORKING_COPY)),
                 testOutput = generated?.let { GoldenSourceVariant(it, generatedStatus(golden, it)) },
+                testOutputResolution = resolution,
             )
         }.sortedWith(mergedComparator(roots))
     }
@@ -67,16 +79,20 @@ class ChangeScanner(
     fun mergedChanges(): List<MergedGoldenItem> {
         val roots = goldenRoots
         val working = workingCopyChanges().associateBy { it.file.normalize().path }
-        val generated = generatedChanges()
-            .filter { it.status != ExtraComparisonItemStatus.UNCHANGED }
-            .associateBy { it.file.normalize().path }
-        return (working.keys + generated.keys).distinct().map { path ->
-            val golden = working[path]?.file ?: generated.getValue(path).file
-            val output = generated[path]?.let { generatedFor(golden) }
+        val generated = generatedEntries().associateBy { it.golden.normalize().path }
+        val relevantGenerated = generated.filterValues { entry ->
+            entry.resolution is GeneratedCounterpartResolution.Ambiguous ||
+                entry.status != null && entry.status != ExtraComparisonItemStatus.UNCHANGED
+        }
+        return (working.keys + relevantGenerated.keys).distinct().map { path ->
+            val golden = working[path]?.file ?: relevantGenerated.getValue(path).golden
+            val entry = generated[path]
+            val output = (entry?.resolution as? GeneratedCounterpartResolution.Exact)?.file
             MergedGoldenItem(
                 golden = golden,
                 workingCopy = working[path]?.let { GoldenSourceVariant(golden, it.status) },
-                testOutput = output?.let { GoldenSourceVariant(it, generated.getValue(path).status) },
+                testOutput = output?.let { GoldenSourceVariant(it, entry?.status ?: generatedStatus(golden, it)) },
+                testOutputResolution = entry?.resolution ?: GeneratedCounterpartResolution.Missing,
             )
         }.sortedWith(mergedComparator(roots))
     }
@@ -99,33 +115,19 @@ class ChangeScanner(
 
     /** Every golden whose generated test output differs from the committed version. */
     fun generatedChanges(): List<ExtraComparisonItem> {
-        val roots = goldenRoots
-        val generated = generatedRoots
-        if (generated.none { it.isDirectory }) return emptyList()
-        val goldens = GoldenFinder.findAll(roots, config.excludedSuffixes)
-        // Resolution deliberately uses GeneratedImageSource for every golden. Its same-relative-dir
-        // preference is load-bearing when two modules have goldens with the same basename.
-        val variants = goldens.parallelStream()
-            .map { golden -> golden to generatedFor(golden) }
-            .filter { it.second != null }
-            .toList()
-        val statusByGolden = variants.associate { (golden, output) ->
-            golden to generatedStatus(golden, output)
+        val entries = generatedEntries().filter { it.status != null }
+        val statusByGolden = entries.associate { it.golden.normalize().path to it.status!! }
+        return buildItems(entries.map { it.golden }) {
+            statusByGolden.getValue(it.normalize().path)
         }
-        return buildItems(variants.map { it.first }) { statusByGolden.getValue(it) }
     }
 
     fun statusOf(file: File, source: BuiltInSource): ExtraComparisonItemStatus {
         val head = headBytes.headBytes(file)
         val sourceFile = when (source) {
             BuiltInSource.WORKING_COPY -> file
-            BuiltInSource.GENERATED -> GeneratedImageSource.findForGolden(
-                golden = file,
-                goldenRoots = goldenRoots,
-                generatedRoots = generatedRoots,
-                generatedFileRegex = config.generatedFileRegex,
-                excludedSuffixes = config.excludedSuffixes,
-            )
+            BuiltInSource.GENERATED ->
+                (generatedResolution(file) as? GeneratedCounterpartResolution.Exact)?.file
         }
         val sourceBytes = sourceFile?.let(ImageBytes::workingBytes)
         return when {
@@ -136,13 +138,27 @@ class ChangeScanner(
         }
     }
 
-    private fun generatedFor(golden: File): File? = GeneratedImageSource.findForGolden(
-        golden = golden,
-        goldenRoots = goldenRoots,
-        generatedRoots = generatedRoots,
-        generatedFileRegex = config.generatedFileRegex,
-        excludedSuffixes = config.excludedSuffixes,
+    private fun generatedResolution(golden: File): GeneratedCounterpartResolution =
+        generatedIndex.resolve(golden, goldenRoots)
+
+    private data class GeneratedEntry(
+        val golden: File,
+        val resolution: GeneratedCounterpartResolution,
+        val status: ExtraComparisonItemStatus?,
     )
+
+    private fun generatedEntries(): List<GeneratedEntry> {
+        if (generatedRoots.none(File::isDirectory)) return emptyList()
+        return GoldenFinder.findAll(goldenRoots, config.excludedSuffixes).map { golden ->
+            val resolution = generatedResolution(golden)
+            val output = (resolution as? GeneratedCounterpartResolution.Exact)?.file
+            GeneratedEntry(
+                golden,
+                resolution,
+                output?.let { generatedStatus(golden, it) },
+            )
+        }
+    }
 
     private fun mergedComparator(roots: List<File>): Comparator<MergedGoldenItem> =
         compareBy<MergedGoldenItem> { mergedStatusSortRank(it.displayStatus) }
@@ -179,6 +195,20 @@ class ChangeScanner(
             roots.any { root -> file.isDescendantOf(root) }
 
     companion object {
+        /**
+         * Creates the canonical scanner used by every host for a Git working tree.
+         *
+         * Keeping both HEAD bytes and project-wide work-tree status on the same [GitCli] provider
+         * prevents hosts from assigning different labels to the same golden when an IDE VCS mapping
+         * cannot supply binary revision content.
+         */
+        fun forGitProject(
+            projectRoot: File,
+            config: GoldenDiffConfig,
+        ): ChangeScanner {
+            val git = GitCli(projectRoot)
+            return ChangeScanner(projectRoot, config.normalizedForMatching(), git, git)
+        }
 
         fun statusSortRank(status: ExtraComparisonItemStatus): Int =
             when (status) {

@@ -74,14 +74,20 @@ class TwoUpPanel : JPanel(BorderLayout()) {
             commonWidth: Int,
             commonHeight: Int,
         ) {
-            val inset = JBUI.scale(6)
+            val titleInset = JBUI.scale(6)
             val metrics = g2.fontMetrics
-            val titleText = ImagePainting.ellipsize(title, metrics, area.width - inset * 2)
+            val titleText = ImagePainting.ellipsize(title, metrics, area.width - titleInset * 2)
             g2.color = foreground
             if (titleText.isNotEmpty()) {
-                g2.drawString(titleText, area.x + inset, area.y + metrics.ascent + JBUI.scale(3))
+                g2.drawString(titleText, area.x + titleInset, area.y + metrics.ascent + JBUI.scale(3))
             }
-            val imageArea = Rectangle(area.x, area.y + titleHeight, area.width, area.height - titleHeight)
+            val inset = JBUI.scale(14)
+            val imageArea = Rectangle(
+                area.x + inset,
+                area.y + titleHeight + inset,
+                area.width - inset * 2,
+                area.height - titleHeight - inset * 2,
+            )
             if (image == null) {
                 g2.color = JBColor.GRAY
                 g2.drawString("(none)", area.x + inset, area.y + titleHeight + JBUI.scale(14))

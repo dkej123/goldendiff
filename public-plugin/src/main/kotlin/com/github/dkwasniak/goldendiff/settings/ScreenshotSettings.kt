@@ -51,6 +51,9 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         var generateFileCommand: String = ""
         var verifyAllCommand: String = ""
         var verifyFileCommand: String = ""
+        // Optional command scoped to one snapshot test/preview case. Blank preserves the existing
+        // Verify View fallback for projects saved before this field was introduced.
+        var verifyCaseCommand: String = ""
         var notifyWhenTasksFinish: Boolean = true
     }
 
@@ -125,6 +128,12 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
             state.verifyFileCommand = value
         }
 
+    var verifyCaseCommand: String
+        get() = state.verifyCaseCommand
+        set(value) {
+            state.verifyCaseCommand = value
+        }
+
     var notifyWhenTasksFinish: Boolean
         get() = state.notifyWhenTasksFinish
         set(value) {
@@ -175,6 +184,7 @@ class ScreenshotSettings : PersistentStateComponent<ScreenshotSettings.State> {
         generateFileCommand = generateFileCommand,
         verifyAllCommand = verifyAllCommand,
         verifyFileCommand = verifyFileCommand,
+        verifyCaseCommand = verifyCaseCommand,
         notifyWhenTasksFinish = notifyWhenTasksFinish,
     )
 

@@ -25,12 +25,13 @@ see [gotchas](gotchas.md#module-boundaries-two-traps-that-compile-fine-and-fail-
 
 ## What the two hosts do differently
 
-Only three things, all behind interfaces in `:core`:
+Only two things differ at this layer:
 
-- **HEAD content.** The plugin uses the IDE's VCS layer (`GitImageSource`), which knows the repo,
-  honours the user's git config and caches revisions. The app uses `GitCli`. Both are `HeadBytesSource`.
-- **Project-wide status.** Both use `GitCli.changedFiles()` — one git call beats a per-file revision
-  fetch, so even the plugin shells out here. (`WorkingCopyStatus`.)
+- **Git status and HEAD content.** Both hosts construct the same
+  `ChangeScanner.forGitProject(...)`, backed by `GitCli` for both `HeadBytesSource` and
+  `WorkingCopyStatus`. This is intentional: IDE VCS mappings may fail to return binary revision
+  content and must not make the plugin label tracked goldens as New while the app labels them
+  Unchanged.
 - **Which file drives matching.** The plugin reads the open editor (`CurrentScreen`, Kotlin PSI). The
   app has no editor, so the user picks a file from the project list and it goes through
   `GenericScreenExtractor`. Both produce a `Screen` and feed the same `GoldenFinder`.
@@ -62,13 +63,17 @@ never a fork of the public plugin.
 `internal-plugin/src/main/kotlin/…/compare/Figma*`)
 
 - **`toolwindow/`** — UI entry point and the list side.
-  - `ScreenshotToolWindowFactory` — Java `ToolWindowFactory` that installs `ScreenshotPanel`.
-  - `ScreenshotPanel` — the complete Swing tool window: header, wrapping thumbnail list, draggable
-    split and comparison view. It owns refresh state and the editor listener and implements
-    `Disposable`. The **Scope** control switches between
-    current-file matching and a **Project changes** view: working-copy changes come from
-    `git status --porcelain` (status derived directly from the porcelain code, no per-file HEAD read);
-    test-output changes index the generated tree once and classify goldens with parallel HEAD reads.
+  - `ScreenshotToolWindowFactory` — Java `ToolWindowFactory` that installs
+    `RedesignedScreenshotPanel`.
+  - `RedesignedScreenshotPanel` — the Swing shell for Files → Goldens → Compare, responsive
+    Wide/Medium/Narrow layouts, command and Accept actions, editor/VFS subscriptions and extension
+    items in the shared Goldens grid.
+  - `PluginSnapshotController` — typed lifecycle and stable View/Case/golden selection state. It
+    rejects stale asynchronous refreshes and contains no Swing widget references.
+  - `SnapshotFilesPanel` / `MergedGoldenCellRenderer` — native JBUI adapters over the shared snapshot
+    projection and merged golden model.
+  - `BatchCommandExecution` — sequential View command batches in one IntelliJ Run content, including
+    partial-failure and cancellation outcomes.
 - **`match/`** — figuring out what to show.
   - `CurrentScreen` — returns typed candidates for the selected editor: screenshot/test function
     names, class names, file base name, and `caretName`. **Kotlin** files are read via `KtFile` PSI;
@@ -85,11 +90,12 @@ never a fork of the public plugin.
   - `MatchMode` / `MatchingDefaults` / `AnnotationNameMatcher` — matching modes, default rules, and
     pure matching helpers used by tests.
 - **`compare/`** — the viewer.
-  - `GitImageSource` — loads HEAD bytes via VCS `DiffProvider` + `ByteBackedContentRevision`, and
-    working-copy bytes from disk; `decode()` turns bytes into `BufferedImage`. Call off the EDT.
-  - `GeneratedImageSource` — resolves the test-output counterpart for a selected golden. It filters
-    generated files with the configured regex, uses the first capture group as the golden basename,
-    prefers the same relative directory under generated-output roots, and falls back to a full scan.
+  - `GitImageSource` remains a public IntelliJ VCS adapter for extension compatibility. The built-in
+    plugin workflow uses the same `GitCli` HEAD reads as the standalone app; `decode()` turns bytes
+    into `BufferedImage`. Call all Git/image work off the EDT.
+  - `GeneratedImageSource` / the shared generated counterpart index resolve Test output. Matching
+    prefers the same relative directory, reports ambiguity instead of choosing an arbitrary
+    basename collision, and reuses one generated-root scan during a refresh.
   - `CompareView` hosts the Swing `TwoUpPanel`, `SwipePanel`, `OnionSkinPanel`, `DiffPanel` and
     `SingleImagePanel`, with shared zoom controls. Geometry, transparent borders and pixel-diff data
     come from `:core` (`ImageLayout`, `TransparentBorder`, `PixelDiff`).
@@ -99,18 +105,7 @@ never a fork of the public plugin.
   - `ScreenshotConfigurable` — Settings → Tools → Golden Diff (edit the dir list).
 
 ## Data flow
-1. Editor selection changes → `ScreenshotPanel.scheduleRefresh()` (debounced ~300 ms).
-2. `refresh()` → in **Current file** scope: `CurrentScreen.compute()` (read action, using the
-   configured annotation regex) → `GoldenFinder.find()` (using configured golden filename patterns) on
-   a pooled thread → `populate()` on the EDT fills the list and picks an initial selection. In
-   **Project changes** scope it instead builds the changed-golden list from `git status` (working copy)
-   or the indexed generated tree (test output) on a pooled thread.
-3. Grid selection → `loadComparison(file)` on a pooled thread: HEAD bytes vs the selected source.
-   Source defaults to the working-copy golden, or can be switched to test-generated output.
-   - Bytes equal → the Swing single-image panel with "No changes vs HEAD".
-   - Otherwise → the Swing comparison view with all four modes.
-
-The standalone app adds a snapshot-aware layer:
+The plugin and standalone app use the same snapshot-aware model:
 
 1. `ProjectFileIndex` supplies source candidates; `SnapshotFileIndex` scans golden roots once, runs
    pure `GenericScreenExtractor` + `GoldenFinder.matchFiles` projections, and retains
@@ -118,9 +113,17 @@ The standalone app adds a snapshot-aware layer:
    recompute statuses instead of reparsing every source.
 2. `ChangeScanner.mergedItemsFor` / `mergedChanges` produce one `MergedGoldenItem` per golden with
    independent Working-copy and Test-output variants.
-3. The Files pane projects Folder → View → Snapshot case, the Goldens pane controls one active
-   comparison, and the Compare pane chooses a source locally per golden.
-4. `GoldenAccept.acceptAll` returns complete per-file outcomes, allowing partial-failure retry.
+3. `SnapshotFileIndex.projectTree` supplies the host-neutral Folder → View → Snapshot case projection,
+   search/filter results, stable ids and failing-View folder counts.
+4. `PluginSnapshotController` retains selection across equivalent refreshes. Editor tab changes select
+   the corresponding View; caret movement is not observed. Built-in and extension cards have
+   source-qualified stable ids, while the last built-in golden selection is retained independently.
+5. The Compare pane derives its built-in source on every state transition: actionable Test output,
+   otherwise Working copy, otherwise the only available variant. Extension items such as Figma sit
+   beside those built-in cards and load their own comparison only when selected; they never become a
+   Working/Test source and cannot be accepted.
+6. `GoldenAccept.acceptResolved` / `acceptAllResolved` validate the exact generated source identity
+   displayed or frozen for confirmation and return complete typed outcomes.
 
 Completion notification eligibility and copy live in the pure `CompletionNotificationPolicy`.
 Delivery remains host-specific: macOS Notification Center in `:app`, IntelliJ notifications in
@@ -129,3 +132,8 @@ Delivery remains host-specific: macOS Notification Center in `:app`, IntelliJ no
 ## Threading
 PSI reads via `ReadAction.compute`; scanning / git / image decode on
 `AppExecutorUtil.getAppExecutorService()`; UI updates via `ApplicationManager.invokeLater`.
+
+`CurrentScreen` and `ExtraComparisonSource.findItems()` also run on the background executor. Their
+results carry a separate generation, so a slow extension response from a previous editor cannot
+replace the active file's cards. Extension-point changes trigger the same lightweight refresh, which
+keeps the public plugin unchanged when no dependent extension is installed.

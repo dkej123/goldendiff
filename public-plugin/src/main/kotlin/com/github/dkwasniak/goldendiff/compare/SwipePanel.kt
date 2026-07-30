@@ -9,6 +9,7 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Point
 import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -45,12 +46,23 @@ class SwipePanel : JPanel(BorderLayout()) {
 
         /** Divider position as a fraction (0..1) of the rendered image rectangle. */
         private var fraction = 0.5
+        private var draggingDivider = false
 
         init {
             cursor = Cursor.getPredefinedCursor(Cursor.W_RESIZE_CURSOR)
             val mouse = object : MouseAdapter() {
-                override fun mousePressed(e: MouseEvent) = updateFraction(e)
-                override fun mouseDragged(e: MouseEvent) = updateFraction(e)
+                override fun mousePressed(e: MouseEvent) {
+                    draggingDivider = reservesPrimaryDrag(e.point)
+                    if (draggingDivider) updateFraction(e)
+                }
+
+                override fun mouseDragged(e: MouseEvent) {
+                    if (draggingDivider) updateFraction(e)
+                }
+
+                override fun mouseReleased(e: MouseEvent) {
+                    draggingDivider = false
+                }
             }
             addMouseListener(mouse)
             addMouseMotionListener(mouse)
@@ -88,6 +100,13 @@ class SwipePanel : JPanel(BorderLayout()) {
             return ImagePainting.centeredRect(w, h, scale(), imageArea())
         }
 
+        override fun reservesPrimaryDrag(point: Point): Boolean {
+            if (!hasScrollableContent()) return true
+            val rect = currentRect()
+            val dividerX = rect.x + (rect.width * fraction).toInt()
+            return kotlin.math.abs(point.x - dividerX) <= JBUI.scale(8)
+        }
+
         private fun updateFraction(e: MouseEvent) {
             val rect = currentRect()
             if (rect.width <= 0) return
@@ -105,7 +124,9 @@ class SwipePanel : JPanel(BorderLayout()) {
                 if (rect.width <= 0) return
                 ImagePainting.paintCheckerboard(g2, rect)
 
-                newImage?.let { ImagePainting.drawImage(g2, it, ImagePainting.centeredRect(it.width, it.height, scale, area)) }
+                newImage?.let {
+                    ImagePainting.drawImage(g2, it, ImagePainting.centeredRect(it.width, it.height, scale, area))
+                }
 
                 val dividerX = rect.x + (rect.width * fraction).toInt()
                 oldImage?.let {

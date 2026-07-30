@@ -74,6 +74,16 @@ class ImagePaintingTest {
     }
 
     @Test
+    fun `topCenteredRect centers horizontally and anchors to preview top`() {
+        val area = Rectangle(10, 20, 200, 100)
+
+        assertEquals(
+            Rectangle(60, 20, 100, 50),
+            ImagePainting.topCenteredRect(50, 25, 2.0, area),
+        )
+    }
+
+    @Test
     fun `boundingSize takes the larger bounds so relative scale is preserved`() {
         val (w, h) = ImagePainting.boundingSize(image(100, 40), image(80, 60))
         assertEquals(100, w)

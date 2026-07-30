@@ -55,7 +55,7 @@ to the project:
   `--golden-dir-regex '.*/src/test/screenshots$'`.
 
 ## GoldenDiff side — commands
-Configure the four command templates so the tool-window buttons work. Example — replace `:screenshotTests`
+Configure the five command templates so the tool-window buttons work. Example — replace `:screenshotTests`
 and the `Debug` variant with the project's actual task names (`./gradlew tasks --all | grep -i roborazzi`):
 ```
 --generate-all-cmd  './gradlew :screenshotTests:recordRoborazziDebug'
@@ -81,7 +81,7 @@ and the `Debug` variant with the project's actual task names (`./gradlew tasks -
 
 ## Verify
 Do not run a recording command as part of automated configuration. Tell the user they can later change a
-composable so a preview differs, click **Verify** (whole project or current file) in GoldenDiff, watch
+composable so a preview differs, click **Verify** (whole project, View, or Case) in GoldenDiff, watch
 the run in the IDE's Run tool window, then review the `_actual` output as **Test output** and **Accept**
 the ones they want. A non-zero verify exit with `_actual` files present is the normal "there are
 differences" outcome, not a setup error.

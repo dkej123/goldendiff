@@ -2,7 +2,6 @@ package com.github.dkwasniak.goldendiff.app
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.dkwasniak.goldendiff.command.CommandRunner
@@ -35,8 +34,16 @@ import com.github.dkwasniak.goldendiff.scan.MergedGoldenItem
 import com.github.dkwasniak.goldendiff.scan.MergedGoldenStatus
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryBuckets
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryAcceptFailure
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryAcceptMode
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryAcceptResult
 import com.github.dkwasniak.goldendiff.telemetry.TelemetryClient
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryCommandKind
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryCommandResult
+import com.github.dkwasniak.goldendiff.telemetry.TelemetryCommandScope
 import com.github.dkwasniak.goldendiff.telemetry.TelemetrySpanStatus
+import com.github.dkwasniak.goldendiff.telemetry.acceptCompleted
+import com.github.dkwasniak.goldendiff.telemetry.commandCompleted
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import com.github.dkwasniak.goldendiff.ui.CompareMode
@@ -147,9 +154,6 @@ class AppState(
     var blocker by mutableStateOf<Blocker?>(null)
         private set
 
-    var source by mutableStateOf(BuiltInSource.WORKING_COPY)
-        private set
-
     var selectedSourcePath by mutableStateOf<String?>(null)
         private set
     var selectedSnapshotCaseId by mutableStateOf<String?>(null)
@@ -178,7 +182,7 @@ class AppState(
     /**
      * Goldens accepted since the last scan, by absolute path. Drives the transient "Accepted" marker
      * in the list and compare pane so a promotion reads as confirmed without a disruptive rescan.
-     * Cleared whenever the item list is rebuilt (scan, source switch, tab switch, project open).
+     * Cleared whenever the item list is rebuilt (scan, tab switch, project open).
      */
     var acceptedGoldens by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -276,14 +280,23 @@ class AppState(
         acceptAllState = null
     }
 
-    fun confirmAcceptAll(candidates: List<File>) = runAcceptAll(candidates)
+    fun confirmAcceptAll(candidates: List<File>) = runAcceptAll(candidates, retry = false)
 
     fun retryAcceptAll(failures: List<GoldenAccept.BulkFailure>) =
-        runAcceptAll(failures.map { it.golden })
+        runAcceptAll(failures.map { it.golden }, retry = true)
 
-    private fun runAcceptAll(candidates: List<File>) {
+    private fun runAcceptAll(candidates: List<File>, retry: Boolean) {
         if (candidates.isEmpty()) {
             acceptAllState = AcceptAllState.NothingToAccept
+            telemetry.acceptCompleted(
+                TelemetryAcceptMode.BULK,
+                TelemetryAcceptResult.NOTHING_TO_ACCEPT,
+                TelemetryAcceptFailure.NONE,
+                candidates = 0,
+                accepted = 0,
+                failed = 0,
+                retry = retry,
+            )
             return
         }
         val root = projectRoot
@@ -320,9 +333,24 @@ class AppState(
             } else {
                 AcceptAllState.Partial(result.accepted.size, candidates.size, result.failed)
             }
+            telemetry.acceptCompleted(
+                TelemetryAcceptMode.BULK,
+                when {
+                    result.failed.isEmpty() -> TelemetryAcceptResult.SUCCESS
+                    result.accepted.isNotEmpty() -> TelemetryAcceptResult.PARTIAL
+                    else -> TelemetryAcceptResult.FAILURE
+                },
+                when (result.failed.firstOrNull()?.failure) {
+                    null -> TelemetryAcceptFailure.NONE
+                    GoldenAccept.Failure.NoGeneratedCounterpart -> TelemetryAcceptFailure.MISSING
+                    is GoldenAccept.Failure.Io -> TelemetryAcceptFailure.IO
+                },
+                candidates = candidates.size,
+                accepted = result.accepted.size,
+                failed = result.failed.size,
+                retry = retry,
+            )
             selected?.takeIf { it.normalize().path in acceptedPaths }?.let { golden ->
-                sourceByGolden[golden.absolutePath] = BuiltInSource.WORKING_COPY
-                source = BuiltInSource.WORKING_COPY
                 select(golden, "accept_all")
             }
             refreshSnapshotStatuses()
@@ -361,9 +389,6 @@ class AppState(
     /** Whether [installUpdate] will upgrade in place via Homebrew rather than download a `.dmg`. */
     val updateViaHomebrew: Boolean get() = updateHomebrew != null
 
-    // Compose must observe per-golden source changes. A plain HashMap updated the comparison load,
-    // but could leave the segmented control showing the previous source until another recomposition.
-    private val sourceByGolden = mutableStateMapOf<String, BuiltInSource>()
     private val onionOpacityByGolden = HashMap<String, Float>()
 
     val selectedMergedItem: MergedGoldenItem?
@@ -372,18 +397,7 @@ class AppState(
         }
 
     val selectedSource: BuiltInSource
-        get() = selected?.absolutePath?.let { sourceByGolden[it] } ?: source
-
-    fun selectGoldenSource(value: BuiltInSource) {
-        val golden = selected ?: return
-        val merged = selectedMergedItem ?: return
-        if (merged.variant(value) == null) return
-        sourceByGolden[golden.absolutePath] = value
-        source = value
-        comparison = null
-        comparisonGeneration++
-        select(golden, "source_switch")
-    }
+        get() = automaticGoldenSource(selectedMergedItem)
 
     fun onionOpacity(golden: File?): Float =
         golden?.absolutePath?.let { onionOpacityByGolden[it] } ?: 0.5f
@@ -542,7 +556,6 @@ class AppState(
         treeRevealRequest = null
         selected = null
         comparison = null
-        sourceByGolden.clear()
         onionOpacityByGolden.clear()
         treeFilter = ""
         clearCaches()
@@ -999,7 +1012,7 @@ class AppState(
     /**
      * Runs the Generate/Verify command for the whole project or the current file. The raw command is
      * expanded with the open file's names for the per-file variant, streamed line by line into
-     * [commandLog], and followed by a rescan (switching to Test output after a successful Verify).
+     * [commandLog], and followed by a rescan (automatically showing a failing Test output after Verify).
      */
     fun runCommand(kind: CommandKind, perFile: Boolean) {
         val path = selectedSourcePath
@@ -1162,6 +1175,27 @@ class AppState(
                 else -> "${kind.label} finished with failures (${results.count(CommandRunner.Result::succeeded)}/${commands.size})."
             }
             commandLog.add(commandStatus.orEmpty())
+            telemetry.commandCompleted(
+                if (kind == CommandKind.GENERATE) {
+                    TelemetryCommandKind.GENERATE
+                } else {
+                    TelemetryCommandKind.VERIFY
+                },
+                when {
+                    !perFile -> TelemetryCommandScope.PROJECT
+                    caseId != null -> TelemetryCommandScope.CASE
+                    else -> TelemetryCommandScope.VIEW
+                },
+                when {
+                    commandCancelled -> TelemetryCommandResult.CANCELLED
+                    succeeded -> TelemetryCommandResult.SUCCESS
+                    results.any(CommandRunner.Result::succeeded) -> TelemetryCommandResult.PARTIAL_FAILURE
+                    results.isEmpty() || results.all { it.exitCode == null } ->
+                        TelemetryCommandResult.COULD_NOT_START
+                    else -> TelemetryCommandResult.FAILURE
+                },
+                commandCount = commands.size,
+            )
             CompletionNotificationPolicy.decide(
                 enabled = config.notifyWhenTasksFinish,
                 hostForeground = MacNotifications.hostForeground(),
@@ -1224,6 +1258,24 @@ class AppState(
         scope.launch {
             val result = withContext(Dispatchers.IO) { GoldenAccept.accept(golden, config, root) }
             featureUsed(if (result.isSuccess) "accept_golden" else "accept_golden_failed")
+            val failure = result.exceptionOrNull()
+                ?.let { it as? GoldenAccept.AcceptException }
+                ?.failure
+            telemetry.acceptCompleted(
+                TelemetryAcceptMode.SINGLE,
+                if (result.isSuccess) TelemetryAcceptResult.SUCCESS else TelemetryAcceptResult.FAILURE,
+                when {
+                    result.isSuccess -> TelemetryAcceptFailure.NONE
+                    failure == null -> TelemetryAcceptFailure.UNKNOWN
+                    else -> when (failure) {
+                    GoldenAccept.Failure.NoGeneratedCounterpart -> TelemetryAcceptFailure.MISSING
+                    is GoldenAccept.Failure.Io -> TelemetryAcceptFailure.IO
+                    }
+                },
+                candidates = 1,
+                accepted = if (result.isSuccess) 1 else 0,
+                failed = if (result.isSuccess) 0 else 1,
+            )
             result.onFailure { error ->
                 val failure = (error as? GoldenAccept.AcceptException)?.failure
                 status = if (failure is GoldenAccept.Failure.NoGeneratedCounterpart) {
@@ -1248,8 +1300,6 @@ class AppState(
                 }
             }
             items = mergedItems.toLegacyItems()
-            sourceByGolden[golden.absolutePath] = BuiltInSource.WORKING_COPY
-            source = BuiltInSource.WORKING_COPY
             status = "Accepted ${golden.name} as the golden."
             if (selected == golden) {
                 // Repaint from the freshly written golden with an "Accepted" banner. Reloading the
@@ -1269,7 +1319,7 @@ class AppState(
                     )
                     // Cache it so clicking away and back to this golden keeps showing the accepted
                     // preview instead of reloading against the now-consumed test output.
-                    comparisonCache[comparisonKey(golden, source)] = accepted
+                    comparisonCache[comparisonKey(golden, BuiltInSource.WORKING_COPY)] = accepted
                     comparison = accepted
                 }
             }
@@ -1321,26 +1371,7 @@ class AppState(
     }
 
     private fun scanner(root: File, scannerConfig: GoldenDiffConfig = config): ChangeScanner {
-        val git = GitCli(root)
-        // Unlike the plugin, which uses the IDE's VCS layer for HEAD reads, the app has only the CLI.
-        // normalizedForMatching fills the structural defaults the settings leave blank on purpose.
-        return ChangeScanner(root, scannerConfig.normalizedForMatching(), git, git)
-    }
-
-    fun selectSource(value: BuiltInSource) {
-        if (source == value) return
-        val previous = source
-        source = value
-        telemetry.event(
-            "product.comparison_source_selected",
-            mapOf("from" to previous.wireValue(), "to" to value.wireValue()),
-        )
-        selected = null
-        comparison = null
-        // The matched set and every comparison depend on the source; the caches no longer apply.
-        clearCaches()
-        comparisonGeneration++
-        refresh("source_change")
+        return ChangeScanner.forGitProject(root, scannerConfig)
     }
 
     fun refresh(trigger: String = "automatic") {
@@ -1416,6 +1447,9 @@ class AppState(
                     ),
                     "new_count_bucket" to TelemetryBuckets.count(
                         outcome.items.count { it.status == ExtraComparisonItemStatus.NEW },
+                    ),
+                    "failed_count_bucket" to TelemetryBuckets.count(
+                        outcome.mergedItems.count { it.displayStatus == MergedGoldenStatus.FAILED },
                     ),
                     "cache_hit" to "false",
                 ),
@@ -1585,10 +1619,7 @@ class AppState(
             return
         }
         val merged = mergedItems.firstOrNull { it.golden.normalize() == file.normalize() }
-        val rememberedSource = sourceByGolden[file.absolutePath]
-        val requestedSource = preferredGoldenSource(merged, rememberedSource)
-        sourceByGolden[file.absolutePath] = requestedSource
-        source = requestedSource
+        val requestedSource = automaticGoldenSource(merged)
         // Picking a golden never touches the tree. The tree's highlight follows the tree's own
         // selection and the explicit reveal action; clearing it from here dropped the highlight of
         // the file whose goldens are on screen the moment one of them was clicked.
@@ -1625,7 +1656,7 @@ class AppState(
                 )
                 Comparison(null, null, null, 0.0, "Could not read image.", false)
             }
-            if (generation == comparisonGeneration && selected == file && source == requestedSource) {
+            if (generation == comparisonGeneration && selected == file && selectedSource == requestedSource) {
                 comparisonCache[comparisonKey(file, requestedSource)] = result
                 comparison = result
                 comparisonViewed(
@@ -1730,7 +1761,7 @@ class AppState(
         val text = when {
             identical -> "No changes vs HEAD — ${golden.name}"
             headBytes == null -> "New file (not in git HEAD) — ${golden.name}"
-            newBytes == null -> "Working copy missing — showing HEAD."
+            newBytes == null -> "${sourceLabel(requestedSource)} missing — showing HEAD."
             else -> golden.name
         }
         return Comparison(
@@ -1798,6 +1829,7 @@ class AppState(
                 "dimensions" to dimensions,
                 "cache_hit" to cacheHit.toString(),
                 "selection_trigger" to selectionTrigger,
+                "scope" to CURRENT_FILE_SCOPE,
             ),
         )
         telemetry.activationCompleted(CURRENT_FILE_SCOPE, requestedSource.wireValue())

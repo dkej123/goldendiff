@@ -3,6 +3,7 @@ package com.github.dkwasniak.goldendiff.telemetry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -72,6 +73,15 @@ class TelemetryTest {
                 "zoom" to "equal_100", "action" to "hundred", "location" to "main_pane",
             ),
             "product.golden_deleted" to mapOf("result" to "success", "source" to "working_copy"),
+            "product.command_completed" to mapOf(
+                "kind" to "verify", "scope" to "view", "result" to "partial_failure",
+                "command_count_bucket" to "2_5",
+            ),
+            "product.accept_completed" to mapOf(
+                "mode" to "bulk", "result" to "partial", "failure_category" to "stale",
+                "candidate_count_bucket" to "2_5", "accepted_count_bucket" to "1",
+                "failed_count_bucket" to "1", "retry" to "false",
+            ),
         )
 
         assertEquals(EventCatalog.names, samples.keys)
@@ -90,6 +100,67 @@ class TelemetryTest {
     fun `catalog accepts command and accept feature values`() {
         listOf("generate_run", "verify_run", "accept_golden", "accept_golden_failed").forEach {
             EventCatalog.validate("product.feature_used", mapOf("feature" to it))
+        }
+    }
+
+    @Test
+    fun `workflow reporters emit only bucketed reviewed values`() {
+        val factory = RecordingFactory()
+        val client = TelemetryClient(
+            environment,
+            MemoryStore(),
+            factory,
+            TelemetryConsent(analytics = true),
+        )
+
+        client.commandCompleted(
+            TelemetryCommandKind.VERIFY,
+            TelemetryCommandScope.CASE,
+            TelemetryCommandResult.PARTIAL_FAILURE,
+            commandCount = 4,
+        )
+        client.acceptCompleted(
+            TelemetryAcceptMode.BULK,
+            TelemetryAcceptResult.PARTIAL,
+            TelemetryAcceptFailure.IO,
+            candidates = 9,
+            accepted = 7,
+            failed = 2,
+            retry = true,
+        )
+
+        val command = factory.backend.events[0]
+        assertEquals("verify", command.properties["kind"])
+        assertEquals("case", command.properties["scope"])
+        assertEquals("partial_failure", command.properties["result"])
+        assertEquals("2_5", command.properties["command_count_bucket"])
+        val accept = factory.backend.events[1]
+        assertEquals("6_20", accept.properties["candidate_count_bucket"])
+        assertEquals("6_20", accept.properties["accepted_count_bucket"])
+        assertEquals("2_5", accept.properties["failed_count_bucket"])
+        assertEquals("true", accept.properties["retry"])
+    }
+
+    @Test
+    fun `merged source is accepted only for scans`() {
+        EventCatalog.validate(
+            "product.scan_completed",
+            mapOf(
+                "trigger" to "filesystem_change", "scope" to "project_tree", "source" to "merged",
+                "result" to "success_nonempty", "blocker" to "none", "duration_bucket" to "lt_100ms",
+                "item_count_bucket" to "1", "modified_count_bucket" to "0", "new_count_bucket" to "0",
+                "failed_count_bucket" to "1", "cache_hit" to "false",
+            ),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            EventCatalog.validate(
+                "product.comparison_viewed",
+                mapOf(
+                    "source" to "merged", "result" to "modified", "load_duration_bucket" to "lt_100ms",
+                    "diff_ratio_bucket" to "lt_1pct", "dimensions" to "same", "cache_hit" to "false",
+                    "selection_trigger" to "grid",
+                ),
+            )
         }
     }
 

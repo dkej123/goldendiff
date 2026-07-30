@@ -9,6 +9,7 @@ import com.github.dkwasniak.goldendiff.variant.ExtraFirstRunDefaults
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.IconLoader
 import java.io.File
 import java.util.Properties
 import javax.imageio.ImageIO
@@ -17,6 +18,7 @@ import javax.imageio.ImageIO
 class FigmaImageSource : ExtraComparisonSource {
     override val id: String = "figma"
     override val title: String = "Figma"
+    override val filterIcon = IconLoader.getIcon("/icons/figmaMark.svg", FigmaImageSource::class.java)
     @Volatile
     private var lastListStatus: String? = null
 
