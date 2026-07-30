@@ -8,11 +8,11 @@ Paparazzi, Compose Preview Screenshot, Shot…) — the user points it at golden
 output directories.
 
 ## Fast facts
-- **Five Gradle modules.** `:core` (tool-agnostic logic — matching, git, pixel diff, file index; **no
+- **Six Gradle modules.** `:core` (tool-agnostic logic — matching, git, pixel diff, file index; **no
   IntelliJ, no UI**), `:core-ui` (app-only comparison canvases in Compose, **Compose is `compileOnly`**),
-  `:public-plugin` (Swing UI), `:internal-plugin`, `:app` (Compose desktop application). The plugins
-  and app share `:core`; the app is built and supported on **macOS only** for now, with Windows/Linux
-  branches written but unverified.
+  `:telemetry` (cross-host telemetry and privacy), `:public-plugin` (Swing UI), `:internal-plugin`,
+  `:app` (Compose desktop application). The plugins and app share `:core`; the app is built and
+  supported on **macOS only** for now, with Windows/Linux branches written but unverified.
 - **Two Gradle modules → two plugins.** `:public-plugin` = **Golden Diff**
   (`com.github.dkwasniak.goldendiff`, zip `golden-diff-<ver>.zip`), published to Marketplace.
   `:internal-plugin` = **Golden Diff — Figma** (`com.github.dkwasniak.goldendiff.figma`, zip
@@ -59,6 +59,8 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
 - [docs/architecture.md](docs/architecture.md) — modules, data flow, key classes.
 - [docs/architecture-guidelines.md](docs/architecture-guidelines.md) — ownership, MVVM, SOLID,
   dependency rules, and regression gates.
+- [docs/mvvm-refactor-plan.md](docs/mvvm-refactor-plan.md) — target shared-presentation architecture
+  and incremental TDD migration plan; read when working on the MVVM refactor.
 - [docs/build-and-run.md](docs/build-and-run.md) — build/run details, platform compatibility.
 - [docs/features.md](docs/features.md) — exact behavior (matching, compare modes, zoom, test output).
 - [docs/gotchas.md](docs/gotchas.md) — non-obvious traps. **Read this before build changes.**

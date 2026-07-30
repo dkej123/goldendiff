@@ -1,6 +1,6 @@
 ---
 name: golden-diff-architecture
-description: Protect Golden Diff architecture, module boundaries, MVVM state design, OOP/SOLID responsibilities, dependency direction, and testability. Use when planning or reviewing architecture, deciding where code belongs, introducing a ViewModel/controller/use case/port/adapter, moving code between modules, changing Gradle dependencies, or checking whether an implementation or refactor preserves the core modules.
+description: Protect Golden Diff architecture, module boundaries, MVVM state design, OOP/SOLID responsibilities, dependency direction, TDD, and testability. Use when planning or reviewing architecture, deciding where code belongs, introducing a ViewModel/controller/use case/port/adapter, moving code between modules, changing Gradle dependencies, planning an MVVM migration, or checking whether an implementation or refactor preserves the core modules.
 ---
 
 # Golden Diff architecture
@@ -13,7 +13,8 @@ Use this skill as the mandatory architecture contract for implementation and ref
 2. Read `docs/architecture.md`, `docs/features.md`, and `docs/gotchas.md`.
 3. Read `docs/architecture-guidelines.md` in full.
 4. Read `docs/build-and-run.md`, `docs/roadmap.md`, and `docs/standalone-app-handoff.md` when the task touches build configuration, packaging, compatibility, releases, or the desktop app.
-5. Inspect the current Gradle files and neighboring production/tests. Treat code and build files as the source of truth when documentation is stale; report meaningful drift.
+5. Read `docs/mvvm-refactor-plan.md` in full when planning or executing the shared MVVM migration.
+6. Inspect the current Gradle files and neighboring production/tests. Treat code and build files as the source of truth when documentation is stale; report meaningful drift.
 
 ## Make the architecture decision first
 
@@ -24,6 +25,7 @@ Before editing code:
 3. List inputs, outputs, state, side effects, and platform APIs.
 4. Define the dependency direction and the seam used for I/O or host integration.
 5. Identify behavior and architecture tests that will prevent regression.
+6. Define the first TDD checkpoint: the focused test to add/run and the production change allowed to make it pass.
 
 Do not start implementation while ownership is ambiguous.
 
@@ -48,4 +50,4 @@ Run:
 
 Then run the smallest relevant test suite and expand according to the changed dependency surface. Never run the IntelliJ Plugin Verifier locally.
 
-Reject a change when a forbidden dependency, untested behavior change, mixed responsibility, or unexplained architecture exception remains.
+Reject a change when a forbidden dependency, untested behavior change, skipped TDD checkpoint, mixed responsibility, or unexplained architecture exception remains.

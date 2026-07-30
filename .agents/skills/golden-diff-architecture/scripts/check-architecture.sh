@@ -44,11 +44,11 @@ reject_pattern "$forbidden_plugin_imports" internal-plugin/src/main \
 
 reject_pattern '^[[:space:]]*(api|implementation|runtimeOnly)\(' core/build.gradle.kts \
     ":core gained a packaged production dependency"
-require_pattern 'implementation\(project\(":core"\)\)' public-plugin/build.gradle.kts \
+require_pattern '^[[:space:]]*implementation\(project\(":core"\)\)' public-plugin/build.gradle.kts \
     ":public-plugin must package :core with implementation"
-require_pattern 'compileOnly\(project\(":core"\)\)' internal-plugin/build.gradle.kts \
+require_pattern '^[[:space:]]*compileOnly\(project\(":core"\)\)' internal-plugin/build.gradle.kts \
     ":internal-plugin must see :core through compileOnly"
-require_pattern 'compileOnly\(project\(":core"\)\)' core-ui/build.gradle.kts \
+require_pattern '^[[:space:]]*compileOnly\(project\(":core"\)\)' core-ui/build.gradle.kts \
     ":core-ui must keep its :core dependency compileOnly"
 
 reject_pattern 'project\(":core-ui"\)' public-plugin/build.gradle.kts \

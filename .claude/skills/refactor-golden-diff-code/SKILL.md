@@ -1,6 +1,6 @@
 ---
 name: refactor-golden-diff-code
-description: Refactor Golden Diff Kotlin safely while preserving behavior and improving MVVM, OOP/SOLID responsibilities, testability, concurrency safety, and module purity.
+description: Refactor Golden Diff Kotlin safely with TDD while preserving behavior and improving MVVM, OOP/SOLID responsibilities, testability, concurrency safety, and module purity.
 ---
 
 # Refactor Golden Diff code

@@ -1,8 +1,9 @@
 # Architecture
 
 Kotlin. The comparison logic is a plain JVM library; on top of it sit two Swing-based IntelliJ
-plugins and a standalone Compose desktop application. The hosts share logic through `:core`, but
-intentionally keep separate UI layers. `:core-ui` contains Compose canvases for the app only.
+plugins and a standalone Compose desktop application. The hosts share logic through `:core` and
+cross-host telemetry through `:telemetry`, but intentionally keep separate UI layers. `:core-ui`
+contains Compose canvases for the app only.
 
 For prescriptive ownership, MVVM, SOLID, dependency, and test rules, see
 [Architecture & responsibility guidelines](architecture-guidelines.md).
@@ -13,9 +14,10 @@ For prescriptive ownership, MVVM, SOLID, dependency, and test rules, see
 |---|---|---|
 | `:core` | All tool-agnostic logic: golden matching, git access, pixel diff, merged change scanning, snapshot file index, bulk accept, notification policy, config. | JDK only — **never** IntelliJ, Swing or Compose |
 | `:core-ui` | Compose comparison canvases for the desktop app. Compose is `compileOnly`. | `:core` |
-| `:public-plugin` | Golden Diff — Swing tool window/settings, Kotlin PSI, VCS. | `:core` (`implementation`) |
+| `:telemetry` | Cross-host telemetry model, privacy policy, client, and vendor backends. | JDK, Sentry, Amplitude, JSON — **never** IntelliJ, Swing or Compose |
+| `:public-plugin` | Golden Diff — Swing tool window/settings, Kotlin PSI, VCS. | `:core`, `:telemetry` (`implementation`) |
 | `:internal-plugin` | Golden Diff — Figma. | `:core` (`compileOnly`), `:public-plugin` |
-| `:app` | Standalone desktop app. macOS only for now. | `:core`, `:core-ui` |
+| `:app` | Standalone desktop app. macOS only for now. | `:core`, `:core-ui`, `:telemetry` |
 
 Why `:core` is plain `kotlin-jvm` and not Kotlin Multiplatform: every consumer is a JVM, so KMP would
 only add `expect/actual` ceremony around `File`, `BufferedImage`, `ImageIO` and git without unlocking
