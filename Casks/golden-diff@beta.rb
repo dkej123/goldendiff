@@ -1,6 +1,6 @@
 cask "golden-diff@beta" do
-  version "1.5.0-beta.1"
-  sha256 "73a97ec32978651632992422f92e1d1e9c83c84c89b93dac6639d42291179157"
+  version "1.5.0-beta.14"
+  sha256 "11439025fd3d38118199a58f21bb6948a5e3b6feab8848f203a02d036488c8c5"
 
   url "https://github.com/dkej123/goldendiff/releases/download/app-beta-v#{version}/Golden-Diff-#{version}.dmg"
   name "Golden Diff Beta"
@@ -23,6 +23,6 @@ cask "golden-diff@beta" do
       xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 
     Why this is needed:
-    https://github.com/dkej123/goldendiff/blob/beta/docs/installation.md#install-the-standalone-macos-beta-with-homebrew
+    https://github.com/dkej123/goldendiff/blob/main/docs/installation.md#install-the-standalone-macos-app-with-homebrew
   EOS
 end
