@@ -16,6 +16,8 @@
   stale-source protection, partial-failure reporting, and retry.
 - Automatic PNG watching in both hosts, a headless configuration CLI, guided onboarding, app
   self-update, and privacy-safe opt-in analytics and diagnostics.
+- Version 2.0.0 of the internal Figma add-on, integrated with source-qualified cards in the new
+  project-wide workflow.
 
 ### Changed
 - Working-copy and Test-output screenshots are indexed together. Golden Diff automatically chooses

@@ -59,10 +59,12 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
               <ul>
-              <li>On first run the golden and generated-output directories now default to the project's
-              standard layout (<code>screenshotTests/src/test/screenshots</code> and
-              <code>screenshotTests/build/outputs/roborazzi</code>), so the tool window works without
-              manual setup.</li>
+              <li>Integrates Figma reference cards with Golden Diff 2.0's project-wide Files →
+              Goldens → Compare workflow and stable source-qualified selection.</li>
+              <li>Keeps Figma comparisons review-only while Working-copy and Test-output Accept
+              actions remain isolated to built-in sources.</li>
+              <li>Preserves first-run defaults for the standard screenshot and Roborazzi output
+              directories.</li>
               </ul>
         """.trimIndent()
 
