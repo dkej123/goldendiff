@@ -1,6 +1,6 @@
 ---
 name: refactor-golden-diff-code
-description: Refactor Golden Diff Kotlin code safely while preserving behavior, preventing regressions, improving MVVM boundaries, OOP/SOLID responsibilities, testability, concurrency safety, and Gradle module purity. Use for cleanup, extraction, splitting god classes or state holders, moving code between modules, dependency inversion, presentation-state redesign, or architecture migrations.
+description: Refactor Golden Diff Kotlin code safely with test-driven development while preserving behavior, preventing regressions, and improving MVVM boundaries, OOP/SOLID responsibilities, testability, concurrency safety, and Gradle module purity. Use for cleanup, extraction, splitting god classes or state holders, moving code between modules, dependency inversion, shared presentation-state redesign, or architecture migrations.
 ---
 
 # Refactor Golden Diff code
@@ -12,8 +12,9 @@ Treat refactoring as behavior-preserving unless the user explicitly requests a b
 1. Read `../golden-diff-architecture/SKILL.md` and every project/reference file it requires.
 2. Inspect the complete target, its callers, tests, public/extension contracts, persistence, threading, and build dependencies.
 3. Record observable behavior and invariants: state, ordering, selection, errors, cancellation, identities, side effects, artifact contents, and compatibility.
-4. Run the closest existing tests before editing.
+4. Run the closest existing tests before editing and record the green baseline.
 5. Add characterization tests before moving logic when an important behavior is not covered.
+6. Express characterization through public state, outcomes, and effects so the same scenario can test the new component.
 
 Do not infer correctness from compilation alone.
 
@@ -31,16 +32,22 @@ Name the responsibility problem and desired boundary. Refactor only when it impr
 
 Reject changes motivated only by line count, pattern fashion, package symmetry, speculative reuse, or adding interfaces to make the code look SOLID.
 
-## Refactor in safe stages
+## Use TDD for every migration slice
 
-1. Separate pure calculations/transitions from side effects without changing call sites.
-2. Introduce typed state, intent, result, or a narrow port at the existing seam.
-3. Move one cohesive responsibility and keep adapters at the old boundary temporarily if needed.
-4. Switch callers and tests to the new path.
-5. Remove obsolete delegation, duplicated state, dead abstractions, and compatibility shims that have no consumer.
-6. Run focused tests after every stage that can compile independently.
+Use this loop:
+
+1. **Characterize:** write or select a test that captures the current observable behavior. Run it against the current implementation and confirm it is green.
+2. **Red:** express the same scenario through the intended state/intent/effect or port contract. Run the new target test and confirm it fails for the expected missing behavior. For a mechanical move with no new contract, keep the characterization test green instead of manufacturing a failure.
+3. **Green:** add the smallest new component or delegation needed to satisfy the target contract.
+4. **Parity:** run the same behavior scenarios against the legacy seam and the new seam while both exist. Compare normalized public state/effects, not private fields or call order.
+5. **Refactor:** move one cohesive responsibility, remove duplication, and improve naming while the focused and parity suites stay green.
+6. **Integrate:** switch one caller or one View to the new seam.
+7. **Regression checkpoint:** run the focused tests, the closest module suite, and the architecture check. Do not begin the next slice until they pass.
+8. **Remove legacy:** delete old delegation only after every scenario and affected host test is green on the new path.
 
 Keep behavior changes in a separate edit and test them explicitly.
+
+Prefer a reusable contract test with a fixture/driver factory over copying assertions. During migration, run the contract once against a legacy driver and once against the new shared ViewModel. After cutover, remove the legacy driver but retain the contract suite.
 
 ## MVVM migration rules
 
@@ -51,6 +58,8 @@ Keep behavior changes in a separate edit and test them explicitly.
 - Split a god state holder by cohesive workflow and lifecycle. Keep a small coordinator only when cross-workflow coordination is itself one responsibility.
 - Preserve stable IDs, selection restoration, soft-refresh behavior, and request generations.
 - Do not attempt to share Swing and Compose ViewModels when their lifecycle/presentation semantics differ; share host-neutral models, policies, and use cases.
+- Test shared ViewModels without Compose, Swing, IntelliJ fixtures, real threads, filesystem timing, or network.
+- Test each View separately only for state rendering and intent/effect adaptation.
 
 ## SOLID review
 
@@ -64,7 +73,7 @@ Prefer composition. Avoid base classes, service locators, generic managers, broa
 
 ## Regression gates
 
-1. Run focused characterization/unit tests.
+1. Run the focused characterization, target-contract, and parity tests after every migration slice.
 2. Run `.agents/skills/golden-diff-architecture/scripts/check-architecture.sh`.
 3. Run `:core:test` when shared code/contracts move or change.
 4. Run every affected host/module test suite.

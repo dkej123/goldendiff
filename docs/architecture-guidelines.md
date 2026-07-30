@@ -13,7 +13,7 @@ contract.
 4. MVVM responsibilities
 5. OOP and SOLID rules
 6. Concurrency and state
-7. Tests and regression protection
+7. TDD and regression protection
 8. Decision checklist
 
 ## 1. Architectural goals
@@ -289,7 +289,7 @@ Preserve these project-specific invariants:
 - Resolve generated counterparts through the shared index and keep ambiguity typed.
 - Freeze and validate the generated source identity before Accept writes.
 
-## 7. Tests and regression protection
+## 7. TDD and regression protection
 
 Before implementation or refactoring:
 
@@ -298,12 +298,37 @@ Before implementation or refactoring:
 2. Find existing tests that protect them.
 3. Add characterization tests first when important current behavior is uncovered.
 
+Use a Red-Green-Refactor checkpoint for each observable behavior:
+
+1. **Red:** write a focused test through public state, outcome, or effect and confirm the expected
+   failure.
+2. **Green:** add only enough production code to pass.
+3. **Safety:** rerun the focused test and closest existing regression suite.
+4. **Refactor:** improve the structure without changing behavior.
+5. **Checkpoint:** run the architecture check and record successful commands before taking the next
+   slice.
+
+Behavior-preserving refactors start with a green characterization baseline. When introducing a new
+contract or shared ViewModel, add a target-contract test that is red until the new seam exists. For a
+pure rename or mechanical move, do not invent a meaningless failure: perform one move and immediately
+rerun the characterization suite.
+
+During migration, prefer one reusable behavior-contract suite with two drivers:
+
+- a temporary driver over the legacy controller/state holder;
+- a driver over the new shared implementation.
+
+Run identical scenarios against both and compare normalized public state and effects. Do not compare
+private fields, framework state containers, or incidental collaborator call order. Remove the legacy
+driver after cutover; retain the contract suite permanently against the new implementation.
+
 Test at the cheapest correct layer:
 
 - pure models, policies, reducers/transitions, parsers, matching, and use cases in `:core`;
-- ViewModel/controller transitions without constructing UI widgets;
+- shared ViewModel/controller transitions without Compose, Swing, IntelliJ fixtures, real time, or
+  real I/O;
 - host adapters in their owning module;
-- rendering only where visual/widget behavior is the contract.
+- Views only for state rendering and intent/effect adaptation.
 
 Cover relevant success, empty, invalid, failure, cancellation, retry, ambiguity, stale completion, and
 identity-preservation paths. Use fakes at owned ports. Assert public state and outcomes rather than

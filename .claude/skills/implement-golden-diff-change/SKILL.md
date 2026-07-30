@@ -1,6 +1,6 @@
 ---
 name: implement-golden-diff-change
-description: Implement Golden Diff features and bug fixes with regression tests, MVVM separation, OOP/SOLID design, correct module ownership, safe async state, and proportional verification.
+description: Implement Golden Diff features and bug fixes with TDD, regression tests, MVVM separation, OOP/SOLID design, correct module ownership, safe async state, and proportional verification.
 ---
 
 # Implement a Golden Diff change

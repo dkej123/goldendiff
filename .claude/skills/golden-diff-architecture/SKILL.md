@@ -1,6 +1,6 @@
 ---
 name: golden-diff-architecture
-description: Protect Golden Diff architecture, module boundaries, MVVM state design, OOP/SOLID responsibilities, dependency direction, and testability. Use for architecture planning/review, module placement, dependency changes, ViewModels/controllers/use cases, implementation, and refactoring.
+description: Protect Golden Diff architecture, module boundaries, MVVM state design, OOP/SOLID responsibilities, dependency direction, TDD, and testability. Use for architecture planning/review, module placement, dependency changes, ViewModels/controllers/use cases, implementation, and refactoring.
 ---
 
 # Golden Diff architecture

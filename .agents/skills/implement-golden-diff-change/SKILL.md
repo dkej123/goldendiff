@@ -1,6 +1,6 @@
 ---
 name: implement-golden-diff-change
-description: Implement Golden Diff features and bug fixes with regression tests, MVVM separation, OOP/SOLID design, correct module ownership, safe async state, and proportional verification. Use when adding or changing production behavior in :core, :core-ui, :telemetry, :public-plugin, :internal-plugin, or :app.
+description: Implement Golden Diff features and bug fixes with test-driven development, regression tests, MVVM separation, OOP/SOLID design, correct module ownership, safe async state, and proportional verification. Use when adding or changing production behavior in :core, :core-ui, :telemetry, :public-plugin, :internal-plugin, :app, or a shared presentation module.
 ---
 
 # Implement a Golden Diff change
@@ -25,13 +25,19 @@ description: Implement Golden Diff features and bug fixes with regression tests,
 
 Prefer the smallest complete vertical slice. Avoid opportunistic rewrites outside the behavior being added.
 
-## Build regression protection
+## Work test-first
 
-1. Add a focused failing test for a bug or the smallest behavior test for a feature.
-2. Test pure rules and transitions below the UI toolkit.
-3. Cover relevant success, empty, invalid, failure, cancellation, retry, ambiguity, and stale-result paths.
-4. Add an architecture/artifact assertion when the change affects dependencies, packaging, bytecode, or extension contracts.
-5. Keep tests deterministic: inject clocks/executors/ports, use stable IDs, and avoid timing sleeps.
+Use one Red-Green-Refactor cycle per observable behavior:
+
+1. **Red:** add the smallest test that expresses the requested outcome through a public state, result, or effect. Run it and confirm it fails for the expected reason.
+2. **Green:** implement only enough production code to pass that test.
+3. **Safety:** rerun the focused test plus the closest existing regression suite.
+4. **Refactor:** improve names, responsibilities, and duplication while keeping all tests green.
+5. **Checkpoint:** run the architecture check and record the exact successful commands before starting another behavior.
+
+For a bug, make the test fail because of the original cause. Test pure rules and presentation transitions below the UI toolkit. Cover relevant success, empty, invalid, failure, cancellation, retry, ambiguity, and stale-result paths. Inject clocks/executors/ports, use stable IDs, and avoid timing sleeps.
+
+For a purely mechanical move or rename, do not invent a meaningless red test. Establish a green characterization baseline, perform one mechanical step, and rerun the same tests immediately.
 
 ## Implement
 
@@ -43,7 +49,7 @@ Prefer the smallest complete vertical slice. Avoid opportunistic rewrites outsid
 
 ## Validate
 
-1. Run the closest tests during the edit.
+1. Run the focused test at every Red-Green-Refactor checkpoint.
 2. Run `.agents/skills/golden-diff-architecture/scripts/check-architecture.sh`.
 3. Run `:core:test` for shared logic/contracts and each affected module test suite.
 4. Build and audit plugin ZIPs for build/dependency/public-plugin API changes.
