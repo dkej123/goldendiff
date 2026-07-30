@@ -11,11 +11,35 @@ fail() {
     failures=$((failures + 1))
 }
 
+pattern_exists() {
+    local pattern="$1"
+    local path="$2"
+    if command -v rg >/dev/null 2>&1; then
+        rg --quiet "$pattern" "$path"
+    elif [[ -d "$path" ]]; then
+        grep -ERq "$pattern" "$path"
+    else
+        grep -Eq "$pattern" "$path"
+    fi
+}
+
+print_matches() {
+    local pattern="$1"
+    local path="$2"
+    if command -v rg >/dev/null 2>&1; then
+        rg --line-number "$pattern" "$path"
+    elif [[ -d "$path" ]]; then
+        grep -ERn "$pattern" "$path"
+    else
+        grep -En "$pattern" "$path"
+    fi
+}
+
 require_pattern() {
     local pattern="$1"
     local file="$2"
     local message="$3"
-    if ! rg --quiet "$pattern" "$file"; then
+    if ! pattern_exists "$pattern" "$file"; then
         fail "$message"
     fi
 }
@@ -24,7 +48,7 @@ reject_pattern() {
     local pattern="$1"
     local path="$2"
     local message="$3"
-    if rg --line-number "$pattern" "$path"; then
+    if print_matches "$pattern" "$path"; then
         fail "$message"
     fi
 }
