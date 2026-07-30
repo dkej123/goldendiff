@@ -54,10 +54,12 @@ prerelease suffix. The stable and beta casks conflict because they both install 
 
 ## Plugin status
 
-The public plugin uses the Swing `ScreenshotPanel`, `GoldenCellRenderer`, `CompareView`, four
-comparison panels, single-image panel, zoom controls and the Java tool-window factory. These are thin
-host adapters over `:core` logic. The Figma extension contract and project settings format are
-unchanged.
+The public plugin uses the Swing `RedesignedScreenshotPanel`, `SnapshotFilesPanel`,
+`MergedGoldenCellRenderer`, `CompareView`, four comparison panels, single-image panel, zoom controls
+and the Java tool-window factory. These are thin host adapters over the same `:core` snapshot index,
+projection, merged-source and resolved-Accept contracts used by the standalone app. The Figma
+extension contract and existing project settings format remain compatible; Verify Case is an
+additive persisted field.
 
 Before a release, verify:
 

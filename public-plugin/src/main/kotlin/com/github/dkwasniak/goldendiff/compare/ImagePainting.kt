@@ -35,6 +35,14 @@ object ImagePainting {
     fun centeredRect(imgW: Int, imgH: Int, scale: Double, area: Rectangle): Rectangle =
         ImageLayout.centeredRect(imgW, imgH, scale, area.toLayout()).toAwt()
 
+    /** Plugin redesign geometry: horizontally centered, but pinned to the top of the preview. */
+    fun topCenteredRect(imgW: Int, imgH: Int, scale: Double, area: Rectangle): Rectangle {
+        if (imgW <= 0 || imgH <= 0 || area.width <= 0 || area.height <= 0) return Rectangle()
+        val width = (imgW * scale).toInt().coerceAtLeast(1)
+        val height = (imgH * scale).toInt().coerceAtLeast(1)
+        return Rectangle(area.x + (area.width - width) / 2, area.y, width, height)
+    }
+
     fun fitRect(imgW: Int, imgH: Int, areaW: Int, areaH: Int): Rectangle =
         ImageLayout.fitRect(imgW, imgH, areaW, areaH).toAwt()
 

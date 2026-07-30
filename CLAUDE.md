@@ -80,4 +80,7 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   Kotlin PSI and Git4Idea. Do not add Kotlin Analysis API calls, so K2 support remains valid.
 - After any build, **read the Gradle log for `BUILD SUCCESSFUL/FAILED`** — do not trust a piped exit
   code (see gotchas: `| tail` hides the real status).
+- **Never run the IntelliJ Plugin Verifier (`verifyPlugin`, `runPluginVerifier`, or the verifier
+  CLI) locally.** It resolves many IDE distributions and is intentionally reserved for CI. Use the
+  module tests, `buildPlugin`, ZIP-content audit, and bytecode compatibility tests locally.
 - Commit messages and release notes must not mention AI tools or assistants, including Codex or Claude.

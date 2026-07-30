@@ -1,6 +1,7 @@
 package com.github.dkwasniak.goldendiff.variant
 
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.Disposable
 
 object ExtraComparisonSources {
     // Contributed by dependent plugins (e.g. the internal Figma plugin) through this extension point.
@@ -13,4 +14,8 @@ object ExtraComparisonSources {
     // declared dynamic), so each read queries the point.
     val all: List<ExtraComparisonSource>
         get() = EP.extensionList
+
+    fun addChangeListener(parentDisposable: Disposable, listener: () -> Unit) {
+        EP.addChangeListener(Runnable(listener), parentDisposable)
+    }
 }

@@ -13,6 +13,7 @@ class FigmaImageSourceTest {
     fun `figma source exposes its identity and bundled first-run defaults`() {
         val source = FigmaImageSource()
         assertEquals("figma", source.id)
+        assertTrue("Figma filter mark should be packaged", source.filterIcon.iconWidth > 0)
         val defaults = source.firstRunDefaults()
         assertTrue("defaults resource should be on the classpath", defaults != null)
         assertTrue(defaults!!.goldenPaths.isNotEmpty())

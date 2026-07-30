@@ -36,25 +36,26 @@ validation requires every supplied source to match at least one golden. Director
 must be requested explicitly with `--directories-only`.
 
 ## Generated test output directories
-> *Fresh screenshots produced by verification tests; used only when Compare is set to Test output.*
+> *Fresh screenshots produced by verification tests and merged automatically with Working copy.*
 
 The folders your screenshot tool writes freshly generated images to (for example Roborazzi `_actual`
-outputs). Only used when **Compare:** is set to **Test output**.
+outputs). A changed/new Test output is displayed automatically; otherwise comparison uses Working
+copy. There is no manual source selector.
 
 **Default:** empty.
 
 ## Generated output filename regex
-> *Used only after you select a golden and choose Compare: Test output. The first capture group must be
-> the matching golden basename.*
+> *Maps Test output to its golden. The first capture group must be the matching golden basename.*
 
 Maps a generated file back to its golden. The **first capture group** is treated as the golden’s base
 name. For example, `^(.+)_actual\.png$` maps `LoginScreen_actual.png` to the golden `LoginScreen.png`.
 
 **Default:** `^(.+)_actual\.png$`
 
-This regex is **not** part of golden-list matching; it only maps a selected golden to its generated
-counterpart in *Test output* mode. The default appears as an actual editable value, not grey
-placeholder text.
+This regex is **not** part of golden-list matching; it only maps a golden to its Test-output variant.
+The default appears as an actual editable value, not grey placeholder text. When multiple generated
+files remain equally valid, the item is reported as **Ambiguous Test output** and Compare/Accept are
+blocked until configuration removes the ambiguity.
 
 ## Golden matching mode
 > *Match goldens either by the name of annotated screenshot functions, or by a file/class regex.*
@@ -118,5 +119,25 @@ editor to preview matches.”*).
 
 ![The live preview panel](images/settings-live-preview.png)
 <!-- TODO(screenshot): the Preview (live) panel showing a match count and a list of matched golden paths -->
+
+## Commands
+
+All five screenshot commands are optional, framework-agnostic shell strings:
+
+- **Generate all goldens**
+- **Generate selected View**
+- **Verify all goldens**
+- **Verify selected View**
+- **Verify selected Case**
+
+The whole-project commands do not expand placeholders. View commands support `{file_name}`,
+`{class_name}`, and `{file_path}` for the visible View. Case commands additionally support
+`{snapshot_file_name}`, `{snapshot_class_name}`, `{snapshot_file_path}`, and
+`{snapshot_method_name}` for the generator and method. If Verify Case is blank, Golden Diff uses the
+Verify View command for that Case's generator. View batches deduplicate identical expanded commands,
+run sequentially in one log, continue after ordinary test failures, and can be stopped.
+
+The plugin does not expose the standalone-only command `JAVA_HOME` override: plugin commands run
+inside the IDE through the platform shell and Run tool window.
 
 **Next:** [Matching goldens](matching.md) · [Troubleshooting & FAQ](troubleshooting.md)

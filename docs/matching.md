@@ -112,9 +112,9 @@ auth_login_.*\.png
 
 Matches `auth_login_empty_state.png`, `auth_login_dark_mode.png`.
 
-## Standalone view and snapshot-case tree
+## View and snapshot-case tree
 
-The standalone app preserves the matcher above for source-to-golden coverage, then adds a
+Both the plugin and standalone app preserve the matcher above for source-to-golden coverage, then add a
 function-level evidence pass using the same whole-word/camel-case boundaries as annotated-method
 matching. It recognizes annotated Kotlin functions, conventional Swift `test…` functions, and the
 generic functions/tests/stories already extracted for other languages.
@@ -130,8 +130,8 @@ best parent, so matching coverage is not reduced.
 
 The matching above controls which committed golden files appear in the list.
 
-The **Generated output filename regex** setting is different. It is used only after you select a golden
-and choose **Compare: Test output**. Its job is to map the selected golden to a generated screenshot,
+The **Generated output filename regex** setting is different. It maps each golden to a generated
+Test-output screenshot,
 for example:
 
 ```text
@@ -139,6 +139,11 @@ for example:
 ```
 
 This maps `LoginScreen_actual.png` back to `LoginScreen.png`.
+
+Generated roots are indexed once per refresh. Matching prefers the same relative directory as the
+golden; an unresolved tie is reported as **Ambiguous Test output** instead of picking the first file.
+Working copy and Test output stay as independent variants on one golden row. A changed/new Test output
+is compared automatically; otherwise Working copy is used.
 
 ## Troubleshooting
 

@@ -13,15 +13,17 @@ Declining the first-run prompt keeps both choices off.
 ## What product analytics contains
 
 If enabled, Golden Diff sends coarse events about the features used and how long operations take.
-Examples include the selected comparison mode, whether a scan found zero or several items, and a
-bucketed comparison-load duration. Events include a random installation ID, a random ID valid only
-for the current session, the Golden Diff version, release channel, operating-system family and major
-version, and JVM major version. The IDE plugin also sends only the IDE family and build baseline
-(for example, `android_studio` and `241`).
+Examples include the selected comparison mode, whether a scan found zero or several items, a
+bucketed comparison-load duration, and bucketed Generate/Verify or Accept outcomes. Command text,
+snapshot names and exact item counts are never included. Events include a random installation ID, a
+random ID valid only for the current session, the Golden Diff version, release channel,
+operating-system family and major version, and JVM major version. The IDE plugin also sends only the
+IDE family and build baseline (for example, `android_studio` and `241`).
 
 Product events never contain project names, file or directory names, paths, class or method names,
-source code, image dimensions, image data, clipboard contents, or identifiers from optional
-comparison-source extensions.
+command text, source code, image dimensions, image data, clipboard contents, or identifiers from
+optional comparison-source extensions. Selecting an optional extension card does not count as a
+Golden Diff comparison or activation event.
 
 ## What diagnostic reporting contains
 

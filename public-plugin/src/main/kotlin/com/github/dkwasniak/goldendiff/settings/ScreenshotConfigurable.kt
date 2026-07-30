@@ -77,10 +77,11 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         margin = JBUI.insets(4, 6)
     }
     private val excludedSuffixesField = singleLineField()
-    private val generateAllCommandField = singleLineField()
-    private val generateFileCommandField = singleLineField()
-    private val verifyAllCommandField = singleLineField()
-    private val verifyFileCommandField = singleLineField()
+    private val generateAllCommandField = singleLineField().apply { name = "generateAllCommandField" }
+    private val generateFileCommandField = singleLineField().apply { name = "generateViewCommandField" }
+    private val verifyAllCommandField = singleLineField().apply { name = "verifyAllCommandField" }
+    private val verifyFileCommandField = singleLineField().apply { name = "verifyViewCommandField" }
+    private val verifyCaseCommandField = singleLineField().apply { name = "verifyCaseCommandField" }
     private val trimTransparentPaddingCheckbox =
         JCheckBox("Trim transparent padding around image content")
     private val notifyWhenTasksFinishCheckbox = JCheckBox("Notify when tasks finish")
@@ -662,7 +663,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
             add(
                 labelBlock(
                     "Generated output filename regex:",
-                    "Used only after you select a golden and choose Compare: Test output. The first capture group must be the matching golden basename.",
+                    "Maps a golden to its Test output. The first capture group must be the matching golden basename.",
                 ),
                 BorderLayout.NORTH,
             )
@@ -768,34 +769,88 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         }
 
     private fun commandsSection(): JPanel {
-        val placeholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+        val viewPlaceholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+            .take(3)
             .joinToString("  ·  ") { (token, meaning) -> "$token = $meaning" }
-        fun commandBlock(title: String, description: String, field: JTextField): JPanel =
-            JPanel(BorderLayout()).apply {
-                maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(80))
-                add(labelBlock(title, description), BorderLayout.NORTH)
-                add(field, BorderLayout.CENTER)
+        val casePlaceholders = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+            .drop(3)
+            .joinToString("  ·  ") { (token, meaning) -> "$token = $meaning" }
+        val viewPlaceholderTokens = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+            .take(3)
+            .joinToString(", ") { it.first }
+        val casePlaceholderTokens = com.github.dkwasniak.goldendiff.command.CommandTemplate.PLACEHOLDERS
+            .drop(3)
+            .joinToString(", ") { it.first }
+        fun commandBlock(title: String, description: String, field: JTextField): JPanel {
+            val fieldHeight = field.preferredSize.height.coerceAtLeast(JBUI.scale(28))
+            field.alignmentX = Component.LEFT_ALIGNMENT
+            field.minimumSize = Dimension(JBUI.scale(120), fieldHeight)
+            field.preferredSize = Dimension(JBUI.scale(520), fieldHeight)
+            field.maximumSize = Dimension(Int.MAX_VALUE, fieldHeight)
+            return JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                alignmentX = Component.LEFT_ALIGNMENT
+                add(labelBlock(title, description))
+                add(field)
+                maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
             }
+        }
         return JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(
                 labelBlock(
                     "Screenshot test commands (optional):",
-                    "Shell commands run from the tool window. Leave blank to hide a button. The " +
-                        "\"current file\" commands may use placeholders: $placeholders.",
+                    "Shell commands run from the tool window. Leave blank to hide the corresponding action.",
                 ),
             )
+            generateAllCommandField.toolTipText = "Whole-project command; placeholders are not expanded."
+            verifyAllCommandField.toolTipText = "Whole-project command; placeholders are not expanded."
             generateFileCommandField.toolTipText =
-                "Example (Roborazzi): ./gradlew :screenshots:recordRoborazziDebug --tests '*{file_name}Kt*'"
+                "Current file placeholders: $viewPlaceholders"
             verifyFileCommandField.toolTipText =
-                "Example (iOS): xcodebuild test -scheme UnitTests -only-testing:SnapshotTests/{class_name}"
-            add(commandBlock("Generate all goldens:", "Run for the whole project.", generateAllCommandField))
+                "Current file placeholders: $viewPlaceholders"
+            verifyCaseCommandField.toolTipText =
+                "Current case placeholders: $casePlaceholders"
+            add(
+                commandBlock(
+                    "Generate all goldens:",
+                    "Run for the whole project. Placeholders are not expanded.",
+                    generateAllCommandField,
+                ),
+            )
             add(spacer())
-            add(commandBlock("Generate for current file:", "Regenerate only the open file's goldens.", generateFileCommandField))
+            add(
+                commandBlock(
+                    "Generate for current file:",
+                    "Regenerate only the current file's goldens. File placeholders: $viewPlaceholderTokens.",
+                    generateFileCommandField,
+                ),
+            )
             add(spacer())
-            add(commandBlock("Verify all goldens:", "Run for the whole project.", verifyAllCommandField))
+            add(
+                commandBlock(
+                    "Verify all goldens:",
+                    "Run for the whole project. Placeholders are not expanded.",
+                    verifyAllCommandField,
+                ),
+            )
             add(spacer())
-            add(commandBlock("Verify current file:", "Verify only the open file's goldens.", verifyFileCommandField))
+            add(
+                commandBlock(
+                    "Verify current file:",
+                    "Verify only the current file's goldens. File placeholders: $viewPlaceholderTokens.",
+                    verifyFileCommandField,
+                ),
+            )
+            add(spacer())
+            add(
+                commandBlock(
+                    "Verify current case:",
+                    "Optional method/preview command. Leave blank to use Verify current file for its generator. " +
+                        "Case placeholders: $casePlaceholderTokens.",
+                    verifyCaseCommandField,
+                ),
+            )
         }
     }
 
@@ -869,6 +924,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
             generateFileCommandField.text != settings.generateFileCommand ||
             verifyAllCommandField.text != settings.verifyAllCommand ||
             verifyFileCommandField.text != settings.verifyFileCommand ||
+            verifyCaseCommandField.text != settings.verifyCaseCommand ||
             notifyWhenTasksFinishCheckbox.isSelected != settings.notifyWhenTasksFinish ||
             trimTransparentPaddingCheckbox.isSelected != settings.trimTransparentPadding ||
             analyticsCheckbox.isSelected != PluginTelemetrySettings.getInstance().analyticsEnabled ||
@@ -925,6 +981,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         settings.generateFileCommand = generateFileCommandField.text.trim()
         settings.verifyAllCommand = verifyAllCommandField.text.trim()
         settings.verifyFileCommand = verifyFileCommandField.text.trim()
+        settings.verifyCaseCommand = verifyCaseCommandField.text.trim()
         settings.notifyWhenTasksFinish = notifyWhenTasksFinishCheckbox.isSelected
         settings.trimTransparentPadding = trimTransparentPaddingCheckbox.isSelected
         val telemetrySettings = PluginTelemetrySettings.getInstance()
@@ -978,6 +1035,7 @@ class ScreenshotConfigurable(private val project: Project) : Configurable, Confi
         generateFileCommandField.text = settings.generateFileCommand
         verifyAllCommandField.text = settings.verifyAllCommand
         verifyFileCommandField.text = settings.verifyFileCommand
+        verifyCaseCommandField.text = settings.verifyCaseCommand
         notifyWhenTasksFinishCheckbox.isSelected = settings.notifyWhenTasksFinish
         directoryRegexField.text = ""
         trimTransparentPaddingCheckbox.isSelected = settings.trimTransparentPadding

@@ -1,16 +1,13 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.intellij.icons.AllIcons
-import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.ui.MessageType
-import com.intellij.openapi.ui.popup.Balloon
-import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.github.dkwasniak.goldendiff.toolwindow.AcceptActionButton
+import com.github.dkwasniak.goldendiff.toolwindow.FlatHeaderButton
 import com.intellij.ui.JBColor
-import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
+import java.awt.BasicStroke
 import java.awt.CardLayout
 import java.awt.Container
 import java.awt.Dimension
@@ -18,7 +15,7 @@ import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.datatransfer.StringSelection
+import java.awt.RenderingHints
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.image.BufferedImage
@@ -26,25 +23,23 @@ import java.awt.Color
 import javax.swing.BorderFactory
 import javax.swing.BoxLayout
 import javax.swing.ButtonGroup
-import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
-import javax.swing.JScrollPane
-import javax.swing.JTextArea
 import javax.swing.SwingConstants
 import javax.swing.Timer
 import javax.swing.JToggleButton
-import kotlin.math.ceil
+import javax.swing.Icon
 
 /** Hosts the three comparison modes plus a single-image view, the mode switcher and a zoom control. */
 class CompareView(
     private val onModeSelected: (String) -> Unit = {},
     private val onZoomSelected: (String, String) -> Unit = { _, _ -> },
-    private val onCopyPath: () -> Unit = {},
     private val onAccept: () -> Unit = {},
+    private val onOpenSeparate: (() -> Unit)? = null,
 ) : JPanel(BorderLayout()) {
 
+    private val mirrors = linkedSetOf<CompareView>()
     private val cardLayout = CardLayout()
     private val cards = JPanel(cardLayout)
 
@@ -56,12 +51,18 @@ class CompareView(
 
     private val modeButtons = mutableListOf<JToggleButton>()
     private val acceptedGreen = JBColor(Color(0x2E7D32), Color(0x6FBF73))
-    private val acceptButton = JButton("Accept").apply {
+    private val acceptPink = JBColor(Color(0xD72F72), Color(0xE7468A))
+    private val acceptButton = AcceptActionButton(
+        "\u2713 Accept test output",
+        acceptPink,
+        pill = false,
+    ).apply {
         toolTipText = "Accept test output as the golden"
         isVisible = false
         addActionListener { onAccept() }
     }
     private val acceptedLabel = JBLabel("\u2713 Accepted").apply {
+        font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
         foreground = acceptedGreen
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(acceptedGreen),
@@ -69,37 +70,47 @@ class CompareView(
         )
         isVisible = false
     }
-    private var titleText: String? = null
-    // A JTextArea (not a JLabel) because file names are single long tokens without spaces, which the
-    // Swing HTML/CSS renderer refuses to break; a char-wrapping text area wraps them reliably.
-    private val titleArea = WrapLabel()
-    private val copyTitleButton = JButton(AllIcons.Actions.Copy).apply {
-        toolTipText = "Copy file name"
-        isFocusable = false
-        margin = JBUI.insets(2)
-        addActionListener {
-            titleText?.let {
-                onCopyPath()
-                CopyPasteManager.getInstance().setContents(StringSelection(it))
-                showCopiedBalloon(this)
-            }
+    private val openSeparateButton = onOpenSeparate?.let { action ->
+        FlatHeaderButton("", CompareExpandIcon, height = 22, horizontalPadding = 3).apply {
+            toolTipText = "Open comparison in a separate window"
+            accessibleContext.accessibleName = toolTipText
+            preferredSize = Dimension(JBUI.scale(22), JBUI.scale(22))
+            minimumSize = preferredSize
+            maximumSize = preferredSize
+            addActionListener { action() }
         }
     }
-    private val titleBar = JPanel(BorderLayout()).apply {
-        add(titleArea, BorderLayout.CENTER)
-        // Keep the button pinned to the top so it stays put when the file name wraps to several lines.
-        add(
-            JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(copyTitleButton, BorderLayout.NORTH)
-            },
-            BorderLayout.EAST,
-        )
+    private var titleText: String? = null
+    private val titleArea = JBLabel().apply {
+        border = JBUI.Borders.empty(4, 6, 2, 0)
+        font = Font(Font.MONOSPACED, Font.BOLD, 11)
+    }
+    private val acceptActions = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+        isOpaque = false
+        add(acceptButton)
+        add(acceptedLabel)
+        openSeparateButton?.let(::add)
+    }
+    private val titleActions = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        add(acceptActions, BorderLayout.EAST)
+    }
+    private val titleBar = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(4, 4, 4, 6)
+        titleArea.alignmentX = LEFT_ALIGNMENT
+        titleActions.alignmentX = LEFT_ALIGNMENT
+        add(titleArea)
+        add(titleActions)
         isVisible = false
     }
-    private val status = JBLabel().apply { border = JBUI.Borders.empty(4) }
+    private val status = JBLabel().apply {
+        font = UIUtil.getLabelFont().deriveFont(10f)
+        border = JBUI.Borders.empty(4)
+    }
     private var retryAction: (() -> Unit)? = null
     private val retryButton = JButton("Retry").apply {
+        font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
         border = JBUI.Borders.empty(2, 8)
         isVisible = false
         addActionListener { retryAction?.invoke() }
@@ -109,28 +120,48 @@ class CompareView(
         add(retryButton, BorderLayout.EAST)
     }
     private val zoomLabel = JBLabel().apply {
-        border = JBUI.Borders.empty(6, 0)
+        font = UIUtil.getLabelFont().deriveFont(9f)
         horizontalAlignment = SwingConstants.CENTER
-        alignmentX = CENTER_ALIGNMENT
-        preferredSize = Dimension(JBUI.scale(40), JBUI.scale(28))
+        foreground = UIUtil.getContextHelpForeground()
+        preferredSize = Dimension(JBUI.scale(26), JBUI.scale(18))
         minimumSize = preferredSize
         maximumSize = preferredSize
     }
-    private val zoomOutButton = createZoomButton("-", ZoomIcon(false)).apply {
+    private val zoomOutButton = createZoomButton("\u2212").apply {
         toolTipText = "Zoom out"
         addActionListener { changeZoom(-1) }
     }
-    private val zoomInButton = createZoomButton("+", ZoomIcon(true)).apply {
+    private val zoomInButton = createZoomButton("+").apply {
         toolTipText = "Zoom in"
         addActionListener { changeZoom(1) }
     }
-    private val zoomOverlay = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(2)
-        isOpaque = false
-        add(zoomInButton)
+    private val fitButton = FlatHeaderButton("Fit", height = 18, horizontalPadding = 1).apply {
+        toolTipText = "Fit images to the available area"
+        isFocusable = false
+        val compactSize = Dimension(
+            getFontMetrics(font).stringWidth(text) + JBUI.scale(6),
+            JBUI.scale(18),
+        )
+        preferredSize = compactSize
+        minimumSize = compactSize
+        maximumSize = compactSize
+        addActionListener {
+            currentZoom = ImagePainting.FIT
+            pendingZoomAction = "fit"
+            zoomTelemetryTimer.restart()
+            applyZoom(currentZoom)
+        }
+    }
+    private val zoomOverlay = RoundedZoomPanel().apply {
+        add(fitButton)
         add(zoomOutButton)
         add(zoomLabel)
+        add(zoomInButton)
+    }
+    private val zoomBar = JPanel(BorderLayout()).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(6, 12)
+        add(zoomOverlay, BorderLayout.EAST)
     }
 
     private var selectedMode = MODE_TWO_UP
@@ -160,8 +191,15 @@ class CompareView(
             },
             BorderLayout.NORTH,
         )
-        add(BottomRightOverlayPanel(cards, zoomOverlay), BorderLayout.CENTER)
-        add(statusBar, BorderLayout.SOUTH)
+        add(cards, BorderLayout.CENTER)
+        add(
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(zoomBar, BorderLayout.NORTH)
+                add(statusBar, BorderLayout.SOUTH)
+            },
+            BorderLayout.SOUTH,
+        )
 
         cardLayout.show(cards, MODE_SINGLE)
         setModeButtonsVisible(false)
@@ -180,48 +218,7 @@ class CompareView(
         titleArea.toolTipText = titleText
         titleBar.isVisible = titleText != null
         titleBar.revalidate()
-    }
-
-    private fun showCopiedBalloon(target: JComponent) {
-        JBPopupFactory.getInstance()
-            .createHtmlTextBalloonBuilder("Copied to clipboard", MessageType.INFO, null)
-            .setFadeoutTime(1500)
-            .createBalloon()
-            .show(RelativePoint.getCenterOf(target), Balloon.Position.above)
-    }
-
-    /** Read-only, transparent, char-wrapping text area that behaves like a multi-line label. */
-    private class WrapLabel : JTextArea() {
-        init {
-            isEditable = false
-            isFocusable = false
-            isOpaque = false
-            lineWrap = true
-            // Word wrapping would not break a space-less file name; character wrapping does.
-            wrapStyleWord = false
-            border = JBUI.Borders.empty(4, 6, 2, 0)
-            font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
-            foreground = UIUtil.getLabelForeground()
-            // BorderLayout asks for the preferred height before the real width is known; once the width
-            // is applied a revalidate makes the parent re-measure the now-correct wrapped height.
-            addComponentListener(
-                object : ComponentAdapter() {
-                    override fun componentResized(e: ComponentEvent) = revalidate()
-                },
-            )
-        }
-
-        override fun getPreferredSize(): Dimension {
-            val base = super.getPreferredSize()
-            val currentWidth = width
-            if (currentWidth <= 0 || document.length == 0) return base
-            return try {
-                val end = modelToView2D(document.length)
-                Dimension(currentWidth, ceil(end.maxY).toInt() + insets.bottom)
-            } catch (e: Exception) {
-                base
-            }
-        }
+        mirrors.forEach { it.setTitle(text) }
     }
 
     fun showComparison(
@@ -245,6 +242,7 @@ class CompareView(
         setModeButtonsVisible(true)
         cardLayout.show(cards, selectedMode)
         updateZoomControls()
+        mirrors.forEach { it.showComparison(old, new, statusText, oldLabel, newLabel) }
     }
 
     fun showSingle(image: BufferedImage?, statusText: String) {
@@ -256,6 +254,31 @@ class CompareView(
         setModeButtonsVisible(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
+        mirrors.forEach { it.showSingle(image, statusText) }
+    }
+
+    fun showLoading(statusText: String) {
+        showSingle(null, statusText)
+    }
+
+    /** A non-comparable state such as an absent or ambiguous Test output. */
+    fun showBlocked(
+        title: String,
+        body: String,
+        actionLabel: String? = null,
+        action: (() -> Unit)? = null,
+    ) {
+        single.setImage(null)
+        single.setZoom(currentZoom)
+        status.text = "<html><b>$title</b><br>${body.replace("\n", "<br>")}</html>"
+        retryAction = action
+        retryButton.text = actionLabel.orEmpty()
+        retryButton.isVisible = action != null && !actionLabel.isNullOrBlank()
+        hideAcceptState()
+        setModeButtonsVisible(false)
+        cardLayout.show(cards, MODE_SINGLE)
+        updateZoomControls()
+        mirrors.forEach { it.showBlocked(title, body, actionLabel, action) }
     }
 
     /** Show an error message with a retry button — used when a reference could not be loaded. */
@@ -270,6 +293,7 @@ class CompareView(
         setModeButtonsVisible(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
+        mirrors.forEach { it.showRetry(statusText, retryLabel, action) }
     }
 
     private fun hideRetry() {
@@ -280,9 +304,10 @@ class CompareView(
     /** Shows the generated-output promotion next to the comparison mode controls. */
     fun showAccept(enabled: Boolean = true) {
         acceptedLabel.isVisible = false
-        acceptButton.text = "Accept"
+        acceptButton.text = "\u2713 Accept test output"
         acceptButton.isEnabled = enabled
         acceptButton.isVisible = true
+        mirrors.forEach { it.showAccept(enabled) }
     }
 
     /** Keeps the preview stable while the file move and decode happen off the EDT. */
@@ -291,6 +316,7 @@ class CompareView(
         acceptButton.text = "Accepting\u2026"
         acceptButton.isEnabled = false
         acceptButton.isVisible = true
+        mirrors.forEach { it.showAccepting() }
     }
 
     /** Replaces the comparison with the promoted image and a persistent confirmation state. */
@@ -298,6 +324,20 @@ class CompareView(
         showSingle(image, statusText)
         acceptButton.isVisible = false
         acceptedLabel.isVisible = true
+        mirrors.forEach {
+            it.acceptButton.isVisible = false
+            it.acceptedLabel.isVisible = true
+        }
+    }
+
+    /** Keeps a detached comparison rendering in sync while preserving its independent mode/zoom. */
+    fun addMirror(view: CompareView) {
+        require(view !== this)
+        mirrors += view
+    }
+
+    fun removeMirror(view: CompareView) {
+        mirrors -= view
     }
 
     private fun hideAcceptState() {
@@ -320,6 +360,8 @@ class CompareView(
 
         fun modeButton(title: String, mode: String): JToggleButton =
             JToggleButton(title).apply {
+                font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
+                margin = JBUI.insets(3, 7)
                 isSelected = mode == selectedMode
                 addActionListener {
                     selectedMode = mode
@@ -342,9 +384,7 @@ class CompareView(
         modeButton("Side by side", MODE_TWO_UP)
         modeButton("Swipe", MODE_SWIPE)
         modeButton("Onion skin", MODE_ONION)
-        modeButton("Diff", MODE_DIFF)
-        toolbar.add(acceptButton)
-        toolbar.add(acceptedLabel)
+        modeButton("Pixel diff", MODE_DIFF)
         return toolbar
     }
 
@@ -380,13 +420,12 @@ class CompareView(
             else -> single.effectiveZoom()
         }
 
-    private fun createZoomButton(accessibleName: String, icon: Icon): JButton =
-        JButton(icon).apply {
+    private fun createZoomButton(text: String): JButton =
+        FlatHeaderButton(text, height = 18, horizontalPadding = 3).apply {
+            val accessibleName = if (text == "+") "Zoom in" else "Zoom out"
             accessibleContext.accessibleName = accessibleName
             isFocusable = false
-            alignmentX = CENTER_ALIGNMENT
-            margin = JBUI.insets(0)
-            preferredSize = Dimension(JBUI.scale(32), JBUI.scale(32))
+            preferredSize = Dimension(JBUI.scale(18), JBUI.scale(18))
             minimumSize = preferredSize
             maximumSize = preferredSize
         }
@@ -402,87 +441,61 @@ class CompareView(
     }
 }
 
-private class ZoomIcon(
-    private val isPlus: Boolean,
-) : Icon {
-    private val size = JBUI.scale(16)
+/** The same opposite-corner arrows used by the standalone app for detached comparison. */
+private object CompareExpandIcon : Icon {
+    override fun getIconWidth(): Int = JBUI.scale(14)
 
-    override fun getIconWidth(): Int = size
+    override fun getIconHeight(): Int = JBUI.scale(14)
 
-    override fun getIconHeight(): Int = size
-
-    override fun paintIcon(c: java.awt.Component?, g: Graphics, x: Int, y: Int) {
-        val g2 = g.create() as Graphics2D
+    override fun paintIcon(component: java.awt.Component?, graphics: Graphics, x: Int, y: Int) {
+        val g = graphics.create() as Graphics2D
         try {
-            g2.color = if (c?.isEnabled == false) {
-                JBUI.CurrentTheme.Label.disabledForeground()
-            } else {
-                JBUI.CurrentTheme.Label.foreground()
-            }
-            val centerX = x + iconWidth / 2
-            val centerY = y + iconHeight / 2
-            val half = JBUI.scale(5)
-            g2.drawLine(centerX - half, centerY, centerX + half, centerY)
-            if (isPlus) {
-                g2.drawLine(centerX, centerY - half, centerX, centerY + half)
-            }
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g.color = UIUtil.getContextHelpForeground()
+            g.stroke = BasicStroke(JBUI.scale(1).toFloat())
+            val inset = JBUI.scale(2)
+            val length = JBUI.scale(4)
+            val right = x + iconWidth - inset
+            val bottom = y + iconHeight - inset
+            val left = x + inset
+            val top = y + inset
+            g.drawLine(left, top + length, left, top)
+            g.drawLine(left, top, left + length, top)
+            g.drawLine(right, bottom - length, right, bottom)
+            g.drawLine(right, bottom, right - length, bottom)
         } finally {
-            g2.dispose()
+            g.dispose()
         }
     }
 }
 
-private class BottomRightOverlayPanel(
-    private val content: JComponent,
-    private val overlay: JComponent,
-) : JPanel(null) {
+private class RoundedZoomPanel : JPanel(
+    FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0),
+) {
     init {
-        add(content)
-        add(overlay)
-        setComponentZOrder(overlay, 0)
         isOpaque = false
-        content.addComponentListener(
-            object : ComponentAdapter() {
-                override fun componentResized(e: ComponentEvent) = positionOverlay()
-                override fun componentMoved(e: ComponentEvent) = positionOverlay()
-            },
-        )
-        attachScrollListeners(content)
+        border = JBUI.Borders.empty(3, 4)
     }
 
-    override fun doLayout() {
-        content.setBounds(0, 0, width, height)
-        positionOverlay()
-    }
-
-    private fun positionOverlay() {
-        val overlaySize = overlay.preferredSize
-        val margin = JBUI.scale(12)
-        overlay.setBounds(
-            (width - overlaySize.width - margin).coerceAtLeast(margin),
-            (height - overlaySize.height - margin).coerceAtLeast(margin),
-            overlaySize.width,
-            overlaySize.height,
-        )
-        overlay.repaint()
-    }
-
-    private fun attachScrollListeners(component: java.awt.Component) {
-        if (component is JScrollPane) {
-            component.horizontalScrollBar.addAdjustmentListener { positionOverlay() }
-            component.verticalScrollBar.addAdjustmentListener { positionOverlay() }
-            component.viewport.addChangeListener { positionOverlay() }
+    override fun paintComponent(graphics: Graphics) {
+        val g = graphics.create() as Graphics2D
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val arc = JBUI.scale(10)
+            g.color = SurfaceColor
+            g.fillRoundRect(0, 0, width, height, arc, arc)
+            g.color = BorderColor
+            g.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+        } finally {
+            g.dispose()
         }
-        if (component is Container) {
-            for (index in 0 until component.componentCount) {
-                attachScrollListeners(component.getComponent(index))
-            }
-        }
+        super.paintComponent(graphics)
     }
 
-    override fun getPreferredSize(): Dimension = content.preferredSize
-
-    override fun getMinimumSize(): Dimension = content.minimumSize
+    private companion object {
+        val SurfaceColor = JBColor(Color(0xF2F3F5), Color(0x2B2D30))
+        val BorderColor = JBColor(Color(0xE1E3E8), Color(0x3A3C3F))
+    }
 }
 
 private class WrapLayout(

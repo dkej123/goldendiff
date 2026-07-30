@@ -6,6 +6,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.image.BufferedImage
 import javax.swing.JPanel
 
@@ -40,7 +41,16 @@ class SingleImagePanel : JPanel(BorderLayout()) {
             super.paintComponent(g)
             val img = image ?: return
             val g2 = g as Graphics2D
-            val rect = ImagePainting.renderRect(zoom, img.width, img.height, width, height)
+            val inset = JBUI.scale(14)
+            val area = Rectangle(inset, inset, width - inset * 2, height - inset * 2)
+            val scale = ImagePainting.scaleForBounding(
+                zoom,
+                img.width,
+                img.height,
+                area.width,
+                area.height,
+            )
+            val rect = ImagePainting.centeredRect(img.width, img.height, scale, area)
             ImagePainting.paintCheckerboard(g2, rect)
             ImagePainting.drawImage(g2, img, rect)
         }

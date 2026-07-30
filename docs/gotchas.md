@@ -104,9 +104,14 @@ available in 241 (`ToolWindowFactory`, `DiffProvider`, `ByteBackedContentRevisio
 `FileChooserDescriptorFactory`, PSI). Do not introduce platform-bundled Compose/Jewel modules or
 branch-specific APIs without revisiting the compatibility promise for both plugins.
 
-## Plugin Verifier must stay clean
+## Never run Plugin Verifier locally
 The public plugin supports the open-ended 241+ platform range, so compatibility and platform API
-findings are release blockers. In particular:
+findings are release blockers. The full verifier is intentionally a CI-only operation: **never run
+`verifyPlugin`, `runPluginVerifier`, or the verifier CLI locally**. It resolves many complete IDE
+distributions and is not part of the local development or handoff gate. Locally use module tests,
+`buildPlugin`, ZIP-content audit, and the bytecode compatibility test.
+
+The compatibility constraints that the CI verifier protects include:
 - Keep suspend `ProjectActivity.execute()` implementations free of suspension points. Kotlin 2.2
   otherwise emits coroutine state-machine references such as `SpillingKt`, which are absent from the
   Kotlin runtime bundled with 241–243. Schedule blocking work on `AppExecutorUtil` instead.
@@ -120,12 +125,12 @@ findings are release blockers. In particular:
   the deprecated Kotlin `runReadAction` helper.
 
 The verifier CLI is pinned to `1.405` in `build.gradle.kts` (`intellijPlatform { pluginVerifier(...) }`)
-so the `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as Marketplace
-moves to newer verifier versions. Run the full verifier in GitHub Actions; locally, the bytecode
-compatibility test guards the exact runtime/API regressions that previously broke 241–243.
+so the CI `Verify Plugin` workflow reproduces the same report Marketplace produced. Bump it as
+Marketplace moves to newer verifier versions. Locally, the bytecode compatibility test guards the
+exact runtime/API regressions that previously broke 241–243.
 
 ## Screenshot-test commands run in the platform shell
-The four Generate/Verify commands are **user-supplied shell strings**, run at the project root through
+The five Generate/Verify commands are **user-supplied shell strings**, run at the project root through
 the platform shell: `/bin/bash -lc "<cmd>"` on macOS/Linux, `cmd /c "<cmd>"` on Windows (`CommandShell`
 in `:core`). `-l` loads the login profile so `PATH` and SDK/version managers match the user's own
 terminal — a bare shell often cannot find `./gradlew`'s JDK or `xcodebuild`. Nothing is hardcoded per
@@ -141,3 +146,29 @@ generated roots must refresh the affected `MergedGoldenItem` and snapshot-file f
 when the currently displayed local variant is Working copy. Filtering generated events by the active
 variant leaves stale Failed badges. Structural events still use a soft rescan so the existing list and
 selection remain visible until replacement state is ready.
+
+## Plugin Files/Goldens state uses stable ids, not Swing rows
+The plugin's project-wide Files tree is a rendering of `SnapshotFileIndex.projectTree()`.
+`PluginSnapshotController` stores normalized View paths, Case ids, and golden paths; it must never
+retain `TreePath`, list index, or component instances. Every async index/comparison request carries a
+generation and stale results are discarded. This preserves selection while a soft refresh keeps the
+previous tree visible.
+
+Editor synchronization listens only to file/tab selection. Do not add a caret listener. When
+search/filters hide the active View, preserve them and surface Reveal rather than silently clearing
+the user's constraints.
+
+The Files `TreeCellRenderer` must not call `JTree.getRowBounds()` (or another API that asks the tree
+layout for node dimensions) from `getTreeCellRendererComponent`. IntelliJ computes those bounds by
+invoking the renderer, which causes unbounded recursion on the EDT and leaves the tool-window body
+blank. Size renderer rows from the tree viewport/visible rectangle and the configured row height.
+
+## Generated counterpart resolution is indexed and can be ambiguous
+`GeneratedCounterpartIndex` walks each distinct generated root once per scanner, then resolves all
+goldens from memory. Do not reintroduce `walkTopDown()` per golden in status, Compare, or Accept code.
+Resolution is typed: Missing, Exact, or Ambiguous. Same-relative-directory and directory-suffix
+ranking may narrow collisions, but a remaining tie must stay Ambiguous and block Compare/Accept.
+
+Accept never resolves by basename at click time. The controller freezes the exact generated path plus
+size/mtime/SHA-256 identity shown to the user; `GoldenAccept.acceptResolved` validates it before
+writing. Keep the legacy lookup-based API only for backwards compatibility with existing hosts.

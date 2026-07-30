@@ -54,7 +54,7 @@ Configure the command templates so the tool-window Generate/Verify buttons work.
 run through the normal test flow, so **Verify** is just running the tests; scope a single file with
 `-only-testing:<Target>/<Class>`.
 
-The standalone method tree can scope a separate generator file and method. When test target names are
+The Files → View → Case tree can scope a separate generator file and method in both hosts. When test target names are
 encoded by the first segment after `Tests/`, derive the target from `{snapshot_file_path}` and use:
 
 ```bash
@@ -105,7 +105,7 @@ uses them in its non-interactive test setup, or after the user reports the corre
 failure for dependencies they trust. Confirm the installed Xcode supports each proposed flag with the
 read-only `xcodebuild -help`.
 
-When needed, add the applicable flag(s) consistently to **all four** Generate/Verify templates, for
+When needed, add the applicable flag(s) consistently to **all five** Generate/Verify templates, for
 example:
 ```
 xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<device>,OS=<runtime>" -skipPackagePluginValidation -skipMacroValidation
@@ -138,10 +138,11 @@ recording environment variable. If the project already has a reliable `xcodebuil
 that command and prefix it with the same `TEST_RUNNER_…` variables rather than inventing another test
 invocation. Do not run either command during automated configuration.
 
-Before saving, audit the four commands together:
+Before saving, audit the five commands together:
 
-- all four use the user-confirmed scheme and exact destination from `xcodebuild -showdestinations`;
-- all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS` to the directory configured by `--generated-dir`;
+- all five use the user-confirmed scheme and exact destination from `xcodebuild -showdestinations`;
+- all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS` for the project/View Generate and Verify commands;
+  Verify Case sets the same directory too;
 - only Generate All/File set `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`;
 - only Generate File/Verify File use `-only-testing:` for file scope;
 - only per-file/per-case commands use `-only-testing`; a case ends in
@@ -155,6 +156,6 @@ Run `Golden Diff show --json` after configuring and repeat this audit against th
 ## Verify
 Do not change a view or run a writing snapshot test as part of automated configuration. Tell the user
 that they can later change a view so a snapshot differs, run its snapshot test, and confirm files
-appear at `<dir>/<TestClass>/<name>.png`. They can then open the source in GoldenDiff and switch the
-compare source to "generated". If files land in `…/CoreSimulator/…/tmp/…` instead, the env var did not
+appear at `<dir>/<TestClass>/<name>.png`. They can then open the source in GoldenDiff; changed Test
+output is selected automatically. If files land in `…/CoreSimulator/…/tmp/…` instead, the env var did not
 reach the runner — recheck the `TEST_RUNNER_` prefix.

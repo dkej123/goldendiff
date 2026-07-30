@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.scan
 
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
 import com.github.dkwasniak.goldendiff.compare.HeadBytesSource
 import com.github.dkwasniak.goldendiff.git.GitChange
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
@@ -8,6 +9,7 @@ import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -32,6 +34,15 @@ class ChangeScannerTest {
             parentFile.mkdirs()
             writeBytes(bytes)
         }
+
+    private fun git(vararg args: String) {
+        val process = ProcessBuilder(listOf("git", *args))
+            .directory(root)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        check(process.waitFor() == 0) { "git ${args.joinToString(" ")} failed: $output" }
+    }
 
     private fun scanner(
         head: Map<File, ByteArray> = emptyMap(),
@@ -113,6 +124,35 @@ class ChangeScannerTest {
     }
 
     @Test
+    fun `canonical Git scanner gives tracked clean modified and new goldens their real status`() {
+        val tracked = golden("Tracked.png", byteArrayOf(1, 2))
+        git("init", "-q")
+        git("add", ".")
+        git("-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-qm", "golden")
+        val fresh = golden("Fresh.png", byteArrayOf(5))
+        val scanner = ChangeScanner.forGitProject(
+            root,
+            GoldenDiffConfig(goldenPaths = listOf("goldens")),
+        )
+
+        assertEquals(
+            ExtraComparisonItemStatus.UNCHANGED,
+            scanner.mergedItemsFor(listOf(tracked)).single().workingCopy?.status,
+        )
+
+        tracked.writeBytes(byteArrayOf(9))
+
+        assertEquals(
+            ExtraComparisonItemStatus.MODIFIED,
+            scanner.mergedItemsFor(listOf(tracked)).single().workingCopy?.status,
+        )
+        assertEquals(
+            ExtraComparisonItemStatus.NEW,
+            scanner.mergedItemsFor(listOf(fresh)).single().workingCopy?.status,
+        )
+    }
+
+    @Test
     fun `generated changes compare test output against HEAD, not against the working copy`() {
         val golden = golden("LoginScreen.png", byteArrayOf(1))
         File(root, "out").mkdirs()
@@ -175,6 +215,32 @@ class ChangeScannerTest {
 
         assertNull(item.testOutput)
         assertEquals(MergedGoldenStatus.UNCHANGED, item.displayStatus)
+    }
+
+    @Test
+    fun `ambiguous generated counterparts are retained but never selected`() {
+        val golden = golden("Login.png", byteArrayOf(1))
+        File(root, "out/a").mkdirs()
+        File(root, "out/z").mkdirs()
+        val first = File(root, "out/a/Login_actual.png").apply { writeBytes(byteArrayOf(2)) }
+        val second = File(root, "out/z/Login_actual.png").apply { writeBytes(byteArrayOf(3)) }
+        val scanner = scanner(
+            head = mapOf(golden.normalize() to byteArrayOf(1)),
+            config = GoldenDiffConfig(goldenPaths = listOf("goldens"), generatedPaths = listOf("out")),
+        )
+
+        val current = scanner.mergedItemsFor(listOf(golden)).single()
+        val project = scanner.mergedChanges().single()
+
+        assertNull(current.testOutput)
+        assertEquals(
+            listOf(first, second),
+            (current.testOutputResolution as GeneratedCounterpartResolution.Ambiguous).candidates,
+        )
+        assertNull(project.testOutput)
+        assertTrue(project.testOutputResolution is GeneratedCounterpartResolution.Ambiguous)
+        assertEquals(emptyList<String>(), scanner.generatedChanges().map { it.title })
+        assertEquals(ExtraComparisonItemStatus.UNCHANGED, scanner.statusOf(golden, BuiltInSource.GENERATED))
     }
 
     @Test

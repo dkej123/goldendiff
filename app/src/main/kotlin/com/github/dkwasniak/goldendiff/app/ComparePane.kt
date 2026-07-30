@@ -1,6 +1,5 @@
 package com.github.dkwasniak.goldendiff.app
 
-import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Slider
 import androidx.compose.material.SliderDefaults
 import androidx.compose.material.Text
@@ -58,12 +57,10 @@ import com.github.dkwasniak.goldendiff.app.ui.EmptyState
 import com.github.dkwasniak.goldendiff.app.ui.ExpandIcon
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
 import com.github.dkwasniak.goldendiff.app.ui.IconButton
-import com.github.dkwasniak.goldendiff.app.ui.PlayIcon
 import com.github.dkwasniak.goldendiff.app.ui.Pane
 import com.github.dkwasniak.goldendiff.app.ui.Segment
 import com.github.dkwasniak.goldendiff.app.ui.StatusDot
 import com.github.dkwasniak.goldendiff.app.ui.Type
-import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.compare.ImageLayout
@@ -97,134 +94,55 @@ private fun firstZoomIndexAbove(scale: Double): Int {
     return ZoomSteps.lastIndex
 }
 
-/** Right pane: the selected golden's HEAD-vs-working-copy comparison. */
+/** Right pane: the selected golden's HEAD-vs-automatically-selected-source comparison. */
 @Composable
 fun ComparePane(state: AppState, modifier: Modifier) {
     val selected = state.selected
     Pane(modifier) {
-        WrappingPaneHeader(
-            minHeight = 40.dp,
-            horizontalPadding = 14.dp,
-            verticalPadding = 7.dp,
-            spacing = 10.dp,
-            leading = {
-                Text(
-                    selected?.let { shortGoldenName(it.name) } ?: "Compare",
-                    color = tokens.text,
-                    fontSize = Type.panelTitle,
-                    fontFamily = if (selected != null) Type.Mono else null,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            },
-            actions = {
-                val merged = state.selectedMergedItem
-                if (merged?.workingCopy != null && merged.testOutput != null) {
-                    Segment(
-                        sourceLabel(BuiltInSource.GENERATED),
-                        state.selectedSource == BuiltInSource.GENERATED,
-                    ) {
-                        state.selectGoldenSource(BuiltInSource.GENERATED)
-                    }
-                    Segment(
-                        sourceLabel(BuiltInSource.WORKING_COPY),
-                        state.selectedSource == BuiltInSource.WORKING_COPY,
-                    ) {
-                        state.selectGoldenSource(BuiltInSource.WORKING_COPY)
-                    }
-                }
-                // Per-file Generate/Verify for the open golden — run the command scoped to this one
-                // file without leaving the compare view.
-                if (selected != null) {
-                    PerFileCommandButton(state, AppState.CommandKind.GENERATE)
-                    PerFileCommandButton(state, AppState.CommandKind.VERIFY)
-                }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 40.dp)
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                selected?.let { shortGoldenName(it.name) } ?: "Compare",
+                color = tokens.text,
+                fontSize = Type.panelTitle,
+                fontFamily = if (selected != null) Type.Mono else null,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected != null) {
                 // Accept only makes sense for verify output: it promotes the generated image onto
                 // the golden. Generation writes the golden directly, so it is not offered there.
-                if (selected != null && state.acceptedGoldens.contains(selected.absolutePath)) {
+                if (state.acceptedGoldens.contains(selected.absolutePath)) {
                     AcceptedLabel()
                 } else if (
-                    selected != null &&
                     state.selectedSource == BuiltInSource.GENERATED &&
-                    state.comparison?.hasDiff == true
+                    state.selectedMergedItem?.hasAcceptableTestOutput == true
                 ) {
                     AcceptButton(enabled = !state.commandRunning) { state.acceptGenerated(selected) }
                 }
-                if (selected != null) {
-                    IconButton(size = 26.dp, onClick = {
-                        state.featureUsed("detached_comparison")
-                        state.compareWindowVisible = true
-                    }) {
-                        ExpandIcon(tokens.textDim)
-                    }
-                    IconButton(size = 26.dp, onClick = {
-                        state.featureUsed("copy_path")
-                        copyToClipboard(selected.absolutePath)
-                    }) {
-                        CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
-                    }
+                IconButton(size = 26.dp, onClick = {
+                    state.featureUsed("detached_comparison")
+                    state.compareWindowVisible = true
+                }) {
+                    ExpandIcon(tokens.textDim)
                 }
-            },
-        )
+                IconButton(size = 26.dp, onClick = {
+                    state.featureUsed("copy_path")
+                    copyToClipboard(selected.absolutePath)
+                }) {
+                    CopyIcon(back = tokens.textFaint, front = tokens.textDim, fill = tokens.panel)
+                }
+            }
+        }
         HairLine()
         CompareContent(state, Modifier.weight(1f))
     }
-}
-
-/**
- * A 26×26 icon-only button that runs Generate/Verify scoped to the open file. Shares the whole-project
- * pair's running/disabled/mutual-exclusion states: only one command runs at a time, so while any runs
- * the others dim and go inert, and clicking the running one opens the log rather than relaunching.
- */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun PerFileCommandButton(state: AppState, kind: AppState.CommandKind) {
-    val hasCmd = state.hasCommand(kind, perFile = true)
-    val hasFile = state.selectedSourcePath != null
-    val running = state.commandRunning && state.commandKind == kind && state.commandPerFile
-    val otherRunning = state.commandRunning && !running
-    val disabled = !hasCmd || !hasFile
-    val inert = disabled || otherRunning
-
-    val fg = when {
-        running -> tokens.accent
-        inert -> tokens.textFaint
-        else -> tokens.textDim
-    }
-    val alpha = when {
-        disabled -> 0.4f
-        otherRunning -> 0.45f
-        else -> 1f
-    }
-    val tip = when {
-        !hasCmd -> "Set a ${kind.label} command in Settings → Commands."
-        !hasFile -> "Open a file to run ${kind.label} for it."
-        running -> "Running — click to view the log."
-        otherRunning -> "A screenshot command is already running."
-        else -> "${kind.label} for the current file"
-    }
-    val shape = RoundedCornerShape(Dimens.controlRadius)
-    val button = @Composable {
-        Box(
-            Modifier.size(26.dp).clip(shape)
-                .background(if (running) tokens.accentBg else Color.Transparent)
-                .border(1.dp, if (running) tokens.accentBorder else tokens.border, shape)
-                .hoverWash(enabled = running || !inert, shape = shape)
-                .clickable(enabled = running || !inert) {
-                    if (running) state.commandLogVisible = true else state.runCommand(kind, perFile = true)
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                running -> CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.6.dp)
-                kind == AppState.CommandKind.GENERATE -> PlayIcon(fg.copy(alpha = alpha))
-                else -> CheckIcon(if (inert) fg.copy(alpha = alpha) else tokens.new)
-            }
-        }
-    }
-    TooltipArea(tooltip = { TipBubble(tip) }) { button() }
 }
 
 /** The confirmation that replaces [AcceptButton] once the open golden has been accepted. */
@@ -313,7 +231,7 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
         } else if (comparison?.accepted == true) {
             AcceptedBanner()
         } else if (comparison?.identical == true) {
-            UnchangedBanner()
+            UnchangedBanner(state.selectedSource)
         }
 
         if (comparison?.hasDiff == true && mode == CompareMode.ONION) {
@@ -341,9 +259,10 @@ fun CompareContent(state: AppState, modifier: Modifier, location: String = "main
                     EmptyState("Loading…", "Reading ${selected.name} from Git HEAD.", compact = true)
                 }
                 comparison.missingCounterpart -> Centered {
+                    val source = sourceLabel(state.selectedSource).lowercase()
                     EmptyState(
-                        "No working copy match",
-                        "This golden has no corresponding ${sourceLabel(state.source).lowercase()} screenshot yet.",
+                        "No $source match",
+                        "This golden has no corresponding $source screenshot yet.",
                         compact = true,
                     )
                 }
@@ -427,7 +346,7 @@ private fun DiffBody(
     }
 }
 
-/** The "HEAD" / "Working copy" captions that sit above whichever canvas is showing. */
+/** The "HEAD" / selected-source captions that sit above whichever canvas is showing. */
 @Composable
 private fun SideLabels(comparison: AppState.Comparison, mode: CompareMode, newLabel: String) {
     val style: @Composable (String, Modifier) -> Unit = { text, modifier ->
@@ -453,7 +372,7 @@ private fun SideLabels(comparison: AppState.Comparison, mode: CompareMode, newLa
 }
 
 @Composable
-private fun UnchangedBanner() {
+private fun UnchangedBanner(source: BuiltInSource) {
     Row(
         Modifier.fillMaxWidth().background(tokens.panelHeader).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -461,7 +380,7 @@ private fun UnchangedBanner() {
     ) {
         StatusDot(tokens.textFaint)
         Text(
-            "Unchanged — identical to Git HEAD, no working copy diff to show",
+            "Unchanged — identical to Git HEAD, no ${sourceLabel(source).lowercase()} diff to show",
             color = tokens.textDim,
             fontSize = 11.5.sp,
         )

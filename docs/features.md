@@ -1,28 +1,26 @@
 # Features & behavior
 
 ## Tool window
-Right-anchored, id "Golden Diff". Left: header + golden list. Right: the comparison viewer.
+The plugin is a snapshot-aware **Files → Goldens → Compare** workflow. There is no global Scope or
+Working/Test selector.
 
-## Scope (current file ↔ whole project)
-A **Scope** control in the header chooses what the list contains:
-- **Current file** (default) — goldens matched against the Kotlin file open in the editor (see below).
-- **Project changes** — every changed golden in the configured directories, regardless of the open file.
-  Only changed items are listed (unchanged ones are dropped), sorted MODIFIED first, then NEW, then by
-  path.
-  - **Working copy** source: the changed set and its per-item status come straight from
-    `git status --porcelain=v1 -z` — untracked/added/renamed/copied paths are **New**, everything else
-    that differs is **Changed**. No per-file HEAD read is needed to classify them.
-  - **Test output** source: goldens are matched to generated files by base name (the generated tree is
-    indexed once), and each golden's status is computed by comparing its HEAD bytes with the generated
-    output; these HEAD reads run in parallel.
-  Variant-provided (extra) comparison sources are not available in this scope; selecting one falls back
-  to Working copy.
+- **Files** is a project-wide Folder → View → Snapshot case tree. Opening or switching editor tabs
+  selects and reveals the corresponding View. Moving the caret in the same file does nothing.
+- **Goldens** shows every golden associated with the selected View or Case once, with independent
+  Working-copy and Test-output status chips.
+- **Compare** derives the displayed source automatically and preserves mode/zoom while selection and
+  layout change. Its opposite-corner action opens a modeless, resizable comparison window that
+  follows the live golden selection while keeping its own comparison mode and zoom.
 
-### Standalone snapshot navigation
-The standalone Files pane indexes only views that current matching rules associate with at least one
-existing golden. It projects **Folder → View file → Snapshot case**. A case is an annotated preview,
-test method, or supported story/function whose name matches one or more goldens. View rows start
-collapsed; goldens without function-level evidence remain on the view row.
+At wide widths Files is a full-width strip above Goldens | Compare. At medium widths it opens from a
+Files rail beside the resizable Goldens | Compare split. Below 320 px the three panes become
+single-pane tabs; selecting a View/Case advances to Goldens and selecting a golden advances to Compare.
+Selection and comparison state survive width-class changes.
+
+## Files, search, and status filters
+The Files index contains only Views associated with at least one existing golden. A Case is an
+annotated preview, test method, or supported story/function whose name matches one or more goldens.
+Goldens without function-level evidence remain directly on the View row.
 
 Search covers the view path, generator path, and case name and reveals matching descendants.
 The **Failed**, **Modified**, and **New** status filters are combined with OR and match every status
@@ -36,6 +34,12 @@ changes remain Modified or New. Folder counters count failed views rather than m
 Selecting a source file loads its goldens. Selecting a golden loads its comparison without opening a
 new tab; it also highlights the owning source file in the Files pane, expands the grouped tree when
 needed, and scrolls that row into view.
+
+If search or filters hide the active editor View, the constraints remain intact and an
+**Active file hidden by filters / Reveal \<View\>** banner appears. Reveal clears only those
+constraints and reselects the active View. Initial indexing keeps the previous usable tree visible;
+true-empty, no-search-results, no-filter-results and active-file-without-snapshots have distinct
+states.
 
 ## Matching goldens to the current file
 - Refresh is triggered by **file selection changes only** (not caret moves), debounced ~300 ms.
@@ -76,26 +80,29 @@ needed, and scrolls that row into view.
 - See [the matching guide](matching.md) for end-user configuration examples.
 
 ## Comparison source (git HEAD ↔ working copy / test output)
-For the selected golden, `GitImageSource` loads the committed version (VCS `DiffProvider` current
-revision). In the plugin, the global "Compare" switch chooses the right side. In the standalone app,
-Working copy and Test output are scanned together and one golden carries both variants; a local
-Test/Working switch appears only when both exist, defaulting to Test output.
+For the selected golden, both the plugin and standalone app load the committed version through the
+same `GitCli` mechanism used to assign statuses. Working copy and Test output are scanned together and
+one golden carries both variants. The source is
+selected automatically from the merged status: a changed or new Test output (**Failed**) is compared
+with HEAD; **Modified**, **New**, and **Unchanged** goldens use Working copy. If that preferred variant
+is absent, the only available variant is shown.
 
 - **Working copy** — the selected golden file on disk.
 - **Test output** — a generated screenshot from configured output directories. Matching first tries
   the same relative directory as the golden, then falls back to all files under the configured output
-  roots. Generated files are filtered by a configurable regex. The default is
+  roots. Generated roots are indexed once per refresh. A basename/path tie is reported as
+  **Ambiguous Test output** and blocks Compare/Accept rather than selecting an arbitrary file.
+  Generated files are filtered by a configurable regex. The default is
   `^(.+)_actual\.png$`, so `_actual` files are selected and `_compare` files are ignored. The first
   capture group is treated as the golden base name (`Foo_actual.png` → `Foo.png`).
 
 The generated-file regex is not part of the current-file → golden-list matching. The list always comes
 from golden filenames matched against names extracted from the current Kotlin file. The regex is used
-only after the user selects a golden and chooses **Test output**, to find that golden's generated
-counterpart.
+after the user selects a golden to find its generated counterpart.
 
 - **Bytes equal** (no change vs HEAD) → single preview, status "No changes vs HEAD — <file>"; the mode
   toggle is hidden.
-- **Differ** → the three modes are shown.
+- **Differ** → all four modes are shown.
 - New file (not in HEAD), missing working copy, missing generated output or missing generated-output
   configuration → single preview with an explanatory status.
 
@@ -110,8 +117,8 @@ counterpart.
   "% pixels changed" readout. When both images exist but have different dimensions, both are
   downscaled to the smaller shared size before diffing so size-only differences do not dominate the
   heatmap. Areas present in only one image count as changed when there is no counterpart image.
-- **Zoom** combo (always visible): `Fit / 50% / 75% / 100% / 150% / 200% / 400%`. Applies to all modes
-  and the single view; zoomed-in content scrolls. Zoom level persists across files and modes.
+- **Fit / − / % / +** zoom controls below the canvas apply to all modes and the single view;
+  zoomed-in content scrolls. Zoom level persists across files and modes.
 
 ## Running tests & accepting goldens
 Beyond comparing, Golden Diff can **run the screenshot tests** and **accept generated output** — both
@@ -120,16 +127,15 @@ driven entirely by user configuration, with nothing framework-specific baked in.
 ### Configurable commands
 Settings → Golden Diff → Commands holds five optional, free-form shell commands, stored per project:
 - **Generate all goldens** — regenerate every golden for the project.
-- **Generate for current file** — regenerate goldens for the file open in the editor (plugin) / selected
-  in the app.
+- **Generate selected View** — regenerate goldens for the selected View.
 - **Verify all goldens** — run the whole verify/compare pass, producing test output.
-- **Verify current file** — verify just the current file.
-- **Verify current case** *(standalone app)* — verify one snapshot method/preview. When blank, the app
-  falls back to Verify current file for that case's generator and labels the broader scope.
+- **Verify selected View** — verify the View's unique generators as a sequential, deduplicated batch.
+- **Verify selected Case** — verify one snapshot method/preview. When blank, both hosts fall back to
+  Verify selected View for that Case's generator and label the broader scope.
 
 Any command left blank disables its corresponding button; hovering the disabled button shows a tooltip
-explaining how to enable it (fill the command in Settings). The two **current file** commands may use
-placeholders that are expanded from the active file before the command runs:
+explaining how to enable it (fill the command in Settings). View/Case commands may use placeholders
+expanded from the selected View and generator before the command runs:
 - `{file_name}` — the file's base name.
 - `{class_name}` — the file's declared class name.
 - `{file_path}` — the full path to the file.
@@ -153,8 +159,8 @@ the relevant caches and rescan. The onboarding walkthrough additionally advances
 completed by the CLI.
 
 ### Generate / Verify buttons
-The tool window (plugin) and toolbar (app) gain **Generate** and **Verify** buttons. Each offers
-*Whole project* / *Current file*, mapped to the matching configured command.
+The tool window (plugin) and toolbar (app) expose whole-project Generate/Verify in the main header and
+View/Case-scoped actions in the Goldens header.
 
 Where the live output appears differs by host:
 - **Plugin** — the command runs through IntelliJ's own execution layer, so its output streams into the
@@ -164,7 +170,7 @@ Where the live output appears differs by host:
   diagnostics window).
 
 After a run the golden list auto-refreshes. The standalone app refreshes both built-in variants after
-Verify; it does not perform a global source switch.
+Verify and automatically displays Test output when the refreshed result is **Failed**.
 
 ### Accepting generated output
 An **Accept** action promotes a generated screenshot to its committed golden. It **moves** the generated
@@ -172,14 +178,15 @@ file onto the golden: it writes the generated bytes to the golden path, takes th
 deletes the leftover generated file. After Accept the list and preview refresh so the accepted change no
 longer shows as changed.
 
-Accept is only offered while viewing the **Test output** source (verify output such as Roborazzi's
-`_actual` files). Generation frameworks overwrite the golden directly, so there is nothing to promote in
-that case.
+Accept is only offered for an automatically selected, differing **Test output** source (verify output
+such as Roborazzi's `_actual` files). Generation frameworks overwrite the golden directly, so there is
+nothing to promote in that case. After Accept consumes the Test output, the status and comparison
+automatically return to Working copy.
 
-In the standalone Current file scope, **Accept all (N)** promotes every differing Test output
-associated with the selected source file, independent of grid selection or filters. It confirms the
-destructive operation, reports progress, continues through per-file failures, and can retry only the
-unresolved subset. It is absent from Project changes.
+**Accept all (N)** is View-scoped in both hosts and promotes every differing Test output associated
+with that View, independent of selected Case, golden, search, or filters. It confirms the operation,
+reports progress, continues through per-file failures, and retains the unresolved retry subset. There
+is no project-wide Accept all.
 
 ### Completion notifications
 Both hosts persist a default-on **Notify when tasks finish** setting. A notification is eligible only
@@ -219,3 +226,17 @@ open-project requirement.
 Nothing is Roborazzi-specific except the default `_compare`/`_actual` exclusion (harmless for other
 tools). Works with Paparazzi, Compose Preview Screenshot Testing, Shot, etc. — as long as goldens are
 PNGs committed to git and can be matched by the configured annotation and filename patterns.
+
+## Optional comparison extensions
+
+A dependent plugin may contribute reference cards through `ExtraComparisonSource`. Those cards are
+shown in the same Goldens grid as Working/Test-backed goldens for the active View. Selecting a Case
+limits extension cards to the matching function. A source-provided filter chip appears only when the
+current View or Case contains extension cards; it is off by default and, when enabled, shows only
+those cards. Leaving that scope hides and resets the filter.
+
+The internal Figma extension contributes its five-colour mark and lists
+`figma-compose-preview` functions. A missing cached reference remains visible as a
+“Loading Figma…” card. Selecting it uses the existing download/cache flow and compares
+`Figma ↔ Current Implementation`; failures offer Retry. Figma cards are review-only, so Accept and
+Accept all continue to operate exclusively on generated Test output.
