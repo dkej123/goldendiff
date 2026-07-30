@@ -57,6 +57,8 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
 
 ## Before you touch anything, read
 - [docs/architecture.md](docs/architecture.md) — modules, data flow, key classes.
+- [docs/architecture-guidelines.md](docs/architecture-guidelines.md) — ownership, MVVM, SOLID,
+  dependency rules, and regression gates.
 - [docs/build-and-run.md](docs/build-and-run.md) — build/run details, platform compatibility.
 - [docs/features.md](docs/features.md) — exact behavior (matching, compare modes, zoom, test output).
 - [docs/gotchas.md](docs/gotchas.md) — non-obvious traps. **Read this before build changes.**

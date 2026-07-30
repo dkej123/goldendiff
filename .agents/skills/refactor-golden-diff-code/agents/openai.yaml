@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refactor Golden Diff Code"
+  short_description: "Refactor safely with SOLID and regression gates"
+  default_prompt: "Use $refactor-golden-diff-code to refactor this code safely and preserve behavior."
