@@ -61,6 +61,8 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   dependency rules, and regression gates.
 - [docs/mvvm-refactor-plan.md](docs/mvvm-refactor-plan.md) — target shared-presentation architecture
   and incremental TDD migration plan; read when working on the MVVM refactor.
+- [docs/mvvm-behavior-matrix.md](docs/mvvm-behavior-matrix.md) — observable behavior and invariant
+  inventory that every MVVM migration slice must preserve and test.
 - [docs/build-and-run.md](docs/build-and-run.md) — build/run details, platform compatibility.
 - [docs/features.md](docs/features.md) — exact behavior (matching, compare modes, zoom, test output).
 - [docs/gotchas.md](docs/gotchas.md) — non-obvious traps. **Read this before build changes.**

@@ -65,6 +65,13 @@ app -> core
 app -> telemetry
 ```
 
+Target direction during the MVVM migration:
+
+```text
+public-plugin -> presentation -> core
+app ----------> presentation -> core
+```
+
 Do not force identical presentation architecture onto Swing and Compose. Share models, policies, use
 cases, and semantic contracts when both hosts need them; keep lifecycle, scheduling, effects, and
 rendering host-specific.
@@ -95,6 +102,27 @@ Swing widgets are not.
 Keep production dependencies limited to JDK APIs plus `compileOnly(kotlin("stdlib"))`. Tests may use
 JUnit. When a new external library appears necessary, first check whether the JDK or existing code is
 sufficient; otherwise place it in the outermost module that needs it.
+
+### `:presentation` (MVVM migration target)
+
+Owns:
+
+- shared immutable feature state, intents, effects, and deterministic transitions;
+- framework-neutral feature ViewModels for workflows that are semantically identical in both hosts;
+- presentation policies, request identities, lifecycle rules, and capability-sized ports;
+- reusable behavior-contract and invariant tests.
+
+Must not own:
+
+- Compose, Swing, IntelliJ, Skiko, Jewel, coroutines runtime, vendor SDK, or operating-system types;
+- PSI, VFS, WatchService, process execution, notifications delivery, settings persistence, or window
+  lifecycle;
+- app-only updater/onboarding state or plugin-only editor lifecycle;
+- domain policy that belongs in `:core`.
+
+Keep `:core` and Kotlin stdlib `compileOnly`, emit Java 17 bytecode, and let `:public-plugin` and
+`:app` package/provide the module. Apply the runtime and TDD contracts from
+`docs/mvvm-refactor-plan.md`.
 
 ### `:core-ui`
 
@@ -132,7 +160,7 @@ contract.
 Owns:
 
 - Swing Views and IntelliJ tool-window/settings integration;
-- plugin ViewModels or presentation controllers;
+- host adapters and plugin-only shell/lifecycle controllers;
 - PSI, VFS, Run tool window, project settings, and EDT/background adapters;
 - the public `comparisonSource` extension seam.
 
@@ -165,7 +193,8 @@ classloader.
 
 Owns:
 
-- Compose desktop Views and app presentation state;
+- Compose desktop Views and adaptation of shared presentation state/effects;
+- app-only shell state that has no plugin equivalent;
 - app lifecycle, settings persistence, CLI, WatchService, and macOS adapters;
 - composition-root wiring and the Compose runtime.
 
@@ -289,6 +318,19 @@ Preserve these project-specific invariants:
 - Resolve generated counterparts through the shared index and keep ambiguity typed.
 - Freeze and validate the generated source identity before Accept writes.
 
+For shared ViewModels:
+
+- process intents through one serialized queue and queue reentrant dispatch instead of recursing;
+- mutate state only while reducing an intent or a typed async-result intent;
+- publish the new state before an effect caused by the same transition;
+- attach request identity/generation to async results and ignore results after cancellation or close;
+- make `close()` idempotent and prevent every later state/effect publication;
+- keep recoverable interactions such as confirmation/progress in state;
+- use non-replayed, ID-bearing effects only for transient host UI actions;
+- perform durable side effects through injected ports and return their typed outcome as an intent.
+
+The complete runtime contract is defined in `docs/mvvm-refactor-plan.md`.
+
 ## 7. TDD and regression protection
 
 Before implementation or refactoring:
@@ -321,6 +363,10 @@ During migration, prefer one reusable behavior-contract suite with two drivers:
 Run identical scenarios against both and compare normalized public state and effects. Do not compare
 private fields, framework state containers, or incidental collaborator call order. Remove the legacy
 driver after cutover; retain the contract suite permanently against the new implementation.
+
+Use `docs/mvvm-behavior-matrix.md` as the regression inventory. Every migration slice must name its
+behavior IDs and replace legacy evidence with permanent shared-contract and host-adapter evidence
+before deleting the old path.
 
 Test at the cheapest correct layer:
 

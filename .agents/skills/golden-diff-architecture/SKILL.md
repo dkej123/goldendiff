@@ -13,7 +13,7 @@ Use this skill as the mandatory architecture contract for implementation and ref
 2. Read `docs/architecture.md`, `docs/features.md`, and `docs/gotchas.md`.
 3. Read `docs/architecture-guidelines.md` in full.
 4. Read `docs/build-and-run.md`, `docs/roadmap.md`, and `docs/standalone-app-handoff.md` when the task touches build configuration, packaging, compatibility, releases, or the desktop app.
-5. Read `docs/mvvm-refactor-plan.md` in full when planning or executing the shared MVVM migration.
+5. Read `docs/mvvm-refactor-plan.md` and `docs/mvvm-behavior-matrix.md` in full when planning or executing the shared MVVM migration.
 6. Inspect the current Gradle files and neighboring production/tests. Treat code and build files as the source of truth when documentation is stale; report meaningful drift.
 
 ## Make the architecture decision first
@@ -26,6 +26,7 @@ Before editing code:
 4. Define the dependency direction and the seam used for I/O or host integration.
 5. Identify behavior and architecture tests that will prevent regression.
 6. Define the first TDD checkpoint: the focused test to add/run and the production change allowed to make it pass.
+7. For MVVM migration work, name the behavior-matrix IDs covered by the slice and update their evidence before completing it.
 
 Do not start implementation while ownership is ambiguous.
 
