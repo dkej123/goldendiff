@@ -4,6 +4,9 @@ Kotlin. The comparison logic is a plain JVM library; on top of it sit two Swing-
 plugins and a standalone Compose desktop application. The hosts share logic through `:core`, but
 intentionally keep separate UI layers. `:core-ui` contains Compose canvases for the app only.
 
+For prescriptive ownership, MVVM, SOLID, dependency, and test rules, see
+[Architecture & responsibility guidelines](architecture-guidelines.md).
+
 ## Modules
 
 | Module | What it is | May depend on |

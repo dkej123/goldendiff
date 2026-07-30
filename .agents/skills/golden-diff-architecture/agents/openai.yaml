@@ -1,0 +1,4 @@
+interface:
+  display_name: "Golden Diff Architecture"
+  short_description: "Protect module boundaries and MVVM design"
+  default_prompt: "Use $golden-diff-architecture to review this design against Golden Diff architecture rules."
