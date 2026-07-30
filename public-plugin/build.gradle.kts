@@ -79,15 +79,16 @@ intellijPlatform {
     pluginConfiguration {
         changeNotes = """
               <ul>
-              <li>Adds Generate and Verify actions for whole-project or current-file screenshot tests,
-              with streamed output in the Run tool window and automatic refresh after success.</li>
-              <li>Adds automatic, debounced PNG watching and updates changed previews without
-              rebuilding or jumping the golden list.</li>
-              <li>Moves Accept beside the comparison modes and confirms generated-output promotion
-              in place.</li>
-              <li>Redesigns Settings with section navigation and a contextual live-match preview.</li>
-              <li>Adds golden-directory regex entries alongside literal directories for multi-module
-              projects.</li>
+              <li>Introduces a project-wide Files → Goldens → Compare workflow with View and snapshot
+              Case navigation, search, status filters, and responsive layouts.</li>
+              <li>Indexes Working-copy and Test-output screenshots together and automatically chooses
+              the actionable comparison source.</li>
+              <li>Adds project, View, and Case Generate/Verify actions plus safe single and bulk Accept
+              workflows with streamed output, cancellation, retry, and automatic refresh.</li>
+              <li>Adds debounced PNG watching, stable selection across asynchronous refreshes, and
+              deterministic handling of ambiguous generated counterparts.</li>
+              <li>Extends source matching beyond Kotlin to JavaScript, TypeScript, Swift, Java, and
+              other text-based source files without additional language-plugin dependencies.</li>
               </ul>
         """.trimIndent()
 
