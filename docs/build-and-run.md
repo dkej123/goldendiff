@@ -65,8 +65,8 @@ The stable and beta channels use the same plugin ID:
 
 ```bash
 # Stable: creates a GitHub release and publishes to the default Marketplace channel.
-git tag v1.5.0
-git push origin v1.5.0
+git tag v2.0.0
+git push origin v2.0.0
 
 # Beta: publishes only to the Marketplace beta channel.
 git tag beta-v1.5.0-beta.1
@@ -83,8 +83,8 @@ Repositories**.
 Push a tag matching `pluginVersion` from `gradle.properties`:
 
 ```bash
-git tag app-v1.4.3
-git push origin app-v1.4.3
+git tag app-v2.0.0
+git push origin app-v2.0.0
 
 # Beta releases use a prerelease tag.
 git tag app-beta-v1.5.0-beta.1

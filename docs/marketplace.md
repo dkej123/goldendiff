@@ -111,5 +111,5 @@ The token is generated from the JetBrains Marketplace profile page under **My To
   git push origin beta-v1.5.0-beta.1
   ```
 - Confirm the update appears in the `beta` channel rather than Stable.
-- When promoting the build, merge `beta` into `main`, use a stable version such as `1.5.0`, and publish
+- When promoting the build, merge `beta` into `main`, use a stable version such as `2.0.0`, and publish
   it to Stable and Beta so existing beta subscribers receive it.

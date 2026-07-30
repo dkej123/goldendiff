@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-30
+
+### Added
+- A project-wide **Files → Goldens → Compare** workflow with folder, View, and snapshot-Case
+  navigation, responsive layouts, search, status filters, and selection that follows the active
+  editor without reacting to caret movement.
+- A standalone macOS application with the same comparison engine as the IDE plugin, distributed
+  through stable and beta Homebrew casks with an embedded Java runtime.
+- Generate and Verify commands for project, View, and Case scopes, including streamed output,
+  cancellation, completion notifications, and automatic refresh.
+- Safe single and View-scoped bulk Accept flows for generated test output, including ambiguity and
+  stale-source protection, partial-failure reporting, and retry.
+- Automatic PNG watching in both hosts, a headless configuration CLI, guided onboarding, app
+  self-update, and privacy-safe opt-in analytics and diagnostics.
+
+### Changed
+- Working-copy and Test-output screenshots are indexed together. Golden Diff automatically chooses
+  the actionable comparison source and shows both statuses on one golden card.
+- Source-to-golden matching now supports Kotlin, Java, JavaScript, TypeScript, Swift, and other text
+  source files without adding language-plugin dependencies.
+- The plugin UI remains Swing and supports IntelliJ Platform 2024.1 and newer with Java 17 bytecode;
+  the desktop application remains independently packaged on Java 21.
+- Settings, comparison controls, snapshot navigation, and generated-output resolution were
+  redesigned around stable identities and selection-preserving asynchronous refreshes.
+
+### Fixed
+- Generated counterpart collisions are reported as ambiguous instead of choosing an arbitrary file.
+- New goldens inside untracked directories, mixed-status filters, packaged update checks, and the
+  packaged app's `java.net.http`/UI-dispatch runtime behavior now work correctly.
+- Dynamic comparison-source changes use the stable extension-point listener API across the supported
+  IntelliJ Platform range.
+
 ## [1.5.0-beta.9] - 2026-07-28
 
 ### Added

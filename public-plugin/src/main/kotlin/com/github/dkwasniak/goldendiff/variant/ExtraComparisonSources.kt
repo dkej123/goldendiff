@@ -1,6 +1,8 @@
 package com.github.dkwasniak.goldendiff.variant
 
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.extensions.ExtensionPointListener
+import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.Disposable
 
 object ExtraComparisonSources {
@@ -16,6 +18,23 @@ object ExtraComparisonSources {
         get() = EP.extensionList
 
     fun addChangeListener(parentDisposable: Disposable, listener: () -> Unit) {
-        EP.addChangeListener(Runnable(listener), parentDisposable)
+        EP.addExtensionPointListener(
+            object : ExtensionPointListener<ExtraComparisonSource> {
+                override fun extensionAdded(
+                    extension: ExtraComparisonSource,
+                    pluginDescriptor: PluginDescriptor,
+                ) {
+                    listener()
+                }
+
+                override fun extensionRemoved(
+                    extension: ExtraComparisonSource,
+                    pluginDescriptor: PluginDescriptor,
+                ) {
+                    listener()
+                }
+            },
+            parentDisposable,
+        )
     }
 }
