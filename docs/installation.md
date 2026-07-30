@@ -50,14 +50,23 @@ If you have a `golden-diff-<version>.zip` (for example a build you produced your
 3. Select the zip file.
 4. Restart the IDE.
 
-## Install the standalone macOS beta with Homebrew
+## Install the standalone macOS app with Homebrew
 
-The standalone desktop app is currently available **only as a beta**. There is no Stable desktop cask
-yet; Stable currently refers to the IDE plugin release channel. Copy and run:
+Install the stable desktop release:
 
 ```bash
-brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git
+brew install --cask dkej123/goldendiff/golden-diff
 ```
+
+To follow preview releases instead, install the separate beta cask:
+
+```bash
+brew install --cask dkej123/goldendiff/golden-diff@beta
+```
+
+The stable and beta casks both install `Golden Diff.app` and therefore conflict. Uninstall the active
+cask before switching channels.
 
 Golden Diff is currently ad-hoc signed and not notarized because the project does not use a paid Apple
 Developer ID certificate. Homebrew verifies the immutable DMG against the SHA-256 checksum stored in
@@ -70,10 +79,12 @@ If you trust this repository, remove only Golden Diff's quarantine attribute aft
 xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 ```
 
-The DMG includes the Java runtime, so users do not need to install a JDK. Update or remove the beta
-with:
+The DMG includes the Java runtime, so users do not need to install a JDK. Update or remove the
+installed channel with:
 
 ```bash
+brew upgrade --cask golden-diff
+brew uninstall --cask golden-diff
 brew upgrade --cask golden-diff@beta
 brew uninstall --cask golden-diff@beta
 ```

@@ -134,6 +134,24 @@ xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
 
 Use `brew upgrade --cask golden-diff@beta` for later beta builds.
 
+### Standalone macOS beta
+
+The standalone desktop app is currently available **only as a beta**. There is no Stable desktop cask
+yet; Stable currently refers to the IDE plugin release channel. Copy and run:
+
+```bash
+brew tap dkej123/goldendiff https://github.com/dkej123/goldendiff.git && brew install --cask dkej123/goldendiff/golden-diff@beta
+```
+
+The app is currently ad-hoc signed and not notarized because the project does not use a paid Apple
+Developer ID certificate. Homebrew verifies the release's SHA-256 checksum, but macOS still
+quarantines the downloaded app and blocks its first launch. If you trust this repository, remove that
+quarantine attribute after installation:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Golden Diff.app"
+```
+
 ## Use
 1. Open the **Golden Diff** tool window (right edge).
 2. First run: click **Choose screenshots directory** and pick your golden folder
