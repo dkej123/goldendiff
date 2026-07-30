@@ -18,7 +18,7 @@ object ExtraComparisonSources {
         get() = EP.extensionList
 
     fun addChangeListener(parentDisposable: Disposable, listener: () -> Unit) {
-        EP.addExtensionPointListener(
+        EP.point.addExtensionPointListener(
             object : ExtensionPointListener<ExtraComparisonSource> {
                 override fun extensionAdded(
                     extension: ExtraComparisonSource,
@@ -34,6 +34,7 @@ object ExtraComparisonSources {
                     listener()
                 }
             },
+            false,
             parentDisposable,
         )
     }
