@@ -1,4 +1,4 @@
 interface:
   display_name: "Implement Golden Diff Change"
-  short_description: "Implement tested changes without boundary leaks"
-  default_prompt: "Use $implement-golden-diff-change to implement this Golden Diff change with tests."
+  short_description: "Implement changes with TDD and clean boundaries"
+  default_prompt: "Use $implement-golden-diff-change to implement this Golden Diff change with TDD and regression checks."
