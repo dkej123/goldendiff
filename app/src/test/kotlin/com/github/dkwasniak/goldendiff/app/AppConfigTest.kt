@@ -360,6 +360,25 @@ class AppConfigTest {
     }
 
     @Test
+    fun `roborazzi guide cleans old screenshots only for whole-project verify`() {
+        val guide = checkNotNull(
+            javaClass.classLoader.getResourceAsStream(
+                "framework-guides/android-roborazzi.md",
+            ),
+        ).bufferedReader().use { it.readText() }
+
+        val cleanupFlag = "-Proborazzi.cleanupOldScreenshots=true"
+        val verifyCommands = guide.lineSequence()
+            .filter { it.startsWith("--verify-") }
+            .toList()
+
+        assertEquals(3, verifyCommands.size)
+        assertTrue(verifyCommands.single { it.startsWith("--verify-all-cmd") }.contains(cleanupFlag))
+        assertFalse(verifyCommands.single { it.startsWith("--verify-file-cmd") }.contains(cleanupFlag))
+        assertFalse(verifyCommands.single { it.startsWith("--verify-case-cmd") }.contains(cleanupFlag))
+    }
+
+    @Test
     fun `swift snapshot guide configures generate commands through the supported record environment`() {
         val guide = checkNotNull(
             javaClass.classLoader.getResourceAsStream(

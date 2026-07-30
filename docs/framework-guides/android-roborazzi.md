@@ -59,11 +59,16 @@ Configure the five command templates so the tool-window buttons work. Example â€
 and the `Debug` variant with the project's actual task names (`./gradlew tasks --all | grep -i roborazzi`):
 ```
 --generate-all-cmd  './gradlew :screenshotTests:recordRoborazziDebug'
---verify-all-cmd    './gradlew :screenshotTests:verifyRoborazziDebug'
+--verify-all-cmd    './gradlew :screenshotTests:verifyRoborazziDebug -Proborazzi.cleanupOldScreenshots=true'
 --generate-file-cmd './gradlew :screenshotTests:recordRoborazziDebug --tests "*{file_name}Kt*"'
 --verify-file-cmd   './gradlew :screenshotTests:verifyRoborazziDebug --tests "*{file_name}Kt*"'
 --verify-case-cmd   './gradlew :screenshotTests:verifyRoborazziDebug --tests "*RoborazziPreviewParameterizedTests*{snapshot_method_name}*"'
 ```
+- Add `-Proborazzi.cleanupOldScreenshots=true` to the whole-project Verify command so a successful
+  complete run removes stale `_actual` / `_compare` artifacts left by earlier failures. Do not add
+  it to View/Case commands: Roborazzi cannot distinguish unrelated output from output omitted by a
+  filtered test run and would delete results belonging to other Views/Cases.
+
 **Per-file scoping depends on how the project declares tests:**
 - With **auto-generated** preview tests (`generateComposePreviewRobolectricTests { enable = true }`),
   previews are sharded into synthetic classes (`RoborazziPreviewParameterizedTests0..N`) and the
