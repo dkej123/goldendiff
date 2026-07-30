@@ -10,10 +10,11 @@ through incremental TDD.
 1. Target architecture
 2. Shared and host-specific responsibilities
 3. Presentation contracts
-4. TDD migration harness
-5. Migration slices
-6. Validation gates
-7. Completion criteria
+4. Runtime state and effect contract
+5. TDD migration harness
+6. Migration slices
+7. Validation gates
+8. Completion criteria
 
 ## 1. Target architecture
 
@@ -97,7 +98,54 @@ Avoid a mandatory reactive-framework dependency. A small subscription/state-publ
 safer across IntelliJ platform versions and the packaged Compose app. Let each View adapt publication
 to Swing rendering or Compose snapshot state.
 
-## 4. TDD migration harness
+## 4. Runtime state and effect contract
+
+### Intent processing
+
+- Process all intents through one serialized queue owned by the ViewModel.
+- Queue an intent dispatched from a subscriber/effect handler and process it after the current
+  transition; do not recurse into the reducer.
+- Let host adapters marshal external callbacks onto that queue. Never mutate shared state directly
+  from a worker, EDT callback, Compose coroutine, watcher, or vendor callback.
+- Represent asynchronous completion as a typed result intent carrying request identity/generation.
+- Ignore stale, cancelled, and post-close result intents.
+
+### State publication
+
+- Keep state immutable from the consumer's perspective.
+- Give a new subscriber the current state immediately.
+- Publish only complete states whose invariants hold.
+- Publish the new state before any effect caused by the same intent.
+- Treat a semantic no-op as no publication unless repeated publication is explicitly part of the
+  contract.
+
+### Effect delivery
+
+- Keep confirmation, progress, retry data, selected items, and recoverable errors in durable state.
+- Execute domain/infrastructure work through injected ports; feed typed outcomes back as intents.
+- Reserve effects for transient host UI actions such as focus, reveal, open URL, copy, or host
+  notification delivery.
+- Give every effect a monotonically increasing `EffectId`.
+- Deliver an effect at most once to the currently attached host; do not replay it to a later
+  subscriber.
+- Require the host subscription to be installed before it dispatches intents capable of producing
+  effects.
+- Let host adapters deduplicate by `EffectId` across framework redraw/rebinding.
+
+Exactly-once delivery across a process crash is not promised. Anything that must survive detachment
+or restart belongs in state or persistence, not an effect.
+
+### Lifecycle
+
+- Make `close()` idempotent.
+- Cancel owned requests/subscriptions on close.
+- Publish no state or effect after close.
+- Do not let a ViewModel own host windows, Swing/Compose components, project lifecycle objects, or
+  framework scopes. The composition root owns the ViewModel lifetime.
+
+Cover all rules above with deterministic contract tests before sharing the first ViewModel.
+
+## 5. TDD migration harness
 
 ### Characterize current behavior
 
@@ -134,6 +182,29 @@ Both drivers must pass the same scenarios. Normalize only representation differe
 part of the product contract. After the new ViewModel owns the workflow and both Views use it, remove
 the legacy driver but keep the contract scenarios.
 
+Use [the MVVM behavior matrix](mvvm-behavior-matrix.md) as the scenario inventory. A migration slice
+must list its behavior IDs before editing and attach permanent test evidence to them before removing
+legacy code.
+
+### Use temporary parity/shadow mode
+
+For selection, refresh, comparison-source choice, and Accept workflows, allow a temporary test or DEV
+shadow harness:
+
+```text
+intent + controlled port result
+        |                     |
+        v                     v
+legacy driver          shared ViewModel driver
+        \                     /
+         normalized state/effect comparison
+```
+
+- Never let the shadow implementation perform real writes, commands, notifications, or telemetry.
+- Feed both sides the same deterministic inputs and fake port results.
+- Report the previous normalized state, intent, and exact state/effect difference.
+- Keep shadow comparison out of release behavior and remove it with the legacy driver after parity.
+
 ### Apply Red-Green-Refactor
 
 For every migration slice:
@@ -162,11 +233,12 @@ and after the single move. Do not create a test whose only purpose is to fail sy
 - Keep View tests limited to rendering state and mapping UI events/effects.
 - Keep architecture/package assertions separate from behavior tests.
 
-## 5. Migration slices
+## 6. Migration slices
 
 ### Slice 0 — safety baseline
 
 - Run `:core:test`, `:app:test`, and `:public-plugin:test`.
+- Review every row in `docs/mvvm-behavior-matrix.md`; add missing behavior before production moves.
 - Inventory behavior currently embedded in `AppState` and `RedesignedScreenshotPanel`.
 - Add missing characterization tests before production moves.
 - Record known failures separately; do not normalize them into the refactor.
@@ -176,6 +248,8 @@ and after the single move. Do not create a test whose only purpose is to fail sy
 - Add `:presentation` with JUnit tests and Java 17 bytecode.
 - Add architecture checks for forbidden imports/dependencies and packaging direction.
 - Introduce contract-test drivers without changing production behavior.
+- Add contract tests for serialized/reentrant intents, state-before-effect ordering, non-replayed
+  effects, stale results, and idempotent close.
 
 ### Slice 2 — snapshot selection
 
@@ -227,7 +301,7 @@ and after the single move. Do not create a test whose only purpose is to fail sy
   wiring.
 - Remove legacy workflow paths only after both host suites and shared contracts pass.
 
-## 6. Validation gates
+## 7. Validation gates
 
 At every slice, run the smallest focused test first. Before declaring the slice complete, run:
 
@@ -245,9 +319,12 @@ packaging changes, also build both plugin ZIPs and audit that:
 - neither ZIP contains Compose, Jewel, or Skiko;
 - plugin/shared bytecode remains Java 17.
 
+Once `:presentation` exists, run `:presentation:test` on Linux CI as well as the macOS full build.
+This is a required portability gate, not an optional platform matrix.
+
 Read every Gradle log for `BUILD SUCCESSFUL` or `BUILD FAILED`. Never run Plugin Verifier locally.
 
-## 7. Completion criteria
+## 8. Completion criteria
 
 The migration is complete when:
 
@@ -255,6 +332,8 @@ The migration is complete when:
 - domain and presentation behavior is implemented once;
 - platform differences exist only in Views, composition roots, and explicit adapters;
 - shared ViewModels have deterministic contract tests independent of UI frameworks;
+- every behavior-matrix row has permanent shared-contract or host-adapter evidence;
+- effect, lifecycle, concurrency, and state invariants have dedicated tests;
 - legacy `AppState`/panel workflow logic and temporary parity drivers are removed;
 - host View tests cover only framework adaptation;
 - all shared, core, app, plugin, architecture, packaging, and bytecode gates pass.

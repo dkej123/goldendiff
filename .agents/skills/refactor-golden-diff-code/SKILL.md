@@ -15,6 +15,7 @@ Treat refactoring as behavior-preserving unless the user explicitly requests a b
 4. Run the closest existing tests before editing and record the green baseline.
 5. Add characterization tests before moving logic when an important behavior is not covered.
 6. Express characterization through public state, outcomes, and effects so the same scenario can test the new component.
+7. Select the `docs/mvvm-behavior-matrix.md` IDs owned by the slice. Do not mix unrelated IDs in one migration step.
 
 Do not infer correctness from compilation alone.
 
@@ -44,6 +45,7 @@ Use this loop:
 6. **Integrate:** switch one caller or one View to the new seam.
 7. **Regression checkpoint:** run the focused tests, the closest module suite, and the architecture check. Do not begin the next slice until they pass.
 8. **Remove legacy:** delete old delegation only after every scenario and affected host test is green on the new path.
+9. **Update evidence:** record the permanent contract test and host-adapter tests against the migrated behavior-matrix IDs.
 
 Keep behavior changes in a separate edit and test them explicitly.
 
@@ -57,9 +59,10 @@ Prefer a reusable contract test with a fixture/driver factory over copying asser
 - Inject I/O and platform services; do not move them into the ViewModel under a new name.
 - Split a god state holder by cohesive workflow and lifecycle. Keep a small coordinator only when cross-workflow coordination is itself one responsibility.
 - Preserve stable IDs, selection restoration, soft-refresh behavior, and request generations.
-- Do not attempt to share Swing and Compose ViewModels when their lifecycle/presentation semantics differ; share host-neutral models, policies, and use cases.
+- Share framework-neutral feature ViewModels when both hosts implement the same workflow semantics. Keep host shell/lifecycle state separate and do not force one ViewModel over genuinely different host behavior.
 - Test shared ViewModels without Compose, Swing, IntelliJ fixtures, real threads, filesystem timing, or network.
 - Test each View separately only for state rendering and intent/effect adaptation.
+- Enforce serialized intent processing, state-before-effect publication, non-replayed UI effects, request identities, and idempotent `close()` according to `docs/mvvm-refactor-plan.md`.
 
 ## SOLID review
 

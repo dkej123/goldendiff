@@ -11,6 +11,7 @@ description: Implement Golden Diff features and bug fixes with test-driven devel
 2. Inspect the affected behavior, neighboring implementation, tests, and Gradle dependencies.
 3. Write down the acceptance behavior, preserved invariants, failure modes, and affected modules.
 4. Choose ownership using the architecture contract before adding types or dependencies.
+5. When changing shared MVVM behavior, update the corresponding entries in `docs/mvvm-behavior-matrix.md` or add a new behavior ID before production code.
 
 ## Design the change
 
@@ -36,6 +37,8 @@ Use one Red-Green-Refactor cycle per observable behavior:
 5. **Checkpoint:** run the architecture check and record the exact successful commands before starting another behavior.
 
 For a bug, make the test fail because of the original cause. Test pure rules and presentation transitions below the UI toolkit. Cover relevant success, empty, invalid, failure, cancellation, retry, ambiguity, and stale-result paths. Inject clocks/executors/ports, use stable IDs, and avoid timing sleeps.
+
+For shared presentation work, test the state/effect ordering, effect delivery semantics, reentrant intent handling, and post-`close()` behavior defined in `docs/mvvm-refactor-plan.md`.
 
 For a purely mechanical move or rename, do not invent a meaningless red test. Establish a green characterization baseline, perform one mechanical step, and rerun the same tests immediately.
 
