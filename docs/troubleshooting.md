@@ -25,8 +25,10 @@ settings.
 
 ## The list didn’t update after I re-recorded goldens
 
-The list refreshes when you **switch files**, not while you type or when files change on disk in the
-background. After recording or re-recording goldens, click **Refresh** in the tool window header.
+Golden Diff watches configured golden and generated-output directories and refreshes after its own
+Generate/Verify commands. If an external tool writes outside those roots, update the configured
+directory. Source-code edits do not rematch while you type; switch editor tabs after changing names
+that affect matching.
 
 ## My golden is a new file and there’s no comparison
 
@@ -41,13 +43,17 @@ enable comparisons.
 - **“No generated test output found for <file>.”** — the directories are set but no file matched the
   **generated output filename regex**. Confirm the regex’s first capture group yields the golden’s base
   name (default `^(.+)_actual\.png$`).
+- **“Ambiguous Test output”** — multiple equally ranked files map to the same golden. Keep generated
+  output in the same relative directory as its golden, narrow the configured roots/regex, or remove
+  stale duplicates. Golden Diff intentionally will not guess because Compare and Accept must use the
+  same exact file.
 
 ## Known limitations
 
 - **Image formats:** only what Java ImageIO decodes (PNG, JPG, GIF, BMP). **SVG and WebP goldens will
   not render.**
-- **No live update while editing:** the list refreshes on file switch, not as you type — use **Refresh**
-  after (re)recording.
+- **No live rematching while editing source:** configured image directories are watched, but source
+  name changes take effect on file/tab selection rather than on each keystroke.
 - **Comparison base is fixed:** Golden Diff compares git **HEAD** against the working copy or generated
   test output. Picking an arbitrary branch or revision is not supported yet.
 
