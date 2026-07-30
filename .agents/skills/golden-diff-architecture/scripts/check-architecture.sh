@@ -58,6 +58,24 @@ reject_pattern 'project\(":core-ui"\)' internal-plugin/build.gradle.kts \
 reject_pattern '^[[:space:]]*implementation\(compose\.' core-ui/build.gradle.kts \
     ":core-ui Compose dependencies must remain compileOnly"
 
+if [[ -d presentation ]]; then
+    forbidden_presentation_imports='^import (com\.intellij|androidx\.compose|org\.jetbrains\.(compose|jewel|skia)|javax\.swing|kotlinx\.coroutines|io\.sentry|com\.amplitude|org\.json)'
+    reject_pattern "$forbidden_presentation_imports" presentation/src/main \
+        ":presentation imports a UI, host, coroutine-runtime, or vendor API"
+    reject_pattern '^[[:space:]]*(api|implementation|runtimeOnly)\(' presentation/build.gradle.kts \
+        ":presentation gained a packaged production dependency"
+    require_pattern '^[[:space:]]*compileOnly\(project\(":core"\)\)' presentation/build.gradle.kts \
+        ":presentation must depend on :core through compileOnly"
+    require_pattern 'JvmTarget\.JVM_17' presentation/build.gradle.kts \
+        ":presentation must emit Java 17 bytecode"
+    require_pattern '^[[:space:]]*implementation\(project\(":presentation"\)\)' public-plugin/build.gradle.kts \
+        ":public-plugin must package :presentation with implementation"
+    require_pattern '^[[:space:]]*implementation\(project\(":presentation"\)\)' app/build.gradle.kts \
+        ":app must provide :presentation with implementation"
+    reject_pattern 'project\(":presentation"\)' internal-plugin/build.gradle.kts \
+        ":internal-plugin must not package or depend directly on :presentation"
+fi
+
 if ((failures > 0)); then
     echo "Architecture checks failed: $failures problem(s)." >&2
     exit 1

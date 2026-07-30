@@ -30,7 +30,8 @@ host adapters implement presentation ports
 
 `:presentation` must:
 
-- depend only on `:core` and `compileOnly(kotlin("stdlib"))`;
+- use `compileOnly(project(":core"))` and `compileOnly(kotlin("stdlib"))`; both hosts already provide
+  `:core`;
 - emit Java 17 bytecode so the public plugin can package it for build 241+;
 - contain no Compose, Swing, IntelliJ, Skiko, Jewel, coroutine-runtime, vendor-SDK, filesystem-watcher,
   or operating-system types;
