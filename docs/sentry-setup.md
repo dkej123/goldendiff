@@ -27,6 +27,48 @@ The app packaging and public plugin publish/release workflows already map them t
 properties. Tagged app and public-plugin workflows use the auth token to create/finalize matching
 Sentry releases and associate commits. The internal-plugin workflow receives neither DSN nor token.
 
+## Release checklist
+
+Before creating any `v*`, `beta-v*`, `app-v*`, or `app-beta-v*` tag:
+
+1. Run `gh secret list --repo dkej123/goldendiff` and require all of `SENTRY_APP_DSN`,
+   `SENTRY_PLUGIN_DSN`, and `SENTRY_AUTH_TOKEN`. This command shows names and update timestamps, not
+   secret values.
+2. Keep `SENTRY_AUTH_TOKEN` CI-only and use the minimum suitable scope (`org:ci` is preferred). Never
+   put it in `gradle.properties`, a workflow file, a shell command argument, logs, an app/plugin
+   resource, or release notes.
+3. For a release build, confirm the appropriate DSN is injected while the other product's DSN is not
+   added unnecessarily. The Figma plugin receives no Sentry credentials and has no separate Sentry
+   release.
+4. After the tag workflow completes, require the **Create Sentry release** step to be `success` rather
+   than `skipped`. Confirm the release name, environment, URL, deploy, and associated commits:
+   - public plugin: `golden-diff-plugin@<version>`;
+   - desktop app: `golden-diff-app@<version>`;
+   - stable tags use `stable`; beta tags use `beta`.
+
+The workflows currently skip Sentry release creation when `SENTRY_AUTH_TOKEN` is empty. That skip does
+not fail Marketplace, GitHub Release, DMG, or Homebrew publication, so a green overall workflow is not
+enough evidence that Sentry was updated.
+
+### Backfilling a missed release
+
+If an artifact was published while the auth token was absent:
+
+1. Add or repair `SENTRY_AUTH_TOKEN` in GitHub Actions secrets and verify only its name is listed.
+2. Check whether the exact Sentry release already exists before writing anything, so the operation is
+   idempotent.
+3. Create/finalize only the missing `golden-diff-plugin@<version>` or
+   `golden-diff-app@<version>` release through the Sentry UI, CLI, or the organization Releases API.
+   Use the original publication time and release URL, associate the tagged release HEAD (and the
+   previous release commit when required), then create a deploy for the correct `stable` or `beta`
+   environment.
+4. Read the release back and verify the project, `dateReleased`, environment, deploy count, commit
+   count, and last commit.
+
+Do not rerun the full Marketplace or app packaging workflow solely to repair Sentry. It can attempt a
+duplicate Marketplace upload, duplicate release assets, or another Homebrew update. Never paste an
+auth token into documentation, commits, logs, or a command captured in shell history.
+
 Release Health sessions are emitted only while crash reporting consent is enabled. Their environment
 is `stable`, `beta`, or `dev`; opting out ends the current Sentry session immediately.
 

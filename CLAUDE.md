@@ -53,6 +53,12 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
   `https://plugins.jetbrains.com/plugins/beta/32662`.
 - **Desktop app.** `app-v<ver>` publishes Stable and updates `golden-diff`; `app-beta-v<ver>` creates
   a GitHub prerelease and updates `golden-diff@beta`. Both casks live on `main`.
+- **Sentry is a release preflight, not an optional follow-up.** Before any public-plugin or desktop
+  tag, confirm that `SENTRY_APP_DSN`, `SENTRY_PLUGIN_DSN`, and `SENTRY_AUTH_TOKEN` exist in GitHub
+  Actions secrets. After publishing, verify that the workflow's **Create Sentry release** step was
+  successful (not `skipped`) and that the matching `golden-diff-{app,plugin}@<ver>` release has the
+  right environment and commits. A missing auth token does not fail the overall publish workflow;
+  follow [docs/sentry-setup.md](docs/sentry-setup.md#release-checklist) for preflight and backfill.
 - Details: [docs/build-and-run.md](docs/build-and-run.md#distributing-the-internal-plugin).
 
 ## Before you touch anything, read

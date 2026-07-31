@@ -113,6 +113,37 @@ brew install --cask dkej123/goldendiff/golden-diff@beta
 The stable and beta casks conflict because both install `Golden Diff.app`; uninstall one before
 switching channels.
 
+## Release observability checklist
+
+Treat Sentry as part of every public-plugin and desktop-app release. Before creating either stable or
+beta tags, list the repository's Actions secrets and confirm that all three names exist:
+
+```bash
+gh secret list --repo dkej123/goldendiff
+# required: SENTRY_APP_DSN, SENTRY_PLUGIN_DSN, SENTRY_AUTH_TOKEN
+```
+
+`SENTRY_AUTH_TOKEN` must be a CI-only token with the minimum release-management scope described in
+[sentry-setup.md](sentry-setup.md#release-checklist). Never print the secret, pass it as a command-line
+argument, commit it, or embed it in an artifact. Stop the release if any required secret is absent.
+
+After pushing a public-plugin or app tag:
+
+1. Wait for the complete workflow, then inspect the **Create Sentry release** step. It must be
+   `success`, not `skipped`.
+2. Confirm the matching Sentry release exists: `golden-diff-plugin@<pluginVersion>` for `v*` and
+   `beta-v*`, or `golden-diff-app@<pluginVersion>` for `app-v*` and `app-beta-v*`.
+3. Confirm its environment is `stable` or `beta` according to the tag, its release URL points to the
+   published artifact/listing, and commits are associated through the release HEAD.
+
+This check is mandatory because both release workflows intentionally guard the Sentry action with
+`SENTRY_AUTH_TOKEN != ''`: if the secret is missing, GitHub marks the step `skipped` while the
+Marketplace/GitHub/Homebrew publication can still finish successfully. If this happens, set the
+secret and backfill only the missing Sentry release and deploy as described in
+[sentry-setup.md](sentry-setup.md#backfilling-a-missed-release). Do **not** rerun the entire publish
+workflow: that can attempt to upload an already-published Marketplace version or recreate release
+assets.
+
 ## Distributing the internal plugin
 The internal plugin ships through a **custom plugin repository** — a static `updatePlugins.xml`
 descriptor plus the ZIP. Both are hosted straight from this **public** GitHub repo: they are
