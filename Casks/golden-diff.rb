@@ -1,6 +1,6 @@
 cask "golden-diff" do
-  version "2.0.0"
-  sha256 "e6ffbd00e25d9771fa491f5e98db636597ca67c6218bb1fd54b2ce2f079d0e0e"
+  version "2.1.0"
+  sha256 "419663180d229ecf2010ebbf1472c2ebea0248206dfc5785ee518bfb8f362696"
 
   url "https://github.com/dkej123/goldendiff/releases/download/app-v#{version}/Golden-Diff-#{version}.dmg"
   name "Golden Diff"
