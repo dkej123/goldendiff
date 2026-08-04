@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.Properties
 
 // Golden Diff as a standalone desktop application.
 //
@@ -11,7 +12,11 @@ plugins {
 }
 
 group = providers.gradleProperty("pluginGroup").get()
-version = providers.gradleProperty("pluginVersion").get()
+val appReleaseProperties = Properties().apply {
+    project.file("version.properties").inputStream().use(::load)
+}
+val appVersion = appReleaseProperties.getProperty("appVersion")
+version = appVersion
 
 repositories {
     mavenCentral()
@@ -117,10 +122,8 @@ compose.desktop {
             modules("java.net.http")
             packageName = "Golden Diff"
             // jpackage maps this to native package metadata, which must remain numeric on macOS.
-            // Prerelease labels stay in pluginVersion and are used by release assets/Homebrew.
-            packageVersion = providers.gradleProperty("appPackageVersion")
-                .orElse(providers.gradleProperty("pluginVersion"))
-                .get()
+            // Prerelease labels stay in appVersion and are used by release assets/Homebrew.
+            packageVersion = appReleaseProperties.getProperty("appPackageVersion", appVersion)
 
             macOS {
                 iconFile.set(project.file("src/main/resources/app-icon.icns"))

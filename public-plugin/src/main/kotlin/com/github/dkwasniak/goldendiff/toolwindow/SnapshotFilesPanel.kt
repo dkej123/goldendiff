@@ -128,12 +128,6 @@ class SnapshotFilesPanel(
         rebuild()
     }
 
-    fun setIndexing(value: Boolean) {
-        if (indexing == value) return
-        indexing = value
-        refreshBanners()
-    }
-
     fun setActivePath(path: String?) {
         activePath = path?.normalizedPath()
         refreshBanners()

@@ -5,6 +5,7 @@ import com.github.dkwasniak.goldendiff.match.GenericScreenExtractor
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
 import java.io.File
@@ -83,6 +84,21 @@ object GoldenDiffCli {
             }
         parsed.list("generated-dir").takeIf { it.isNotEmpty() }
             ?.let { dirs -> config = config.copy(generatedPaths = dirs.map { relativize(root, it) }) }
+        parsed.value("generated-source")?.let { raw ->
+            val source = parseGeneratedSource(raw)
+                ?: return fail("--generated-source must be 'directory' or 'xcresult'.")
+            config = config.copy(generatedSource = source)
+        }
+        parsed.value("xcresult-derived-data")?.let {
+            config = config.copy(xcresultDerivedDataPath = it.trim())
+        }
+        parsed.value("xcresult-scan-window-hours")?.let { raw ->
+            val hours = raw.trim().toIntOrNull()?.takeIf { it > 0 }
+                ?: return fail("--xcresult-scan-window-hours must be a positive whole number of hours.")
+            config = config.copy(xcresultScanWindowHours = hours)
+        }
+        if (parsed.has("ios-project")) config = config.copy(isIosProject = true)
+        if (parsed.has("no-ios-project")) config = config.copy(isIosProject = false)
 
         parsed.value("match-mode")?.let { raw ->
             val mode = parseMatchMode(raw) ?: return fail("--match-mode must be 'annotated' or 'file-class'.")
@@ -294,6 +310,12 @@ object GoldenDiffCli {
     private fun printConfig(root: File, config: GoldenDiffConfig) {
         println("Golden Diff configured for ${root.absolutePath}")
         println("  Golden directories:    ${config.goldenPaths.ifEmpty { listOf("(none)") }.joinToString(", ")}")
+        println("  iOS project:           ${config.isIosProject}")
+        println("  Generated source:      ${config.generatedSource.name.lowercase()}")
+        if (config.usesXcresultSource) {
+            println("  DerivedData folder:    ${orDefault(config.xcresultDerivedDataPath, "auto-detect")}")
+            println("  xcresult scan window:  ${config.xcresultScanWindowHours}h")
+        }
         println("  Generated directories: ${config.generatedPaths.ifEmpty { listOf("(none)") }.joinToString(", ")}")
         println("  Matching mode:         ${matchModeLabel(config.matchMode)}")
         // Blank fields are genuinely unset — nothing was written for them; the tool falls back to the
@@ -327,6 +349,10 @@ object GoldenDiffCli {
         append(jsonField("project", root.absolutePath)).append(",")
         append(jsonArray("goldenPaths", config.goldenPaths)).append(",")
         append(jsonArray("generatedPaths", config.generatedPaths)).append(",")
+        append(jsonField("generatedSource", config.generatedSource.name)).append(",")
+        append(jsonField("xcresultDerivedDataPath", config.xcresultDerivedDataPath)).append(",")
+        append("\"xcresultScanWindowHours\":${config.xcresultScanWindowHours},")
+        append("\"isIosProject\":${config.isIosProject},")
         append(jsonField("matchMode", config.matchMode.name)).append(",")
         append(jsonField("annotatedFunctionRegex", config.annotatedFunctionRegex)).append(",")
         append(jsonArray("goldenFilePatterns", config.goldenFilePatterns)).append(",")
@@ -403,6 +429,12 @@ object GoldenDiffCli {
 
     // region helpers
 
+    private fun parseGeneratedSource(raw: String): GeneratedSource? = when (raw.lowercase()) {
+        "directory", "dir", "directory-scan" -> GeneratedSource.DIRECTORY
+        "xcresult", "xcode", "test-results" -> GeneratedSource.XCRESULT
+        else -> null
+    }
+
     private fun parseMatchMode(raw: String): MatchMode? = when (raw.lowercase()) {
         "annotated", "annotated_method", "annotated-method" -> MatchMode.ANNOTATED_METHOD
         "file-class", "file_class", "file_class_regex", "file-class-regex", "regex" -> MatchMode.FILE_CLASS_REGEX
@@ -453,6 +485,19 @@ object GoldenDiffCli {
               --golden-dir <path>           Golden screenshot directory. Repeat for several; replaces the list.
               --golden-dir-regex <regex>    Full regex over project-relative directory paths. Repeatable.
               --generated-dir <path>        Test-output directory. Repeatable.
+              --generated-source directory|xcresult
+                                            How Test output is discovered. Directory mode uses
+                                            --generated-dir/--generated-regex; xcresult mode reads
+                                            Xcode test-result failure paths.
+              --ios-project | --no-ios-project
+                                            Whether this project builds with Xcode. Independent of
+                                            --generated-source; enables the device/destination picker
+                                            for the commands below.
+              --xcresult-derived-data <path>
+                                            Optional <Project>-<hash> DerivedData folder override.
+                                            Blank auto-detects it for the current checkout.
+              --xcresult-scan-window-hours <n>
+                                            How far back xcresult mode lists individual runs. Default 48.
               --match-mode annotated|file-class
               --annotation-regex <regex>    Screenshot annotation name regex (annotated mode).
               --golden-pattern <pattern>    Golden filename pattern (file-class mode). Repeatable.
@@ -541,14 +586,15 @@ object GoldenDiffCli {
 
         companion object {
             private val VALUE_OPTIONS = setOf(
-                "project", "golden-dir", "golden-dir-regex", "generated-dir", "match-mode", "annotation-regex",
+                "project", "golden-dir", "golden-dir-regex", "generated-dir", "generated-source",
+                "xcresult-derived-data", "xcresult-scan-window-hours", "match-mode", "annotation-regex",
                 "golden-pattern", "generated-regex", "exclude-suffix", "source-file",
                 "generate-all-cmd", "generate-file-cmd", "verify-all-cmd", "verify-file-cmd", "verify-case-cmd",
                 "command-java-home",
             )
             private val FLAG_OPTIONS = setOf(
-                "trim-transparent-padding", "no-trim-transparent-padding", "open", "signal",
-                "allow-non-git", "directories-only", "json",
+                "trim-transparent-padding", "no-trim-transparent-padding", "ios-project", "no-ios-project",
+                "open", "signal", "allow-non-git", "directories-only", "json",
             )
 
             fun of(tokens: List<String>): Parsed {

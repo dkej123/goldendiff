@@ -18,6 +18,15 @@ class GeneratedCounterpartIndex private constructor(
     val stats: Stats,
     private val candidatesByGoldenBase: Map<String, List<Candidate>>,
 ) {
+    /** A generated file discovered by a host-specific source without walking a configured root. */
+    data class ExplicitCandidate(
+        val file: File,
+        /** Directory path used to disambiguate equal snapshot basenames, with `/` separators. */
+        val relativeParent: String,
+        /** Host-resolved golden basename. When present, directory filename regexes do not apply. */
+        val goldenBase: String? = null,
+    )
+
     data class Configuration(
         val generatedRoots: List<String>,
         val generatedFileRegex: String,
@@ -93,6 +102,7 @@ class GeneratedCounterpartIndex private constructor(
             generatedRoots: List<File>,
             generatedFileRegex: String,
             excludedSuffixes: List<String> = emptyList(),
+            explicitCandidates: List<ExplicitCandidate> = emptyList(),
         ): GeneratedCounterpartIndex {
             val roots = generatedRoots
                 .map { it.normalize() }
@@ -104,7 +114,6 @@ class GeneratedCounterpartIndex private constructor(
                 excludedSuffixes = suffixes,
             )
             val pattern = runCatching { Regex(generatedFileRegex) }.getOrNull()
-                ?: return GeneratedCounterpartIndex(configuration, Stats(0, 0, 0), emptyMap())
             var scannedRoots = 0
             var visitedFiles = 0
             val candidates = linkedMapOf<String, Candidate>()
@@ -112,13 +121,25 @@ class GeneratedCounterpartIndex private constructor(
                 scannedRoots++
                 root.walkTopDown().filter(File::isFile).forEach { file ->
                     visitedFiles++
-                    val goldenBase = file.generatedGoldenBase(pattern, suffixes) ?: return@forEach
+                    val goldenBase = pattern?.let { file.generatedGoldenBase(it, suffixes) } ?: return@forEach
                     val relativeParent = file.relativeToOrNull(root)?.parent.orEmpty().invariantPath()
                     candidates.putIfAbsent(
                         file.canonicalOrAbsolutePath(),
                         Candidate(file, goldenBase, relativeParent),
                     )
                 }
+            }
+            explicitCandidates.forEach { explicit ->
+                val file = explicit.file
+                if (!file.isFile) return@forEach
+                visitedFiles++
+                val goldenBase = explicit.goldenBase?.takeIf(String::isNotBlank)
+                    ?: pattern?.let { file.generatedGoldenBase(it, suffixes) }
+                    ?: return@forEach
+                candidates.putIfAbsent(
+                    file.canonicalOrAbsolutePath(),
+                    Candidate(file, goldenBase, explicit.relativeParent.invariantPath()),
+                )
             }
             val byBase = candidates.values.groupBy { it.goldenBase.lowercase(Locale.ROOT) }
                 .mapValues { (_, values) -> values.sortedWith(compareBy(FILE_ORDER) { it.file }) }

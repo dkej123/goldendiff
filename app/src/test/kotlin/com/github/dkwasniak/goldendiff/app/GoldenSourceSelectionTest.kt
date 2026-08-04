@@ -102,4 +102,19 @@ class GoldenSourceSelectionTest {
         assertEquals("Test output", sourceLabel(BuiltInSource.GENERATED))
         assertEquals("Working copy", sourceLabel(BuiltInSource.WORKING_COPY))
     }
+
+    @Test
+    fun `comparison uses the exact generated file already resolved by the scanner`() {
+        val xcresultActual = File("CoreSimulator/tmp/LoginTests/Login.png")
+        val item = MergedGoldenItem(
+            golden,
+            working(ExtraComparisonItemStatus.UNCHANGED),
+            GoldenSourceVariant(xcresultActual, ExtraComparisonItemStatus.MODIFIED),
+        )
+
+        assertEquals(
+            xcresultActual,
+            comparisonSourceFile(golden, BuiltInSource.GENERATED, item),
+        )
+    }
 }

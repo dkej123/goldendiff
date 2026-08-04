@@ -76,25 +76,20 @@ Configure those commands in Golden Diff, or run `./gradlew verifyRoborazziDebug`
 previewed file and select the failing golden; Golden Diff automatically chooses its Test output.
 
 ### Example: iOS · swift-snapshot-testing (pointfree)
-This library writes a failing test's freshly rendered image to
-`$SNAPSHOT_ARTIFACTS/<TestFileName>/<name>.png`. **If `SNAPSHOT_ARTIFACTS` is unset it falls back to a
-volatile simulator temp dir Golden Diff cannot target**, so you must pin it to a stable directory.
-Under `xcodebuild test` the variable is only forwarded into the test runner when prefixed with
-`TEST_RUNNER_`:
-
-```sh
-# shell profile or CI — absolute path, e.g. inside the repo
-export TEST_RUNNER_SNAPSHOT_ARTIFACTS="<repo>/.golden-diff-generated"
-```
+On a failing snapshot, Xcode records pointfree's reference and actual `file://` URLs in the test
+`.xcresult`. Golden Diff reads the actual PNG from one explicitly selected Test Run, so the project
+does not need `SNAPSHOT_ARTIFACTS`, a generated directory, a scheme pre-action, or an extra
+`.gitignore` entry.
 
 Golden Diff config:
 - **Golden directory** (regex): `.*/__Snapshots__$` — the committed reference roots
-- **Generated directory**: the same absolute directory as above
-- **Generated-file regex**: `^(.+)\.png$` — pointfree keeps the golden's exact name (no `_actual` suffix)
+- **Test output source**: Xcode test results (`.xcresult`)
 - **Match mode**: file/class — XCTest methods are unannotated, so goldens are matched by the test
   class/file name
 
-A golden `__Snapshots__/<TestClass>/<name>.png` then maps to generated `<dir>/<TestClass>/<name>.png`.
+A golden `__Snapshots__/<TestClass>/<name>.png` maps to the selected run's exact
+`<TestClass>/<name>.png` actual. See the bundled `ios-swift-snapshot-testing` guide for command and
+device setup.
 
 ## Install
 **From JetBrains Marketplace (recommended):**

@@ -21,6 +21,12 @@ Selection and comparison state survive width-class changes.
 The Files index contains only Views associated with at least one existing golden. A Case is an
 annotated preview, test method, or supported story/function whose name matches one or more goldens.
 Goldens without function-level evidence remain directly on the View row.
+When the same Case name exists in multiple source files, the owner file/class encoded in the golden
+path wins before the stable path-order fallback, so one golden remains attached to the intended View.
+
+Quick Open searches every source file in the indexed project, including files with no matching
+goldens. Opening such a file selects it as the active View and shows the dedicated no-snapshots state;
+it does not add the file to the snapshot-only Files tree.
 
 Search covers the view path, generator path, and case name and reveals matching descendants.
 The **Failed**, **Modified**, and **New** status filters are combined with OR and match every status
@@ -88,13 +94,25 @@ with HEAD; **Modified**, **New**, and **Unchanged** goldens use Working copy. If
 is absent, the only available variant is shown.
 
 - **Working copy** — the selected golden file on disk.
-- **Test output** — a generated screenshot from configured output directories. Matching first tries
-  the same relative directory as the golden, then falls back to all files under the configured output
-  roots. Generated roots are indexed once per refresh. A basename/path tie is reported as
+- **Test output** — a generated screenshot from configured output directories or a host-provided
+  explicit artifact. Matching first tries the same relative directory as the golden, then falls back
+  to all files under the configured output roots. Generated roots and explicit artifacts are indexed
+  once per refresh. The standalone macOS app also discovers pointfree swift-snapshot-testing failure
+  artifacts from `@+ file://` URLs in the selected Xcode `.xcresult`; it verifies that the PNG
+  still exists and keeps the test-class parent directory for disambiguation. A basename/path tie is reported as
   **Ambiguous Test output** and blocks Compare/Accept rather than selecting an arbitrary file.
-  Generated files are filtered by a configurable regex. The default is
-  `^(.+)_actual\.png$`, so `_actual` files are selected and `_compare` files are ignored. The first
-  capture group is treated as the golden base name (`Foo_actual.png` → `Foo.png`).
+  Files discovered by a configured generated directory are filtered by a configurable regex. The
+  default is `^(.+)_actual\.png$`, so `_actual` files are selected and `_compare` files are ignored.
+  The first capture group is treated as the golden base name (`Foo_actual.png` → `Foo.png`).
+
+  In the standalone app, Settings → Test output matching selects **Directory scan** or **Xcode test
+  results (.xcresult)**. Xcode mode can auto-detect the checkout's DerivedData folder, accepts an
+  explicit `<Project>-<hash>` override, and lists individual result bundles from a configurable
+  48-hour window, newest first. The **Test Run** picker selects exactly one bundle; its device/OS,
+  timestamp and pass/fail summary remain visible, and the selection is remembered per project.
+  If that bundle disappears, the app falls back to the newest available run. After Verify, a newly
+  created or updated run is selected automatically. XCResult candidates carry the exact basename
+  resolved by the host and do not use or merge configured generated directories or their regex.
 
 The generated-file regex is not part of the current-file → golden-list matching. The list always comes
 from golden filenames matched against names extracted from the current Kotlin file. The regex is used
@@ -143,6 +161,17 @@ expanded from the selected View and generator before the command runs:
 - `{snapshot_class_name}` — the generator class, falling back to its file name.
 - `{snapshot_file_path}` — the project-relative generator path without its extension.
 - `{snapshot_method_name}` — the test/preview function.
+
+For Xcode test-result projects, the device picker derives its current value from the configured
+commands. Choosing a simulator or connected physical device atomically replaces (or adds)
+`-destination` in every non-empty Generate/Verify command. All commands must contain one unambiguous
+`xcodebuild` and share the same scheme plus project/workspace; otherwise nothing is saved and the UI
+asks for a consistent choice. The fast local device catalog ends the picker's loading state while
+scheme-aware `xcodebuild -showdestinations` validation continues in the background. A choice made
+during that validation is queued and saved only if the authoritative result confirms it. Before
+every Generate/Verify scope, the app compares the chosen run's
+platform, device model and exact OS with that destination. A mismatch can be cancelled or run once
+anyway; missing metadata never produces a warning.
 
 The legacy placeholders always describe the visible view parent. Snapshot placeholders describe the
 generator, which may be a separate test file. Refreshing a view runs Verify current file once for each
@@ -196,7 +225,9 @@ tool window. The macOS app delivers through Notification Center while retaining 
 chip and command log.
 
 ### Automatic PNG refresh
-Both hosts watch the configured golden and generated-output directories for PNG changes. A burst of
+Both hosts watch the configured golden and generated-output directories for PNG changes. Xcode
+`.xcresult` artifacts outside those roots are re-resolved on refresh rather than watched recursively.
+A burst of
 filesystem events is debounced into one update. Rewriting an existing PNG invalidates only that
 golden's thumbnail, status and comparison; creating, deleting or moving a PNG performs an atomic
 soft-rescan that preserves the current list, selection and preview until the replacement state is
@@ -206,6 +237,11 @@ command finishes.
 The plugin uses IntelliJ's native VFS event stream. The standalone app uses the JDK's blocking
 `WatchService`, which performs no polling while idle. Non-PNG changes and paths outside the configured
 directories are ignored.
+
+The standalone app also watches Git's `HEAD`, `packed-refs`, and `refs/**` metadata. A commit,
+checkout, rebase, or other HEAD change is debounced, confirmed with one `git rev-parse HEAD`, and then
+invalidates cached HEAD comparisons and refreshes the tree while preserving the active selection.
+Unrelated Git metadata changes do not spawn Git or rescan screenshots.
 
 ## Settings / directories
 Golden dirs and generated test-output dirs are stored per project (`ScreenshotSettings`, a project-level

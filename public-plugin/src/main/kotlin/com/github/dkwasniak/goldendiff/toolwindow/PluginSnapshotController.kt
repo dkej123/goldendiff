@@ -4,15 +4,7 @@ import com.github.dkwasniak.goldendiff.project.SnapshotCase
 import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
 import com.github.dkwasniak.goldendiff.project.SnapshotSourceFile
 import com.github.dkwasniak.goldendiff.scan.MergedGoldenItem
-
-internal enum class SnapshotLoadState {
-    UNCONFIGURED,
-    INITIAL_INDEXING,
-    REFRESHING,
-    READY,
-    EMPTY,
-    ERROR,
-}
+import com.github.dkwasniak.goldendiff.watch.SnapshotLoadState
 
 internal data class SnapshotSelection(
     val viewId: String? = null,
@@ -78,6 +70,9 @@ internal data class PluginSnapshotState(
 internal class PluginSnapshotController(
     private val onStateChanged: (PluginSnapshotState) -> Unit,
 ) {
+    internal data class MergedUpdateRequest(val refreshGeneration: Long, val sequence: Long)
+
+    private var mergedUpdateSequence = 0L
     var state: PluginSnapshotState = PluginSnapshotState()
         private set
 
@@ -101,6 +96,7 @@ internal class PluginSnapshotController(
     }
 
     fun beginRefresh(): Long {
+        mergedUpdateSequence++
         val generation = state.generation + 1
         publish(
             state.copy(
@@ -123,6 +119,7 @@ internal class PluginSnapshotController(
         activeEditorPath: String?,
     ) {
         if (generation != state.generation) return
+        mergedUpdateSequence++
         val previous = state.selection
         val activeView = activeEditorPath?.let { path -> index.files.firstOrNull { it.relativePath == path } }
         val selectedView = index.files.firstOrNull { it.relativePath == previous.viewId }
@@ -147,6 +144,24 @@ internal class PluginSnapshotController(
                 errorMessage = null,
             ),
         )
+    }
+
+    /**
+     * Patches known-affected goldens in place without a full rescan — used both for watcher-driven
+     * in-place PNG updates and for Accept/Accept All, which already know the exact outcome of their
+     * file operation. Leaves [PluginSnapshotState.loadState] and generation untouched.
+     */
+    fun beginMergedItemUpdate(): MergedUpdateRequest =
+        MergedUpdateRequest(state.generation, ++mergedUpdateSequence)
+
+    fun applyMergedItemUpdates(request: MergedUpdateRequest, updated: List<MergedGoldenItem>) {
+        if (request.refreshGeneration != state.generation || request.sequence != mergedUpdateSequence) return
+        if (updated.isEmpty()) return
+        val byPath = updated.associateBy { it.golden.normalize().path }
+        val merged = state.mergedItems.map { item -> byPath[item.golden.normalize().path] ?: item }
+        if (merged == state.mergedItems) return
+        val index = state.index?.let { SnapshotFileIndex.refreshStatuses(it, updated) }
+        publish(state.copy(mergedItems = merged, index = index))
     }
 
     fun failRefresh(generation: Long, error: Throwable) {

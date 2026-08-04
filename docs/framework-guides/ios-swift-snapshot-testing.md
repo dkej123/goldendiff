@@ -13,46 +13,43 @@ own build/test config (read-only) and the official docs above before configuring
 - Test sources `import SnapshotTesting` or call `assertSnapshot(...)`.
 - Committed reference images live under `__Snapshots__/<TestClass>/<name>.png`.
 
-## How the framework behaves (why the setup below is needed)
+## How the framework behaves
 On a **failing** snapshot the library writes the freshly rendered image to
-`$SNAPSHOT_ARTIFACTS/<TestFileName>/<name>.png`. If `SNAPSHOT_ARTIFACTS` is unset it falls back to a
-**volatile** simulator temp dir (`…/CoreSimulator/Devices/<UDID>/data/tmp/…`) that no static config
-can target. Passing snapshots produce no file — which is fine, GoldenDiff only needs the image when it differs.
+`$SNAPSHOT_ARTIFACTS/<TestFileName>/<name>.png`. When `SNAPSHOT_ARTIFACTS` is unset it falls back to a
+simulator temp dir (`…/CoreSimulator/Devices/<UDID>/data/tmp/…`). The XCTest failure stored in the
+latest `.xcresult` contains both the reference URL (`@−`) and actual URL (`@+`). Golden Diff reads
+that result bundle, decodes the `file://` URL, and uses the actual PNG while it still exists.
+Passing snapshots produce no file — which is fine, Golden Diff only needs the image when it differs.
 
-## Project side — make verify output land in a stable directory
-Do NOT modify the iOS project (no committed scheme / test-plan / source edits), and do NOT ask which
-run method to wire — default to `xcodebuild`. Xcode ⌘U is opt-in only (see end).
+## Project side — no artifact environment setup required
+Do not add `SNAPSHOT_ARTIFACTS` to a Test Plan or Scheme, do not add a generated directory to
+`.gitignore`, and do not add a scheme pre-action. Normal Xcode (`⌘U` or a single test) and
+`xcodebuild test` runs already produce an `.xcresult` under DerivedData. Golden Diff uses the newest
+result associated with the current `.xcodeproj` or `.xcworkspace` and ignores failure records whose
+reference URL belongs to another checkout.
 
-**Required env var (verified):** `xcodebuild test` forwards **only** `TEST_RUNNER_`-prefixed vars into
-the simulator runner (a plain `export`, `SIMCTL_CHILD_`, or a test-plan `$(SRCROOT)` do **not** work).
-So generated output reaches GoldenDiff only if this is set for the test run:
-```
-export TEST_RUNNER_SNAPSHOT_ARTIFACTS="<dir>"   # <dir> absolute, e.g. <repo>/.golden-diff-generated
-```
-
-GoldenDiff **can set this inline in its configured Generate/Verify commands** (see below), which is
-preferred because it makes the buttons self-contained and requires no shell-profile change. External
-test runs still need the exported variable; inspect the existing shell/CI environment read-only and,
-if it is absent, tell the user the exact `export` line without applying it. Do not edit a shell
-profile, CI file, Xcode project, scheme, or test plan as part of Golden Diff setup.
-
-**Xcode ⌘U (GUI) — opt-in only.** Do not wire it unless the user explicitly asks. If they do: they set
-`SNAPSHOT_ARTIFACTS=<dir>` in the test plan / scheme (a committed change) or run
-`launchctl setenv SNAPSHOT_ARTIFACTS <dir>` (session-scoped, unverified).
-
-## GoldenDiff side — configure to read that directory
+## Golden Diff side — configure matching
 ```
 --golden-dir-regex '.*/__Snapshots__$'      # committed reference roots
---generated-dir    <dir>                     # same absolute dir as SNAPSHOT_ARTIFACTS above
---generated-regex  '^(.+)\.png$'             # NOT the default _actual regex — pointfree keeps the golden's exact name
+--generated-source xcresult                  # discover failing actuals through Xcode result bundles
 --match-mode       file-class                # XCTest methods are unannotated; goldens carry the test class/file name
 ```
-Golden `__Snapshots__/<TestClass>/<name>.png` maps to generated `<dir>/<TestClass>/<name>.png` — exact, no `_actual` suffix.
+Leave `--generated-dir` unset. Directory outputs and their filename regex are ignored while the
+XCResult source is active; the selected run supplies already-resolved exact snapshot basenames. The
+optional `--xcresult-derived-data <Project>-<hash>` override and
+`--xcresult-scan-window-hours <n>` setting are available when auto-detection or the default 48-hour
+recent-run window does not fit the project.
+Golden Diff maps `__Snapshots__/<TestClass>/<name>.png` to the `.xcresult` actual whose parent is
+`<TestClass>` and whose filename is `<name>.png` — exact, no `_actual` suffix.
 
 ## GoldenDiff side — commands (examples)
 Configure the command templates so the tool-window Generate/Verify buttons work. XCTest snapshot tests
 run through the normal test flow, so **Verify** is just running the tests; scope a single file with
 `-only-testing:<Target>/<Class>`.
+
+No artifact environment variable is needed in these commands. `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`
+remains Generate-only: it is a shell-provided
+recording switch and therefore needs the prefix when passed directly to `xcodebuild`.
 
 The Files → View → Case tree can scope a separate generator file and method in both hosts. When test target names are
 encoded by the first segment after `Tests/`, derive the target from `{snapshot_file_path}` and use:
@@ -70,20 +67,44 @@ xcodebuild test … -only-testing:"$TARGET/{snapshot_class_name}/{snapshot_metho
 Only use this form when the inspected project layout really encodes the target that way.
 
 Resolve the test destination with the user; **never copy a device model from a guide example or
-choose one silently**:
+choose one silently**. The device **model** and **exact OS runtime version** are both required —
+neither is a project setting (nothing in `.xcscheme`/`.xctestplan`/git stores it), so both live only
+in the environment that actually ran the tests. A model name alone (e.g. "iPhone 16") is not a valid
+destination: the same model can have several runtime versions installed, and a mismatch there is
+enough to make swift-snapshot-testing produce visually-identical but byte-different PNGs.
 
-1. Inspect the project's Fastlane lane, CI command, test script and schemes to identify the plausible
-   scheme and test target(s). Run the read-only `xcrun simctl list devices available` to collect the
-   simulator destinations that are actually installed.
-2. Ask the user which test target/destination to use. Present the detected scheme/test target and a
-   concise list of available simulator + runtime choices; when project configuration already names a
-   valid destination, mark it as the recommendation but still ask for confirmation.
-3. After the user answers, run the non-building
+1. Look for ground truth of what Xcode itself last used, in this order:
+   - Newest **Test** result bundle:
+     `ls -td ~/Library/Developer/Xcode/DerivedData/<Project>-*/Logs/Test/*.xcresult | head -1`.
+     Read its `runDestination.targetDeviceRecord` with
+     `xcrun xcresulttool get --legacy --format json --path <xcresult>` and extract `modelName` +
+     `operatingSystemVersionWithBuildNumber`. This is authoritative — it is what Xcode actually ran,
+     not a menu of installed options — because it is a record of a real past test action.
+   - If no `.xcresult` exists yet, `xcrun simctl list devices booted` is a weaker signal (whatever
+     is currently booted in Simulator.app, which Xcode's next ⌘U will likely reuse). Present it to
+     the user explicitly labeled as unconfirmed, not as the resolved value.
+   - If neither exists, there is nothing to infer from this machine. Do not guess a model/OS from a
+     project default or a common device — ask the user to run the test scheme once via Xcode (⌘U) so
+     a ground-truth `.xcresult` exists, then repeat this step.
+2. Inspect the project's Fastlane lane, CI command, test script and schemes to identify the plausible
+   scheme and test target(s), and note any destination they already pin (model and/or OS). Run the
+   read-only `xcrun simctl list devices available` to collect the simulator destinations actually
+   installed. If this pins a different model/OS than step 1 found, surface the discrepancy to the
+   user rather than silently preferring one.
+3. If step 1 found an `.xcresult`-derived model + OS, that is authoritative — adopt it as the
+   resolved destination directly instead of asking the user to re-type it; just show the user what
+   was found (and any step 2 discrepancy) so they can object or override before it is saved. Only
+   when step 1 had no `.xcresult` (booted-simulator guess or nothing at all):
+   Ask the user which test target/destination to use, and require the answer to name both the
+   device model and the exact OS version — an answer that only names a model (no OS) is incomplete
+   and must be re-asked, since that
+   is exactly the gap that causes this class of mismatch.
+4. After the user answers, run the non-building
    `xcodebuild -showdestinations -scheme <scheme>` and match the selected device in its **Available
    destinations**. Use the exact per-device `OS:` value printed there. The broad runtime heading from
    `simctl` can omit a patch component (for example `26.3` while xcodebuild requires `26.3.1`);
    `xcodebuild -showdestinations` is authoritative for destination syntax.
-4. Do not save the Generate/Verify commands until the user answers and that validation succeeds.
+5. Do not save the Generate/Verify commands until the user answers and that validation succeeds.
    Store the chosen stable device name + exact OS version, not a simulator UUID. Never save a literal
    placeholder or guess a popular model.
 
@@ -111,8 +132,7 @@ example:
 xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<device>,OS=<runtime>" -skipPackagePluginValidation -skipMacroValidation
 ```
 Replace every `<…>` value before saving. This affects only non-interactive trust validation; it does
-not replace `TEST_RUNNER_SNAPSHOT_ARTIFACTS`, the Generate-only recording variable, or per-file
-`-only-testing`.
+not replace the Generate-only recording variable or per-file `-only-testing`.
 
 First inspect the resolved `swift-snapshot-testing` version in `Package.resolved`:
 
@@ -124,25 +144,24 @@ First inspect the resolved `swift-snapshot-testing` version in `Package.resolved
   leave Generate unset and explain that upgrading to 1.17+ enables a command-only setup.
 
 Command shape for 1.17+ (every `<…>` value must be replaced with a project value or destination
-confirmed by the user; preserve `$PWD` literally so it expands when GoldenDiff runs it):
+confirmed by the user):
 ```
---generate-all-cmd  'TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>"'
---generate-file-cmd 'TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
---verify-all-cmd    'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>"'
---verify-file-cmd   'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
---verify-case-cmd   'TEST_RUNNER_SNAPSHOT_ARTIFACTS="$PWD/<generated-dir>" xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{snapshot_class_name}/{snapshot_method_name}'
+--generate-all-cmd  'TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>"'
+--generate-file-cmd 'TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
+--verify-all-cmd    'xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>"'
+--verify-file-cmd   'xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{class_name}'
+--verify-case-cmd   'xcodebuild test -scheme <scheme> -destination "platform=iOS Simulator,name=<available-device>,OS=<installed-runtime>" -only-testing:<test-target>/{snapshot_class_name}/{snapshot_method_name}'
 ```
 
 Generate and Verify intentionally share the same underlying test command; Generate differs by the
-recording environment variable. If the project already has a reliable `xcodebuild` wrapper/lane, keep
-that command and prefix it with the same `TEST_RUNNER_…` variables rather than inventing another test
-invocation. Do not run either command during automated configuration.
+recording environment variable. If the project already has a reliable `xcodebuild` wrapper/lane,
+keep that command and add only the Generate recording variable where needed rather than inventing
+another test invocation. Do not run either command during automated configuration.
 
 Before saving, audit the five commands together:
 
 - all five use the user-confirmed scheme and exact destination from `xcodebuild -showdestinations`;
-- all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS` for the project/View Generate and Verify commands;
-  Verify Case sets the same directory too;
+- no command sets `SNAPSHOT_ARTIFACTS` or `TEST_RUNNER_SNAPSHOT_ARTIFACTS`;
 - only Generate All/File set `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`;
 - only Generate File/Verify File use `-only-testing:` for file scope;
 - only per-file/per-case commands use `-only-testing`; a case ends in
@@ -155,7 +174,8 @@ Run `Golden Diff show --json` after configuring and repeat this audit against th
 
 ## Verify
 Do not change a view or run a writing snapshot test as part of automated configuration. Tell the user
-that they can later change a view so a snapshot differs, run its snapshot test, and confirm files
-appear at `<dir>/<TestClass>/<name>.png`. They can then open the source in GoldenDiff; changed Test
-output is selected automatically. If files land in `…/CoreSimulator/…/tmp/…` instead, the env var did not
-reach the runner — recheck the `TEST_RUNNER_` prefix.
+that they can later change a view so a snapshot differs and run its snapshot test with Xcode (`⌘U`,
+a single test, or `xcodebuild test`). The failure's actual PNG may remain under
+`…/CoreSimulator/…/tmp/…`; Golden Diff resolves its `@+ file://` URL from the selected `.xcresult` and
+selects changed Test output automatically. If the simulator has already removed that file, rerun the
+failing test to refresh the result and artifact.

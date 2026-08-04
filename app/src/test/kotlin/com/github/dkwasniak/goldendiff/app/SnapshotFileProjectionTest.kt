@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.app
 
+import com.github.dkwasniak.goldendiff.project.ProjectFileIndex
 import com.github.dkwasniak.goldendiff.project.SnapshotFileStatus
 import com.github.dkwasniak.goldendiff.project.SnapshotCase
 import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
@@ -9,6 +10,7 @@ import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 class SnapshotFileProjectionTest {
     private fun file(path: String, status: SnapshotFileStatus) =
@@ -328,6 +330,23 @@ class SnapshotFileProjectionTest {
         assertEquals(
             QuickOpenResult("ui/Button.kt", "PrimaryButtonPreview", "primary"),
             snapshotQuickOpenResults(index, "PrimaryPreview").single(),
+        )
+    }
+
+    @Test
+    fun `quick open finds project source without any matching golden`() {
+        val root = Files.createTempDirectory("quick-open-project").toFile()
+        val path = "presentation/src/main/kotlin/example/MyChargingCardScreen.kt"
+        File(root, path).apply {
+            parentFile.mkdirs()
+            writeText("class MyChargingCardScreen")
+        }
+        val project = ProjectFileIndex.scan(root)
+        val snapshots = snapshotIndex(file("ui/OtherScreen.kt", SnapshotFileStatus.UNCHANGED))
+
+        assertEquals(
+            QuickOpenResult(path, "MyChargingCardScreen.kt"),
+            projectQuickOpenResults(project, snapshots, "MyChargingCardScreen").first(),
         )
     }
 

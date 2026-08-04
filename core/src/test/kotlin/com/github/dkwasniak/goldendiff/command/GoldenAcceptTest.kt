@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.command
 
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartIndex
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +11,34 @@ import java.io.File
 import java.nio.file.Files
 
 class GoldenAcceptTest {
+
+    @Test
+    fun `accept uses an explicit generated candidate outside configured roots`() {
+        val root = Files.createTempDirectory("golden-accept-explicit").toFile()
+        val goldenRoot = File(root, "goldens")
+        val golden = File(goldenRoot, "BadgeViewSnapshotTests/test_badge.1.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(1))
+        }
+        val generated = File(root, "simulator-tmp/BadgeViewSnapshotTests/test_badge.1.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(2))
+        }
+
+        val result = GoldenAccept.accept(
+            golden,
+            GoldenDiffConfig(
+                goldenPaths = listOf("goldens"),
+                generatedFileRegex = "^(.+)\\.png$",
+            ),
+            root,
+            listOf(GeneratedCounterpartIndex.ExplicitCandidate(generated, "BadgeViewSnapshotTests")),
+        )
+
+        assertTrue(result.isSuccess)
+        assertArrayEquals(byteArrayOf(2), golden.readBytes())
+        assertFalse(generated.exists())
+    }
 
     private fun tempProject(): File = Files.createTempDirectory("gd-accept").toFile()
 
@@ -74,6 +103,10 @@ class GoldenAcceptTest {
         }
 
         assertEquals(listOf(first, third), result.accepted)
+        assertEquals(
+            listOf(firstOutput.canonicalPath, thirdOutput.canonicalPath),
+            result.consumedGenerated.map { it.canonicalPath },
+        )
         assertEquals(listOf(missing), result.failed.map { it.golden })
         assertTrue(result.failed.single().failure is GoldenAccept.Failure.NoGeneratedCounterpart)
         assertArrayEquals(byteArrayOf(8), first.readBytes())
@@ -96,6 +129,10 @@ class GoldenAcceptTest {
         val result = GoldenAccept.acceptAll(listOf(first, second), config(), root)
 
         assertEquals(listOf(first, second), result.accepted)
+        assertEquals(
+            listOf(firstOutput.canonicalPath, secondOutput.canonicalPath),
+            result.consumedGenerated.map { it.canonicalPath },
+        )
         assertTrue(result.failed.isEmpty())
         assertArrayEquals(byteArrayOf(8), first.readBytes())
         assertArrayEquals(byteArrayOf(9), second.readBytes())

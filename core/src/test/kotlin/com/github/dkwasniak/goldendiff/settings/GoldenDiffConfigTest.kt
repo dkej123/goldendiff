@@ -115,4 +115,5 @@ class GoldenDiffConfigTest {
             root.deleteRecursively()
         }
     }
+
 }

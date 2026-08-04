@@ -32,12 +32,13 @@ legacy path.
 |---|---|---|---|
 | REF-01 | Initial indexing, refreshing, ready, empty, unconfigured, and error are distinct states. | `PluginSnapshotController`, `AppState` | Shared state-transition contract. |
 | REF-02 | A soft structural rescan keeps the previous usable tree/selection visible until replacement is ready. | `docs/features.md`, `docs/gotchas.md` | Shared contract with controlled completion. |
-| REF-03 | Rewriting a PNG refreshes affected items in place; create/delete/move performs structural rescan. | `PngDirectoryWatcherTest`, `AppState` | Shared refresh-decision contract plus watcher adapter tests. |
-| REF-04 | Working-copy and Test-output changes refresh together regardless of displayed variant. | `docs/gotchas.md` | Shared refresh contract. |
+| REF-03 | Rewriting a PNG refreshes affected items and tree counters in place; create/delete/move performs structural rescan. | `PngDirectoryWatcherTest`, `PluginSnapshotControllerTest`, `AppState` | Shared refresh-decision contract plus watcher adapter tests. |
+| REF-04 | Working-copy and Test-output changes refresh together regardless of displayed variant, and stale async completions cannot patch a newer refresh/project. | `PluginSnapshotControllerTest`, `docs/gotchas.md` | Shared refresh contract. |
 | REF-05 | Generated roots are indexed once per refresh; ambiguity remains typed and blocks actions. | `GeneratedCounterpartIndexTest` | Core tests retained; shared presentation outcome test. |
 | REF-06 | Untracked directories are expanded to individual files and non-ASCII paths remain intact. | `GitCliTest`, `docs/gotchas.md` | Core regression tests retained. |
 | REF-07 | Source parsing/indexing and filesystem/git/image work never block the UI thread. | `docs/architecture.md`, `docs/gotchas.md` | Dispatcher/adapter contract tests with controlled executors. |
 | REF-08 | Closing the workflow cancels owned work and suppresses every later state/effect publication. | No direct coverage | Shared lifecycle contract test before first cutover. |
+| REF-09 | XCRESULT mode lists individual recent runs, persists one per project, falls back when missing, and rejects stale catalog results. | `XcodeResultGeneratedArtifactsTest`, `AppConfigTest`, app controller generations | Keep app-only workflow/adapter tests. |
 
 ## Comparison
 
@@ -70,6 +71,8 @@ legacy path.
 | CMD-04 | Watcher refreshes are suppressed during a command and exactly one refresh occurs after completion. | `docs/features.md`, host code | Shared orchestration contract. |
 | CMD-05 | Completion notification is eligible only when backgrounded and command succeeded/failed; cancellation is silent. | `CompletionNotificationTest` | Core policy retained; shared effect test and host delivery tests. |
 | CMD-06 | Plugin execution uses the IntelliJ Run tool window; desktop uses its process/log adapter. | `docs/gotchas.md` | Separate adapter contract/smoke tests; never share platform implementation. |
+| CMD-07 | Selecting an iOS destination atomically rewrites every non-empty Xcode command; ambiguity or persistence failure changes none. | `XcodeDestinationsTest`, `AppConfigTest` | App-only parser/adapter and state-transition tests. |
+| CMD-08 | Every Generate/Verify scope warns on selected-run device/platform/exact-OS mismatch; loading cannot bypass preflight; Cancel runs none and Run anyway bypasses once only in the originating project. | `XcodeRunWorkflowTest`, `AppState` common preflight | App-only workflow tests with a fake executor. |
 
 ## Settings, extensions, and shell
 
@@ -78,6 +81,7 @@ legacy path.
 | SET-01 | Command-only settings update actions without rescan; association changes invalidate relevant caches and rescan. | `AppConfigTest`, `AppState` | Shared change-impact policy and state contract. |
 | SET-02 | Invalid regex/configuration is reported without corrupting the last usable workflow state. | `GoldenDiffConfigTest`, settings tests | Core validation retained; shared error-state contract. |
 | SET-03 | IntelliJ and app persistence map to one host-neutral configuration model without format loss. | `ScreenshotConfigurableTest`, `AppConfigTest` | Host adapter round-trip tests. |
+| SET-04 | Selected XCRESULT is separate per-project session state; selected device is derived only from persisted commands. | `AppConfigTest`, `XcodeDestinationsTest` | App-only persistence round-trip tests. |
 | EXT-01 | Built-in and extension items merge with stable source-qualified IDs; filter resets outside extension scope. | `PluginSnapshotControllerTest` | Shared contract; plugin extension adapter test. |
 | EXT-02 | A stale extension result cannot replace results for the current View. | `PluginSnapshotControllerTest` | Shared request-identity contract. |
 | SHL-01 | App updater, onboarding, native windows, and plugin editor lifecycle remain outside shared workflow state. | Architecture contract | Architecture check and host-only tests. |

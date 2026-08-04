@@ -1,10 +1,12 @@
 package com.github.dkwasniak.goldendiff.scan
 
 import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartIndex
 import com.github.dkwasniak.goldendiff.compare.HeadBytesSource
 import com.github.dkwasniak.goldendiff.git.GitChange
 import com.github.dkwasniak.goldendiff.git.WorkingCopyStatus
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -48,6 +50,7 @@ class ChangeScannerTest {
         head: Map<File, ByteArray> = emptyMap(),
         changes: List<GitChange> = emptyList(),
         config: GoldenDiffConfig = GoldenDiffConfig(goldenPaths = listOf("goldens")),
+        explicitGeneratedCandidates: List<GeneratedCounterpartIndex.ExplicitCandidate> = emptyList(),
     ) = ChangeScanner(
         projectRoot = root,
         config = config,
@@ -57,6 +60,7 @@ class ChangeScannerTest {
         workingCopyStatus = object : WorkingCopyStatus {
             override fun changedFiles(): List<GitChange> = changes
         },
+        explicitGeneratedCandidates = explicitGeneratedCandidates,
     )
 
     @Test
@@ -181,6 +185,59 @@ class ChangeScannerTest {
     }
 
     @Test
+    fun `xcresult candidate is a generated variant without a configured generated root`() {
+        val golden = golden("Badge/__Snapshots__/BadgeViewSnapshotTests/test_badge.1.png", byteArrayOf(1))
+        val actual = File(root, "simulator/tmp/BadgeViewSnapshotTests/test_badge.1.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(2))
+        }
+
+        val item = scanner(
+            head = mapOf(golden.normalize() to byteArrayOf(1)),
+            config = GoldenDiffConfig(
+                goldenPaths = listOf("goldens"),
+                generatedFileRegex = "^(.+)\\.png$",
+            ),
+            explicitGeneratedCandidates = listOf(
+                GeneratedCounterpartIndex.ExplicitCandidate(actual, "BadgeViewSnapshotTests"),
+            ),
+        ).mergedItemsFor(listOf(golden)).single()
+
+        assertEquals(actual, item.testOutput?.file)
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, item.testOutput?.status)
+        assertEquals(MergedGoldenStatus.FAILED, item.displayStatus)
+    }
+
+    @Test
+    fun `xcresult source ignores stale candidates from configured generated directories`() {
+        val golden = golden("Login.png", byteArrayOf(1))
+        val staleDirectoryOutput = File(root, "out/Login.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(2))
+        }
+        val selectedRunOutput = File(root, "simulator/tmp/Login.png").apply {
+            parentFile.mkdirs()
+            writeBytes(byteArrayOf(3))
+        }
+
+        val item = scanner(
+            head = mapOf(golden.normalize() to byteArrayOf(1)),
+            config = GoldenDiffConfig(
+                goldenPaths = listOf("goldens"),
+                generatedPaths = listOf("out"),
+                generatedFileRegex = "^(.+)\\.png$",
+                generatedSource = GeneratedSource.XCRESULT,
+            ),
+            explicitGeneratedCandidates = listOf(
+                GeneratedCounterpartIndex.ExplicitCandidate(selectedRunOutput, ""),
+            ),
+        ).mergedItemsFor(listOf(golden)).single()
+
+        assertEquals(selectedRunOutput, item.testOutput?.file)
+        assertTrue(staleDirectoryOutput.isFile)
+    }
+
+    @Test
     fun `relative paths are reported with forward slashes regardless of platform`() {
         val nested = golden("nested/deep/Screen.png")
 
@@ -275,5 +332,37 @@ class ChangeScannerTest {
         assertEquals(4, items.map { it.golden.normalize().path }.distinct().size)
         assertEquals(MergedGoldenStatus.FAILED, items.first().displayStatus)
         assertEquals(ExtraComparisonItemStatus.MODIFIED, items.first().workingCopy?.status)
+    }
+
+    @Test
+    fun `mergedItemsFor fetches HEAD content in one batched call, not one per golden`() {
+        val first = golden("First.png", byteArrayOf(1))
+        val second = golden("Second.png", byteArrayOf(2))
+        var perFileCalls = 0
+        var batchCalls = 0
+        val scanner = ChangeScanner(
+            projectRoot = root,
+            config = GoldenDiffConfig(goldenPaths = listOf("goldens")),
+            headBytes = object : HeadBytesSource {
+                override fun headBytes(file: File): ByteArray? {
+                    perFileCalls++
+                    return null
+                }
+
+                override fun headBytes(files: Collection<File>): Map<File, ByteArray?> {
+                    batchCalls++
+                    return files.associateWith { byteArrayOf(1) }
+                }
+            },
+            workingCopyStatus = object : WorkingCopyStatus {
+                override fun changedFiles(): List<GitChange> = emptyList()
+            },
+        )
+
+        val items = scanner.mergedItemsFor(listOf(first, second))
+
+        assertEquals(1, batchCalls)
+        assertEquals(0, perFileCalls)
+        assertEquals(setOf(first, second), items.map { it.golden }.toSet())
     }
 }

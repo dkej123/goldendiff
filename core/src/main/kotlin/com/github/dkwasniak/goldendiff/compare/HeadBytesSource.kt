@@ -19,4 +19,14 @@ interface HeadBytesSource {
 
     /** Committed content of [file], or null if it is untracked, deleted in HEAD, or unreadable. */
     fun headBytes(file: File): ByteArray?
+
+    /**
+     * Batched form of [headBytes] for a project-wide scan touching many files at once.
+     *
+     * The default just calls [headBytes] per file, which is exactly right for the IDE (already cached,
+     * no process to spawn per call). A CLI-backed source should override this to spawn one process for
+     * the whole batch instead of one per file — the difference between milliseconds and seconds once a
+     * project has more than a handful of goldens.
+     */
+    fun headBytes(files: Collection<File>): Map<File, ByteArray?> = files.associateWith(::headBytes)
 }

@@ -4,6 +4,9 @@ import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
 import java.io.File
 
+/** How the standalone app discovers the generated Test output variant. */
+enum class GeneratedSource { DIRECTORY, XCRESULT }
+
 /**
  * Everything the comparison logic needs to know about how a project is laid out and how goldens
  * should be matched. A plain value object: no persistence, no host types.
@@ -27,6 +30,18 @@ data class GoldenDiffConfig(
     val generatedPaths: List<String> = emptyList(),
     /** Selects generated output; the first capture group maps back to the golden's base name. */
     val generatedFileRegex: String = GoldenDiffDefaults.GENERATED_FILE_REGEX,
+    /** Directory/regex discovery or Xcode `.xcresult` failure URLs. */
+    val generatedSource: GeneratedSource = GeneratedSource.DIRECTORY,
+    /** Optional `<Project>-<hash>` DerivedData folder override for [GeneratedSource.XCRESULT]. */
+    val xcresultDerivedDataPath: String = "",
+    /** Recent-result window used to list selectable `.xcresult` bundles. */
+    val xcresultScanWindowHours: Int = 48,
+    /**
+     * Whether this project builds with Xcode. Independent of [generatedSource] — a project can read
+     * generated output from a plain directory while still running its commands through `xcodebuild` —
+     * so this alone gates the Xcode device/destination picker, not the choice of output source.
+     */
+    val isIosProject: Boolean = false,
     val matchMode: MatchMode = MatchingDefaults.DEFAULT_MATCH_MODE,
     /** Applied to annotation names; matching annotated functions become golden candidates. */
     val annotatedFunctionRegex: String = MatchingDefaults.ANNOTATION_NAME_REGEX,
@@ -68,6 +83,8 @@ data class GoldenDiffConfig(
     val isConfigured: Boolean get() = goldenPaths.isNotEmpty()
 
     val hasGeneratedPaths: Boolean get() = generatedPaths.isNotEmpty()
+
+    val usesXcresultSource: Boolean get() = generatedSource == GeneratedSource.XCRESULT
 
     val hasGenerateAllCommand: Boolean get() = generateAllCommand.isNotBlank()
 

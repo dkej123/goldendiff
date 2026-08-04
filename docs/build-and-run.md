@@ -80,11 +80,11 @@ Repositories**.
 
 ## Releasing the standalone macOS app and Homebrew Cask
 
-Push a tag matching `pluginVersion` from `gradle.properties`:
+Push a tag matching `appVersion` from `app/version.properties`:
 
 ```bash
-git tag app-v2.0.0
-git push origin app-v2.0.0
+git tag app-v2.1.0
+git push origin app-v2.1.0
 
 # Beta releases use a prerelease tag.
 git tag app-beta-v1.5.0-beta.1
@@ -94,13 +94,20 @@ git push origin app-beta-v1.5.0-beta.1
 The `package-app.yml` workflow builds the DMG with a full JDK, publishes it to the tag's GitHub
 Release as `Golden-Diff-<version>.dmg`, calculates its SHA-256 and commits the appropriate cask to
 `main`. Stable tags update `Casks/golden-diff.rb`; beta tags create a GitHub prerelease and update
-`Casks/golden-diff@beta.rb`. The tag and `pluginVersion` must match or the release fails before
+`Casks/golden-diff@beta.rb`. The tag and `appVersion` must match or the release fails before
 uploading.
 
 `appPackageVersion` is the numeric version written into the native macOS package. It is intentionally
 separate because `jpackage`/macOS package metadata does not accept a prerelease suffix such as
-`-beta.1`; the release tag, DMG asset, and Homebrew cask still use the full `pluginVersion`. A manual
+`-beta.1`; the release tag, DMG asset, and Homebrew cask still use the full `appVersion`. A manual
 workflow run builds an Actions artifact but intentionally does not publish a release or change a cask.
+The standalone build reads both values only from `app/version.properties`; the legacy root
+`appPackageVersion` is not part of the app release contract.
+
+App and plugin releases are independent: `app-v*`/`app-beta-v*` trigger only `package-app.yml` and
+read `app/version.properties`; `v*`/`beta-v*` trigger only the public-plugin workflows and read
+`pluginVersion` from the root `gradle.properties`. App version bumps therefore do not trigger the
+internal-plugin workflow, whose path filters include the root Gradle properties.
 
 Users install it with:
 
@@ -132,7 +139,7 @@ After pushing a public-plugin or app tag:
 1. Wait for the complete workflow, then inspect the **Create Sentry release** step. It must be
    `success`, not `skipped`.
 2. Confirm the matching Sentry release exists: `golden-diff-plugin@<pluginVersion>` for `v*` and
-   `beta-v*`, or `golden-diff-app@<pluginVersion>` for `app-v*` and `app-beta-v*`.
+   `beta-v*`, or `golden-diff-app@<appVersion>` for `app-v*` and `app-beta-v*`.
 3. Confirm its environment is `stable` or `beta` according to the tag, its release URL points to the
    published artifact/listing, and commits are associated through the release HEAD.
 
@@ -152,10 +159,10 @@ GitHub release, no auth — the repo is public, so raw URLs are reachable direct
 
 Publishing is **automated**: the [`publish-internal.yml`](../.github/workflows/publish-internal.yml)
 workflow rebuilds the internal plugin and commits refreshed `distribution/{ZIP,updatePlugins.xml}`
-back to `main` on every push that changes the sources or `gradle.properties`. So the normal release
-flow is just:
+back to `main` on every push that changes the sources or root `gradle.properties`. So the normal
+release flow is just:
 ```bash
-# bump pluginVersion in gradle.properties, then
+# bump figmaPluginVersion in gradle.properties, then
 git commit -am "…" && git push        # CI refreshes distribution/ for you
 ```
 The bot commit only touches `distribution/` and is pushed with `GITHUB_TOKEN` (which does not

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish the internal (Figma) plugin by hosting it straight from this public repo: build it, then
 # copy the ZIP + updatePlugins.xml into distribution/ (served via raw.githubusercontent.com). Run
-# after bumping pluginVersion in gradle.properties, then commit & push the distribution/ changes.
+# after bumping figmaPluginVersion in gradle.properties, then commit & push the distribution/ changes.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

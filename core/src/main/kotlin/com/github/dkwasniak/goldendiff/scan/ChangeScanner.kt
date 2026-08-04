@@ -36,17 +36,20 @@ class ChangeScanner(
     private val config: GoldenDiffConfig,
     private val headBytes: HeadBytesSource,
     private val workingCopyStatus: WorkingCopyStatus,
+    private val explicitGeneratedCandidates: List<GeneratedCounterpartIndex.ExplicitCandidate> = emptyList(),
 ) {
 
     private val goldenRoots: List<File> get() = config.resolvedGoldenPaths(projectRoot)
 
-    private val generatedRoots: List<File> get() = config.resolvedGeneratedPaths(projectRoot)
+    private val generatedRoots: List<File>
+        get() = if (config.usesXcresultSource) emptyList() else config.resolvedGeneratedPaths(projectRoot)
 
     private val generatedIndex: GeneratedCounterpartIndex by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         GeneratedCounterpartIndex.build(
             generatedRoots = generatedRoots,
             generatedFileRegex = config.normalizedForMatching().generatedFileRegex,
             excludedSuffixes = config.excludedSuffixes,
+            explicitCandidates = explicitGeneratedCandidates,
         )
     }
 
@@ -58,13 +61,18 @@ class ChangeScanner(
     fun mergedItemsFor(files: List<File>): List<MergedGoldenItem> {
         val roots = goldenRoots
         val normalizedFiles = files.distinctBy { it.normalize().path }
+        // One batched HEAD lookup for every golden instead of one per golden: both variants below
+        // compare against the same golden's committed bytes, and a project-wide refresh can easily
+        // touch hundreds of files.
+        val headByFile = headBytes.headBytes(normalizedFiles)
         return normalizedFiles.map { golden ->
             val resolution = generatedResolution(golden)
             val generated = (resolution as? GeneratedCounterpartResolution.Exact)?.file
+            val head = headByFile[golden]
             MergedGoldenItem(
                 golden = golden,
-                workingCopy = GoldenSourceVariant(golden, statusOf(golden, BuiltInSource.WORKING_COPY)),
-                testOutput = generated?.let { GoldenSourceVariant(it, generatedStatus(golden, it)) },
+                workingCopy = GoldenSourceVariant(golden, statusOf(golden, BuiltInSource.WORKING_COPY, head)),
+                testOutput = generated?.let { GoldenSourceVariant(it, generatedStatus(golden, it, head)) },
                 testOutputResolution = resolution,
             )
         }.sortedWith(mergedComparator(roots))
@@ -122,8 +130,11 @@ class ChangeScanner(
         }
     }
 
-    fun statusOf(file: File, source: BuiltInSource): ExtraComparisonItemStatus {
-        val head = headBytes.headBytes(file)
+    fun statusOf(file: File, source: BuiltInSource): ExtraComparisonItemStatus =
+        statusOf(file, source, headBytes.headBytes(file))
+
+    /** Same as the public overload, but for a batched caller that already has [head] on hand. */
+    private fun statusOf(file: File, source: BuiltInSource, head: ByteArray?): ExtraComparisonItemStatus {
         val sourceFile = when (source) {
             BuiltInSource.WORKING_COPY -> file
             BuiltInSource.GENERATED ->
@@ -148,7 +159,9 @@ class ChangeScanner(
     )
 
     private fun generatedEntries(): List<GeneratedEntry> {
-        if (generatedRoots.none(File::isDirectory)) return emptyList()
+        if (generatedRoots.none(File::isDirectory) && explicitGeneratedCandidates.none { it.file.isFile }) {
+            return emptyList()
+        }
         return GoldenFinder.findAll(goldenRoots, config.excludedSuffixes).map { golden ->
             val resolution = generatedResolution(golden)
             val output = (resolution as? GeneratedCounterpartResolution.Exact)?.file
@@ -164,9 +177,13 @@ class ChangeScanner(
         compareBy<MergedGoldenItem> { mergedStatusSortRank(it.displayStatus) }
             .thenBy(ProjectFileIndexPathComparator) { invariantPathIn(it.golden, roots) }
 
-    private fun generatedStatus(golden: File, generated: File?): ExtraComparisonItemStatus {
+    private fun generatedStatus(golden: File, generated: File?): ExtraComparisonItemStatus =
+        generatedStatus(golden, generated, headBytes.headBytes(golden))
+
+    /** Same as the two-argument overload, but for a batched caller that already has [head] on hand. */
+    private fun generatedStatus(golden: File, generated: File?, head: ByteArray?): ExtraComparisonItemStatus {
         val sourceBytes = generated?.let(ImageBytes::workingBytes) ?: return ExtraComparisonItemStatus.UNCHANGED
-        val head = headBytes.headBytes(golden) ?: return ExtraComparisonItemStatus.NEW
+        if (head == null) return ExtraComparisonItemStatus.NEW
         return if (head.contentEquals(sourceBytes)) {
             ExtraComparisonItemStatus.UNCHANGED
         } else {
@@ -205,9 +222,16 @@ class ChangeScanner(
         fun forGitProject(
             projectRoot: File,
             config: GoldenDiffConfig,
+            explicitGeneratedCandidates: List<GeneratedCounterpartIndex.ExplicitCandidate> = emptyList(),
         ): ChangeScanner {
             val git = GitCli(projectRoot)
-            return ChangeScanner(projectRoot, config.normalizedForMatching(), git, git)
+            return ChangeScanner(
+                projectRoot,
+                config.normalizedForMatching(),
+                git,
+                git,
+                explicitGeneratedCandidates,
+            )
         }
 
         fun statusSortRank(status: ExtraComparisonItemStatus): Int =

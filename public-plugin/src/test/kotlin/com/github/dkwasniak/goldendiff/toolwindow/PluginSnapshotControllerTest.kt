@@ -98,6 +98,98 @@ class PluginSnapshotControllerTest {
     }
 
     @Test
+    fun `applyMergedItemUpdates patches only matching goldens without touching load state`() {
+        val touched = File("/tmp/touched.png")
+        val untouched = File("/tmp/untouched.png")
+        val controller = PluginSnapshotController {}
+        val refresh = controller.beginRefresh()
+        controller.completeRefresh(
+            refresh,
+            index(view("A.kt", touched.path), view("B.kt", untouched.path)),
+            listOf(
+                MergedGoldenItem(touched, GoldenSourceVariant(touched, ExtraComparisonItemStatus.MODIFIED), null),
+                MergedGoldenItem(untouched, GoldenSourceVariant(untouched, ExtraComparisonItemStatus.UNCHANGED), null),
+            ),
+            null,
+        )
+        val stateBefore = controller.state
+
+        controller.applyMergedItemUpdates(
+            controller.beginMergedItemUpdate(),
+            listOf(MergedGoldenItem(touched, GoldenSourceVariant(touched, ExtraComparisonItemStatus.UNCHANGED), null)),
+        )
+
+        assertEquals(
+            listOf(ExtraComparisonItemStatus.UNCHANGED, ExtraComparisonItemStatus.UNCHANGED),
+            controller.state.mergedItems.map { it.workingCopy?.status },
+        )
+        assertEquals(stateBefore.loadState, controller.state.loadState)
+        assertEquals(stateBefore.generation, controller.state.generation)
+        assertEquals(SnapshotFileStatus.UNCHANGED, controller.state.index?.files?.first()?.status)
+        assertEquals(SnapshotFileStatus.MODIFIED, controller.state.index?.files?.last()?.status)
+    }
+
+    @Test
+    fun `applyMergedItemUpdates with no matching goldens is a no-op`() {
+        val golden = File("/tmp/golden.png")
+        val controller = readyController(golden)
+        val stateBefore = controller.state
+
+        controller.applyMergedItemUpdates(
+            controller.beginMergedItemUpdate(),
+            listOf(
+                MergedGoldenItem(
+                    File("/tmp/other.png"),
+                    GoldenSourceVariant(File("/tmp/other.png"), ExtraComparisonItemStatus.MODIFIED),
+                    null,
+                ),
+            ),
+        )
+
+        assertEquals(stateBefore, controller.state)
+    }
+
+    @Test
+    fun `stale or superseded merged updates cannot patch current refresh`() {
+        val golden = File("/tmp/golden.png")
+        val controller = readyController(golden)
+        val staleByNewerUpdate = controller.beginMergedItemUpdate()
+        val latest = controller.beginMergedItemUpdate()
+        val changed = listOf(
+            MergedGoldenItem(golden, GoldenSourceVariant(golden, ExtraComparisonItemStatus.UNCHANGED), null),
+        )
+
+        controller.applyMergedItemUpdates(staleByNewerUpdate, changed)
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, controller.state.mergedItems.single().workingCopy?.status)
+
+        val staleByRefresh = latest
+        controller.beginRefresh()
+        controller.applyMergedItemUpdates(staleByRefresh, changed)
+        assertEquals(ExtraComparisonItemStatus.MODIFIED, controller.state.mergedItems.single().workingCopy?.status)
+    }
+
+    @Test
+    fun `merged update started during refresh cannot patch completed replacement`() {
+        val golden = File("/tmp/golden.png")
+        val controller = readyController(golden)
+        val refresh = controller.beginRefresh()
+        val inFlightUpdate = controller.beginMergedItemUpdate()
+        controller.completeRefresh(
+            refresh,
+            index(view("A.kt", golden.path)),
+            listOf(MergedGoldenItem(golden, GoldenSourceVariant(golden, ExtraComparisonItemStatus.NEW), null)),
+            null,
+        )
+
+        controller.applyMergedItemUpdates(
+            inFlightUpdate,
+            listOf(MergedGoldenItem(golden, GoldenSourceVariant(golden, ExtraComparisonItemStatus.UNCHANGED), null)),
+        )
+
+        assertEquals(ExtraComparisonItemStatus.NEW, controller.state.mergedItems.single().workingCopy?.status)
+    }
+
+    @Test
     fun `built in and extension items merge with stable source-qualified ids`() {
         val golden = File("/tmp/golden.png")
         val controller = readyController(golden)

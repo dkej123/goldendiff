@@ -1,6 +1,8 @@
 package com.github.dkwasniak.goldendiff.app
 
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
+import com.github.dkwasniak.goldendiff.project.SnapshotFileStatus
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
 import org.junit.After
@@ -15,6 +17,18 @@ import java.io.PrintStream
 import java.nio.file.Files
 
 class AppConfigTest {
+    @Test
+    fun `selected xcresult session is per project and survives config saves`() {
+        val first = projectDir("xcresult-session-first")
+        val second = projectDir("xcresult-session-second")
+
+        AppConfig.saveSelectedXcodeRun(first, "/DerivedData/First.xcresult").getOrThrow()
+        AppConfig.saveSelectedXcodeRun(second, "/DerivedData/Second.xcresult").getOrThrow()
+        AppConfig.save(first, GoldenDiffConfig(goldenPaths = listOf("goldens"))).getOrThrow()
+
+        assertEquals("/DerivedData/First.xcresult", AppConfig.loadSelectedXcodeRun(first))
+        assertEquals("/DerivedData/Second.xcresult", AppConfig.loadSelectedXcodeRun(second))
+    }
 
     private lateinit var originalHome: String
     private lateinit var tempHome: File
@@ -34,6 +48,73 @@ class AppConfigTest {
     }
 
     private fun projectDir(name: String): File = File(tempHome, name).apply { mkdirs() }
+
+    @Test
+    fun `xcresult test-output settings round trip`() {
+        val project = projectDir("xcresult-round-trip")
+        val config = GoldenDiffConfig(
+            goldenPaths = listOf("__Snapshots__"),
+            generatedSource = GeneratedSource.XCRESULT,
+            xcresultDerivedDataPath = "/some/path",
+            xcresultScanWindowHours = 12,
+        )
+
+        AppConfig.save(project, config).getOrThrow()
+
+        val loaded = AppConfig.load(project)
+        assertEquals(GeneratedSource.XCRESULT, loaded.generatedSource)
+        assertEquals("/some/path", loaded.xcresultDerivedDataPath)
+        assertEquals(12, loaded.xcresultScanWindowHours)
+    }
+
+    @Test
+    fun `iOS project flag round trips independently of the generated source`() {
+        val project = projectDir("ios-project-round-trip")
+        val config = GoldenDiffConfig(
+            goldenPaths = listOf("__Snapshots__"),
+            generatedSource = GeneratedSource.DIRECTORY,
+            isIosProject = true,
+        )
+
+        AppConfig.save(project, config).getOrThrow()
+
+        val loaded = AppConfig.load(project)
+        assertTrue(loaded.isIosProject)
+        assertEquals(GeneratedSource.DIRECTORY, loaded.generatedSource)
+    }
+
+    @Test
+    fun `legacy config missing the iOS project flag defaults to false`() {
+        val project = projectDir("ios-project-legacy")
+        AppConfig.save(project, GoldenDiffConfig(goldenPaths = listOf("screenshots"), isIosProject = true))
+            .getOrThrow()
+        val file = configFileFor(project)
+        file.writeText(file.readLines().filterNot { it.startsWith("isIosProject") }.joinToString("\n"))
+
+        assertFalse(AppConfig.load(project).isIosProject)
+    }
+
+    @Test
+    fun `legacy config defaults to directory test-output source`() {
+        val project = projectDir("xcresult-legacy")
+        AppConfig.save(project, GoldenDiffConfig(goldenPaths = listOf("screenshots"))).getOrThrow()
+        val file = configFileFor(project)
+        file.writeText(
+            file.readLines()
+                .filterNot { it.startsWith("generatedSource") || it.startsWith("xcresult") }
+                .joinToString("\n"),
+        )
+
+        val loaded = AppConfig.load(project)
+        assertEquals(GeneratedSource.DIRECTORY, loaded.generatedSource)
+        assertEquals("", loaded.xcresultDerivedDataPath)
+        assertEquals(48, loaded.xcresultScanWindowHours)
+    }
+
+    private fun configFileFor(project: File): File = File(
+        tempHome,
+        ".config/golden-diff/${project.name}-${Integer.toHexString(project.absolutePath.hashCode())}.properties",
+    )
 
     @Test
     fun `recent projects are newest first and de-duplicated`() {
@@ -303,6 +384,75 @@ class AppConfigTest {
     }
 
     @Test
+    fun `CLI configures xcresult test-output source`() {
+        val project = projectDir("cli-xcresult")
+
+        val exit = GoldenDiffCli.run(
+            arrayOf(
+                "configure",
+                "--project", project.absolutePath,
+                "--generated-source", "xcresult",
+                "--xcresult-derived-data", "/tmp/AdHoc-hash",
+                "--xcresult-scan-window-hours", "24",
+                "--allow-non-git",
+            ),
+        )
+
+        assertEquals(0, exit)
+        val loaded = AppConfig.load(project)
+        assertEquals(GeneratedSource.XCRESULT, loaded.generatedSource)
+        assertEquals("/tmp/AdHoc-hash", loaded.xcresultDerivedDataPath)
+        assertEquals(24, loaded.xcresultScanWindowHours)
+    }
+
+    @Test
+    fun `CLI configures the iOS project flag independently of generated source`() {
+        val project = projectDir("cli-ios-project")
+
+        val exit = GoldenDiffCli.run(
+            arrayOf(
+                "configure",
+                "--project", project.absolutePath,
+                "--ios-project",
+                "--allow-non-git",
+            ),
+        )
+
+        assertEquals(0, exit)
+        val loaded = AppConfig.load(project)
+        assertTrue(loaded.isIosProject)
+        assertEquals(GeneratedSource.DIRECTORY, loaded.generatedSource)
+
+        val cleared = GoldenDiffCli.run(
+            arrayOf(
+                "configure",
+                "--project", project.absolutePath,
+                "--no-ios-project",
+                "--allow-non-git",
+            ),
+        )
+
+        assertEquals(0, cleared)
+        assertFalse(AppConfig.load(project).isIosProject)
+    }
+
+    @Test
+    fun `CLI rejects a non-positive xcresult scan window`() {
+        val project = projectDir("cli-xcresult-window")
+
+        val exit = GoldenDiffCli.run(
+            arrayOf(
+                "configure",
+                "--project", project.absolutePath,
+                "--xcresult-scan-window-hours", "0",
+                "--allow-non-git",
+            ),
+        )
+
+        assertEquals(1, exit)
+    }
+
+    @Test
     fun `agent prompt configures validates and signals in that order`() {
         val prompt = buildCliAgentPrompt("/project")
 
@@ -347,16 +497,21 @@ class AppConfigTest {
     }
 
     @Test
-    fun `swift snapshot guide reports environment change without applying it`() {
+    fun `swift snapshot guide uses xcresult discovery without project changes`() {
         val guide = checkNotNull(
             javaClass.classLoader.getResourceAsStream(
                 "framework-guides/ios-swift-snapshot-testing.md",
             ),
         ).bufferedReader().use { it.readText() }
         val normalized = guide.replace(Regex("\\s+"), " ")
-        assertTrue(normalized.contains("inspect the existing shell/CI environment read-only", ignoreCase = true))
-        assertTrue(normalized.contains("Do not edit a shell profile"))
-        assertFalse(normalized.contains("offer to append"))
+        assertTrue(normalized.contains("no artifact environment setup required", ignoreCase = true))
+        assertTrue(guide.contains(".xcresult"))
+        assertTrue(guide.contains("@+"))
+        assertTrue(guide.contains("file://"))
+        assertTrue(normalized.contains("Leave `--generated-dir` unset"))
+        assertFalse(guide.contains("--generated-regex"))
+        assertFalse(guide.contains("SNAPSHOT_ARTIFACTS=$(SRCROOT)"))
+        assertFalse(guide.contains("mkdir -p .golden-diff-generated"))
     }
 
     @Test
@@ -403,7 +558,8 @@ class AppConfigTest {
         assertTrue(guide.contains("-skipPackagePluginValidation"))
         assertTrue(guide.contains("-skipMacroValidation"))
         assertTrue(normalized.contains("Do not add them preemptively"))
-        assertTrue(guide.contains("all four set `TEST_RUNNER_SNAPSHOT_ARTIFACTS`"))
+        assertTrue(normalized.contains("No artifact environment variable is needed"))
+        assertTrue(guide.contains("no command sets `SNAPSHOT_ARTIFACTS` or `TEST_RUNNER_SNAPSHOT_ARTIFACTS`"))
         assertTrue(guide.contains("only Generate All/File set `TEST_RUNNER_SNAPSHOT_TESTING_RECORD=all`"))
         assertTrue(guide.contains("only Generate File/Verify File use `-only-testing:"))
         assertFalse(guide.contains("iPhone 15 Pro"))
@@ -507,5 +663,63 @@ class AppConfigTest {
                 arrayOf("validate", "--project", project.absolutePath, "--source-file", source.relativeTo(project).path),
             ),
         )
+    }
+
+    @Test
+    fun `tree session round trips filter, grouping and status chips`() {
+        val project = projectDir("tree-session")
+        val session = AppConfig.TreeSession(
+            filter = "Badge",
+            grouped = false,
+            statusFilters = setOf(SnapshotFileStatus.FAILED, SnapshotFileStatus.NEW),
+        )
+
+        AppConfig.saveTreeSession(project, session)
+
+        assertEquals(session, AppConfig.loadTreeSession(project))
+    }
+
+    @Test
+    fun `missing tree session defaults to grouped with no filters`() {
+        val project = projectDir("tree-session-missing")
+
+        assertEquals(AppConfig.TreeSession(), AppConfig.loadTreeSession(project))
+    }
+
+    @Test
+    fun `tree cache round trips and is validated by fingerprint at the call site`() {
+        val project = projectDir("tree-cache")
+        val index = com.github.dkwasniak.goldendiff.project.SnapshotFileIndex(
+            root = project,
+            files = listOf(
+                com.github.dkwasniak.goldendiff.project.SnapshotSourceFile(
+                    relativePath = "A.kt",
+                    goldenPaths = listOf("golden/a.png"),
+                    status = SnapshotFileStatus.MODIFIED,
+                    failedCount = 0,
+                ),
+            ),
+            failedFilesByDirectory = emptyMap(),
+            fingerprint = com.github.dkwasniak.goldendiff.project.SnapshotIndexFingerprint(
+                projectPath = project.absolutePath,
+                goldenPaths = listOf("golden"),
+                matchMode = com.github.dkwasniak.goldendiff.match.MatchMode.ANNOTATED_METHOD,
+                annotatedFunctionRegex = "@Preview",
+                goldenFilePatterns = emptyList(),
+                excludedSuffixes = emptyList(),
+            ),
+            goldenInventory = setOf("golden/a.png"),
+        )
+
+        AppConfig.saveTreeCache(project, index)
+
+        assertEquals(index, AppConfig.loadTreeCache(project))
+    }
+
+    @Test
+    fun `missing tree cache returns null`() {
+        val project = projectDir("tree-cache-missing")
+
+        assertEquals(null, AppConfig.loadTreeCache(project))
     }
 }
