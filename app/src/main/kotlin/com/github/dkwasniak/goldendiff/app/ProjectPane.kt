@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Icon
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +70,9 @@ import com.github.dkwasniak.goldendiff.project.SnapshotSourceFile
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 internal data class SnapshotFileGroup(
     val folder: String,
@@ -353,8 +358,8 @@ private inline fun <T> List<T>.takeWhileIndexed(predicate: (Int, T) -> Boolean):
 /** Left pane: only source files that current matching associates with at least one existing golden. */
 @Composable
 fun ProjectPane(state: AppState, modifier: Modifier) {
-    var grouped by remember { mutableStateOf(true) }
-    var statusFilters by remember { mutableStateOf(emptySet<SnapshotFileStatus>()) }
+    val grouped = state.treeGrouped
+    val statusFilters = state.treeStatusFilters
     var collapsedFolders by remember { mutableStateOf(emptySet<String>()) }
     var expandedViews by remember { mutableStateOf(emptySet<String>()) }
     val focusRequester = remember { FocusRequester() }
@@ -389,7 +394,7 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
             !targetFile.matches(statusFilters) ||
             targetCase != null && !targetCase.matches(statusFilters)
         ) {
-            statusFilters = emptySet()
+            state.clearTreeStatusFilters()
         }
         val filter = state.treeFilter.trim()
         val filterMatches = target.contains(filter, ignoreCase = true) ||
@@ -399,7 +404,7 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
             filter.isNotBlank() &&
             !filterMatches
         ) {
-            state.treeFilter = ""
+            state.updateTreeFilter("")
         }
         // A reveal must win over manual collapsing; the follow-up composition computes the target's
         // lazy-list index and the effect below performs the actual scroll.
@@ -436,7 +441,7 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
             },
             actions = {
                 Text("Group", color = tokens.textDim, fontSize = Type.small)
-                Toggle(grouped) { grouped = !grouped }
+                Toggle(grouped) { state.updateTreeGrouped(!grouped) }
                 IconButton(size = 18.dp, onClick = state::revealSelectedGoldenInTree) {
                     TargetIcon(
                         if (state.selected != null) tokens.textDim else tokens.textFaint.copy(alpha = 0.35f),
@@ -448,11 +453,12 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
                 }
             },
         )
+        if (state.config.usesXcresultSource) XcodeTestRunPicker(state)
         FilterField(
             value = state.treeFilter,
             placeholder = "Filter files…",
             modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
-        ) { state.treeFilter = it }
+        ) { state.updateTreeFilter(it) }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -463,7 +469,7 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
                 SnapshotFileStatus.NEW to "New",
             ).forEach { (status, label) ->
                 FilterChip(label, status, status in statusFilters) {
-                    statusFilters = if (status in statusFilters) statusFilters - status else statusFilters + status
+                    state.toggleTreeStatusFilter(status)
                 }
             }
         }
@@ -483,10 +489,10 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
             index.files.isEmpty() -> PaneHint("No files with snapshots")
             flat.isEmpty() && statusFilters.isNotEmpty() && state.treeFilter.isBlank() ->
                 PaneActionHint("No files match the selected statuses", "Show all files") {
-                    statusFilters = emptySet()
+                    state.clearTreeStatusFilters()
                 }
             flat.isEmpty() ->
-                PaneActionHint("No files match the active filters", "Clear search") { state.treeFilter = "" }
+                PaneActionHint("No files match the active filters", "Clear search") { state.updateTreeFilter("") }
             else -> LazyColumn(
                 Modifier.fillMaxSize()
                     .focusRequester(focusRequester)
@@ -607,6 +613,72 @@ fun ProjectPane(state: AppState, modifier: Modifier) {
         }
     }
 }
+
+@Composable
+private fun XcodeTestRunPicker(state: AppState) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = state.selectedXcodeRun
+    val shape = RoundedCornerShape(Dimens.controlRadius)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Text("TEST RUN", color = tokens.textFaint, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Box {
+            Row(
+                Modifier.fillMaxWidth().height(34.dp).clip(shape).border(1.dp, tokens.border, shape)
+                    .clickable(enabled = !state.xcodeRunsLoading) { expanded = true }
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                if (state.xcodeRunsLoading) {
+                    CircularProgressIndicator(Modifier.width(12.dp).height(12.dp), color = tokens.accent, strokeWidth = 1.5.dp)
+                }
+                Text(
+                    when {
+                        state.xcodeRunsError != null -> "Could not load test runs"
+                        selected != null -> xcodeRunLabel(selected)
+                        state.xcodeRunsLoading -> "Loading test runs…"
+                        else -> "No recent .xcresult runs"
+                    },
+                    color = if (state.xcodeRunsError != null) tokens.changed else tokens.textDim,
+                    fontSize = Type.small,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Chevron(Direction.DOWN, tokens.textFaint, size = 7.dp)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                state.xcodeRuns.forEach { run ->
+                    DropdownMenuItem(onClick = {
+                        expanded = false
+                        state.selectXcodeRun(run.id)
+                    }) {
+                        Text(xcodeRunLabel(run), color = tokens.text, fontSize = Type.small)
+                    }
+                }
+                DropdownMenuItem(onClick = {
+                    expanded = false
+                    state.refreshXcodeRuns()
+                }) { Text("Refresh test runs", color = tokens.accent, fontSize = Type.small) }
+            }
+        }
+        state.xcodeRunsError?.let { Text(it, color = tokens.changed, fontSize = 9.sp, maxLines = 2) }
+    }
+}
+
+private fun xcodeRunLabel(run: XcodeTestRun): String {
+    val device = run.device?.let { "${it.name} · ${it.os}" } ?: "Unknown device"
+    val time = RUN_TIME_FORMAT.format(Instant.ofEpochMilli(run.modifiedAt).atZone(ZoneId.systemDefault()))
+    val result = when {
+        run.failedTests != null && run.failedTests > 0 -> "${run.failedTests} failed"
+        run.passedTests != null -> "${run.passedTests} passed"
+        run.partial -> "partial"
+        else -> "no test summary"
+    }
+    return "$device · $time · $result"
+}
+
+private val RUN_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")
 
 internal fun nextSnapshotRow(
     rows: List<SnapshotTreeRow>,

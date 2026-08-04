@@ -147,6 +147,16 @@ when the currently displayed local variant is Working copy. Filtering generated 
 variant leaves stale Failed badges. Structural events still use a soft rescan so the existing list and
 selection remain visible until replacement state is ready.
 
+## Git HEAD refresh is event-driven, not a periodic Git process
+
+The standalone app watches the resolved worktree/common Git metadata directories for `HEAD`,
+`packed-refs`, and `refs/**`. Keep this on the blocking JDK `WatchService`: running `git rev-parse`
+every few seconds wastes processes and battery while idle, while installing repository hooks is
+invasive and misses checkout/rebase changes made by other tools. Metadata events are debounced and
+verified with one `git rev-parse HEAD`; only a changed revision invalidates comparisons and rebuilds
+statuses. Preserve the generation/root checks so an event from a previously open project cannot
+publish into the current one.
+
 ## Plugin Files/Goldens state uses stable ids, not Swing rows
 The plugin's project-wide Files tree is a rendering of `SnapshotFileIndex.projectTree()`.
 `PluginSnapshotController` stores normalized View paths, Case ids, and golden paths; it must never
@@ -166,9 +176,30 @@ blank. Size renderer rows from the tree viewport/visible rectangle and the confi
 ## Generated counterpart resolution is indexed and can be ambiguous
 `GeneratedCounterpartIndex` walks each distinct generated root once per scanner, then resolves all
 goldens from memory. Do not reintroduce `walkTopDown()` per golden in status, Compare, or Accept code.
+Host adapters may add explicit candidates that live outside configured roots. In particular, the
+standalone macOS app reads swift-snapshot-testing's `@+ file://` URLs from the selected project
+`.xcresult`; it must bind the failure's `@−` reference to the current checkout, verify each PNG still
+exists, and preserve its test-class parent as the relative directory. Never replace this with a broad
+walk of `CoreSimulator/.../tmp`, which mixes stale runs, projects, and devices.
 Resolution is typed: Missing, Exact, or Ambiguous. Same-relative-directory and directory-suffix
 ranking may narrow collisions, but a remaining tie must stay Ambiguous and block Compare/Accept.
 
 Accept never resolves by basename at click time. The controller freezes the exact generated path plus
 size/mtime/SHA-256 identity shown to the user; `GoldenAccept.acceptResolved` validates it before
 writing. Keep the legacy lookup-based API only for backwards compatibility with existing hosts.
+
+## Xcode result bundles are selected, never merged
+
+The standalone app's `xcresultScanWindowHours` controls which individual runs appear in the Test Run
+picker. Only the selected run contributes explicit generated candidates. Keep its path in the
+app-only project session, fall back to the newest run if it disappears, and preserve the previous
+usable snapshot/comparison state while the new selection refreshes asynchronously. Explicit XCResult
+candidates carry their resolved golden basename; do not apply or merge directory roots or the
+directory filename regex while this source is active.
+
+The iOS device is not a separate preference: it is derived from all non-empty saved Xcode commands.
+Destination changes must parse and rewrite all five command fields before one `AppConfig.save`; never
+save a partial rewrite. Generate/Verify entry points, including tree context actions and retries, all
+pass through the same selected-run/device mismatch preflight. The local `simctl`/`devicectl` catalog
+ends the visible loading state; `xcodebuild -showdestinations` remains authoritative in the background.
+Queue a choice made before it completes and persist it only after an exact command-value match.

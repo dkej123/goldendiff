@@ -44,13 +44,15 @@ must be preserved while plugin work continues.
 macOS signing and notarization still need a release decision.
 
 The macOS app has stable and beta casks: `Casks/golden-diff.rb` and
-`Casks/golden-diff@beta.rb`. Tags named `app-v<pluginVersion>` create normal GitHub Releases; tags
-named `app-beta-v<pluginVersion>` create prereleases. The workflow publishes the DMG and updates the
+`Casks/golden-diff@beta.rb`. Tags named `app-v<appVersion>` create normal GitHub Releases; tags
+named `app-beta-v<appVersion>` create prereleases. The workflow publishes the DMG and updates the
 matching cask's version and SHA-256 on `main`. Keep the release asset name
-`Golden-Diff-<pluginVersion>.dmg`; it is part of both Cask URL contracts.
+`Golden-Diff-<appVersion>.dmg`; it is part of both Cask URL contracts.
 
-`appPackageVersion` stays numeric for native macOS metadata while `pluginVersion` may carry a
-prerelease suffix. The stable and beta casks conflict because they both install `Golden Diff.app`.
+Both app properties live in `app/version.properties`, outside the plugin workflow path filters.
+`appPackageVersion` stays numeric for native macOS metadata while `appVersion` may carry a prerelease
+suffix. The root `pluginVersion` independently versions the public plugin. The stable and beta casks
+conflict because they both install `Golden Diff.app`.
 
 ## Plugin status
 

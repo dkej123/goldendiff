@@ -163,6 +163,69 @@ class GitCliTest {
     }
 
     @Test
+    fun `batched headBytes matches the one-shot form for tracked, modified, untracked and nested files`() {
+        val unchanged = File(repo, "goldens/Unchanged.png")
+        commit(unchanged, byteArrayOf(1, 2, 3))
+        val modified = File(repo, "goldens/Modified.png")
+        commit(modified, byteArrayOf(4, 5, 6))
+        val nested = File(repo, "a/b/c/Deep.png")
+        commit(nested, byteArrayOf(8, 8))
+        // Only after every commit: the shared commit() helper stages with `add --all`, which would
+        // otherwise sweep this dirty/untracked state into a later commit.
+        modified.writeBytes(byteArrayOf(9, 9, 9))
+        val untracked = File(repo, "goldens/Untracked.png")
+        untracked.parentFile.mkdirs()
+        untracked.writeBytes(byteArrayOf(7))
+
+        val batch = git.headBytes(listOf(unchanged, modified, untracked, nested))
+
+        assertArrayEquals(byteArrayOf(1, 2, 3), batch[unchanged])
+        assertArrayEquals(byteArrayOf(4, 5, 6), batch[modified])
+        assertNull(batch[untracked])
+        assertArrayEquals(byteArrayOf(8, 8), batch[nested])
+    }
+
+    @Test
+    fun `batched headBytes survives bytes that are not valid text`() {
+        val golden = File(repo, "raw.png")
+        val committed = ByteArray(256) { it.toByte() }
+        commit(golden, committed)
+
+        assertArrayEquals(committed, git.headBytes(listOf(golden))[golden])
+    }
+
+    @Test
+    fun `batched headBytes on an empty collection returns an empty map`() {
+        assertTrue(git.headBytes(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `batched headBytes handles duplicate and many files in one call`() {
+        val files = (1..25).map { index ->
+            File(repo, "goldens/Screen$index.png").also { commit(it, byteArrayOf(index.toByte())) }
+        }
+
+        val batch = git.headBytes(files + files.first())
+
+        files.forEachIndexed { index, file ->
+            assertArrayEquals(byteArrayOf((index + 1).toByte()), batch[file])
+        }
+    }
+
+    @Test
+    fun `batched headBytes falls back for tracked files outside an opened project subdirectory`() {
+        val projectDirectory = File(repo, "app").apply { mkdirs() }
+        val sharedGolden = File(repo, "shared/Shared.png")
+        val committed = byteArrayOf(4, 2)
+        commit(sharedGolden, committed)
+        sharedGolden.writeBytes(byteArrayOf(9, 9))
+        val projectGit = GitCli(projectDirectory)
+
+        assertArrayEquals(committed, projectGit.headBytes(sharedGolden))
+        assertArrayEquals(committed, projectGit.headBytes(listOf(sharedGolden))[sharedGolden])
+    }
+
+    @Test
     fun `work-tree detection distinguishes a repo from a plain directory`() {
         assertTrue(git.isInsideWorkTree())
 
@@ -172,5 +235,26 @@ class GitCliTest {
         } finally {
             plain.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `headRevision changes after a new commit`() {
+        val before = git.headRevision()
+
+        commit(File(repo, "goldens/NewRevision.png"), byteArrayOf(1))
+
+        val after = git.headRevision()
+        assertTrue(!before.isNullOrBlank())
+        assertTrue(!after.isNullOrBlank())
+        assertTrue(before != after)
+    }
+
+    @Test
+    fun `gitMetadataDirectories resolves the repository metadata directory`() {
+        val directories = git.gitMetadataDirectories()
+
+        assertTrue(directories.isNotEmpty())
+        assertTrue(directories.all(File::isDirectory))
+        assertTrue(File(repo, ".git").canonicalFile in directories.map(File::getCanonicalFile))
     }
 }

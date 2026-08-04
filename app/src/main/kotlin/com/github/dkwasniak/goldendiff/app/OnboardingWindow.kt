@@ -51,7 +51,6 @@ import com.github.dkwasniak.goldendiff.app.generated.resources.Res
 import com.github.dkwasniak.goldendiff.app.generated.resources.app_icon
 import com.github.dkwasniak.goldendiff.app.ui.DarkTokens
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
-import com.github.dkwasniak.goldendiff.app.ui.FolderIcon
 import com.github.dkwasniak.goldendiff.app.ui.GhostButton
 import com.github.dkwasniak.goldendiff.app.ui.HairLine
 import com.github.dkwasniak.goldendiff.app.ui.LightTokens
@@ -62,6 +61,7 @@ import com.github.dkwasniak.goldendiff.app.ui.Type
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.match.MatchMode
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 
@@ -74,6 +74,7 @@ private enum class OnboardingStep(val label: String, val optional: Boolean) {
     MATCHING("Golden matching", true),
     FILTERING("Filtering", true),
     DISPLAY("Display", true),
+    NOTIFICATIONS("Notifications", true),
     PRIVACY("Privacy", true),
     FINISH("Finish", false),
 }
@@ -315,16 +316,21 @@ private fun StepperRow(number: Int, step: OnboardingStep, stepState: StepState, 
 private fun StepContent(step: OnboardingStep, state: AppState) {
     when (step) {
         OnboardingStep.WELCOME -> Unit
-        OnboardingStep.PROJECT -> ProjectStep(state)
+        OnboardingStep.PROJECT -> ProjectSection(state)
         OnboardingStep.GOLDEN_DIRS -> GoldenDirectoriesSection(state)
         OnboardingStep.TEST_OUTPUT -> {
-            GeneratedDirectoriesSection(state)
-            Spacer(Modifier.height(20.dp))
-            OutputMatchingSection(state)
+            XcresultSourceSection(state)
+            if (state.config.generatedSource == GeneratedSource.DIRECTORY) {
+                Spacer(Modifier.height(20.dp))
+                GeneratedDirectoriesSection(state)
+                Spacer(Modifier.height(20.dp))
+                OutputMatchingSection(state)
+            }
         }
         OnboardingStep.MATCHING -> MatchingSection(state)
         OnboardingStep.FILTERING -> FilteringSection(state)
         OnboardingStep.DISPLAY -> DisplaySection(state)
+        OnboardingStep.NOTIFICATIONS -> NotificationsSection(state)
         OnboardingStep.PRIVACY -> PrivacySection()
         OnboardingStep.FINISH -> FinishStep(state)
     }
@@ -571,64 +577,6 @@ private fun AccentOutlineButton(label: String, enabled: Boolean, onClick: () -> 
             .hoverWash(enabled, shape).clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
-}
-
-@Composable
-private fun ProjectStep(state: AppState) {
-    SectionHeader(
-        "Select your project",
-        "Golden Diff needs a project directory to find screenshot goldens and check Git status.",
-    )
-    ToolButton("Choose Directory…") {
-        chooseDirectory("Select project directory")?.let(state::openProject)
-    }
-    val root = state.projectRoot
-    if (root != null) {
-        Spacer(Modifier.height(14.dp))
-        Row(
-            Modifier.widthIn(max = 520.dp).fillMaxWidth().padding(bottom = 10.dp)
-                .border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            FolderIcon(tokens.textFaint)
-            Text(
-                root.absolutePath,
-                color = tokens.text,
-                fontSize = Type.body,
-                fontFamily = Type.Mono,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        ProjectStatusPill(state)
-    }
-}
-
-@Composable
-private fun ProjectStatusPill(state: AppState) {
-    val error = state.blocker == Blocker.NoGit || state.blocker == Blocker.NotARepository
-    val text = when (state.blocker) {
-        Blocker.NoGit -> "git not found — install Git and restart"
-        Blocker.NotARepository -> "Not a Git repository"
-        else -> if (state.busy) "Checking…" else "Git repository"
-    }
-    if (state.busy && !error) {
-        Text(text, color = tokens.textDim, fontSize = Type.body)
-        return
-    }
-    val color = if (error) tokens.changed else tokens.new
-    val background = if (error) tokens.changedBg else tokens.newBg
-    Row(
-        Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).background(background)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(if (error) "✕" else "✓", color = color, fontSize = Type.body, fontWeight = FontWeight.Bold)
-        Text(text, color = color, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
-    }
 }
 
 @Composable

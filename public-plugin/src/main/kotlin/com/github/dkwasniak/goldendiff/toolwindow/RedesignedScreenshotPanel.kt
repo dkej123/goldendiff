@@ -24,6 +24,7 @@ import com.github.dkwasniak.goldendiff.scan.ChangeScanner
 import com.github.dkwasniak.goldendiff.scan.MergedGoldenItem
 import com.github.dkwasniak.goldendiff.scan.MergedGoldenStatus
 import com.github.dkwasniak.goldendiff.scan.automaticBuiltInSource
+import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.ScreenshotConfigurable
 import com.github.dkwasniak.goldendiff.settings.ScreenshotSettings
 import com.github.dkwasniak.goldendiff.telemetry.BuildBadge
@@ -40,6 +41,12 @@ import com.github.dkwasniak.goldendiff.telemetry.acceptCompleted
 import com.github.dkwasniak.goldendiff.telemetry.commandCompleted
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonResult
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonSources
+import com.github.dkwasniak.goldendiff.watch.PNG_REFRESH_DEBOUNCE_MS
+import com.github.dkwasniak.goldendiff.watch.PngChangeEvent
+import com.github.dkwasniak.goldendiff.watch.PngChangeKind
+import com.github.dkwasniak.goldendiff.watch.PngRefreshMode
+import com.github.dkwasniak.goldendiff.watch.SnapshotLoadState
+import com.github.dkwasniak.goldendiff.watch.pngRefreshMode
 import com.intellij.icons.AllIcons
 import com.intellij.ide.actions.RevealFileAction
 import com.intellij.notification.NotificationAction
@@ -58,7 +65,13 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
@@ -218,9 +231,6 @@ class RedesignedScreenshotPanel internal constructor(
         ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
         refresh(force = true, trigger = "config_change")
     }
-    private val refreshButton = iconButton(AllIcons.Actions.Refresh, "Refresh snapshots") {
-        refresh(force = true, trigger = "manual_refresh")
-    }
     private val stopButton = JButton("Stop", AllIcons.Actions.Suspend).apply {
         makeCompactTextButton()
         isVisible = false
@@ -273,7 +283,10 @@ class RedesignedScreenshotPanel internal constructor(
     private var updatingGoldenModel = false
     private var nextSelectionTrigger = "automatic"
     private var lastReportedComparisonKey: String? = null
-    private val vfsTimer = Timer(250) { refresh(force = true, trigger = "filesystem_change") }
+    private val pendingVfsEvents = mutableListOf<PngChangeEvent>()
+    private var pendingVfsForceRescan = false
+    private val suppressedVfsPaths = mutableMapOf<String, Long>()
+    private val vfsTimer = Timer(PNG_REFRESH_DEBOUNCE_MS.toInt()) { onVfsTimerFired() }
         .apply { isRepeats = false }
 
     init {
@@ -327,7 +340,6 @@ class RedesignedScreenshotPanel internal constructor(
                 isOpaque = false
                 add(stopButton)
                 add(settingsButton)
-                add(refreshButton)
             }
             add(left, BorderLayout.WEST)
             add(right, BorderLayout.EAST)
@@ -606,7 +618,6 @@ class RedesignedScreenshotPanel internal constructor(
         val generation = controller.beginRefresh()
         val active = activeEditorPath()
         val extraGeneration = controller.beginExtraRefresh(active)
-        files.setIndexing(controller.state.index != null)
         val config = settings.toConfig()
         val scanSpan = telemetry.startSpan(
             "golden.scan",
@@ -1127,9 +1138,9 @@ class RedesignedScreenshotPanel internal constructor(
             )
             compare.showBlocked(
                 "Test output changed",
-                "Refresh the comparison before accepting this Test output.",
-                "Refresh",
-            ) { refresh(force = true, trigger = "manual_refresh") }
+                "Refreshing the comparison before accepting this Test output…",
+            )
+            refresh(force = true, trigger = "stale_source_recovery")
             return
         }
         compare.showAccepting()
@@ -1165,8 +1176,13 @@ class RedesignedScreenshotPanel internal constructor(
                 when (result) {
                     is GoldenAccept.ResolvedOutcome.Success -> {
                         resolvedAcceptCandidates.remove(item.golden.normalize().path)
+                        suppressVfsEvent(item.golden)
+                        suppressVfsEvent(generated)
                         LocalFileSystem.getInstance().refreshIoFiles(listOf(item.golden, generated))
-                        refresh(force = true, trigger = "command_finished")
+                        val root = projectRoot
+                        if (root != null) {
+                            applyMergedItemUpdatesInPlace(root, settings.toConfig(), setOf(item.golden))
+                        }
                     }
                     is GoldenAccept.ResolvedOutcome.NothingToAccept ->
                         compare.showSingle(null, "Nothing to accept")
@@ -1175,12 +1191,13 @@ class RedesignedScreenshotPanel internal constructor(
                             "Ambiguous Test output",
                             "More than one generated file maps to this golden. Resolve the mapping in Settings.",
                         )
-                    is GoldenAccept.ResolvedOutcome.StaleSource ->
+                    is GoldenAccept.ResolvedOutcome.StaleSource -> {
                         compare.showBlocked(
                             "Test output changed",
-                            "The displayed Test output changed or moved. Refresh before accepting.",
-                            "Refresh",
-                        ) { refresh(force = true, trigger = "manual_refresh") }
+                            "The displayed Test output changed or moved. Refreshing…",
+                        )
+                        refresh(force = true, trigger = "stale_source_recovery")
+                    }
                     is GoldenAccept.ResolvedOutcome.Io -> {
                         compare.showAccept()
                         Messages.showErrorDialog(
@@ -1216,12 +1233,7 @@ class RedesignedScreenshotPanel internal constructor(
         commandStatus.isVisible = true
         val displayedCandidates = resolvedAcceptCandidates.toMap()
         AppExecutorUtil.getAppExecutorService().execute {
-            val frozen = candidates.map { item ->
-                val key = item.golden.normalize().path
-                displayedCandidates[key]
-                    ?: item.testOutput?.file?.let { GoldenAccept.freeze(item.golden, it).getOrNull() }
-                    ?: GoldenAccept.FrozenCandidate(item.golden, GoldenAccept.FrozenSource.Missing)
-            }
+            val frozen = freezeAcceptAllCandidates(candidates, displayedCandidates)
             val result = GoldenAccept.acceptAllResolved(frozen) { done, total ->
                 ApplicationManager.getApplication().invokeLater {
                     commandStatus.text = "Accepting $done of $total…"
@@ -1256,10 +1268,21 @@ class RedesignedScreenshotPanel internal constructor(
                     accepted = result.accepted.size,
                     failed = failures,
                 )
+                result.accepted.forEach { accepted ->
+                    suppressVfsEvent(accepted.golden)
+                    (accepted.source as? GoldenAccept.FrozenSource.Exact)?.generated?.let(::suppressVfsEvent)
+                }
                 LocalFileSystem.getInstance().refreshIoFiles(
                     candidates.flatMap { listOfNotNull(it.golden, it.testOutput?.file) },
                 )
-                refresh(force = true, trigger = "command_finished")
+                val root = projectRoot
+                if (root != null && result.accepted.isNotEmpty()) {
+                    applyMergedItemUpdatesInPlace(
+                        root,
+                        settings.toConfig(),
+                        result.accepted.mapTo(linkedSetOf()) { it.golden },
+                    )
+                }
                 if (failures > 0) {
                     Messages.showWarningDialog(
                         project,
@@ -1775,19 +1798,107 @@ class RedesignedScreenshotPanel internal constructor(
                 override fun after(events: List<VFileEvent>) {
                     val config = settings.toConfig()
                     val root = projectRoot
-                    if (events.asSequence().map { File(it.path) }.any { file ->
-                            file.extension.equals("png", true) &&
-                                (config.containsGoldenFile(root, file) || config.containsGeneratedFile(root, file))
+                    val now = System.currentTimeMillis()
+                    suppressedVfsPaths.entries.removeIf { it.value < now }
+                    var matched = false
+                    events.forEach { event ->
+                        val file = File(event.path)
+                        if (!file.extension.equals("png", ignoreCase = true)) return@forEach
+                        if (!config.containsGoldenFile(root, file) && !config.containsGeneratedFile(root, file)) {
+                            return@forEach
                         }
-                    ) {
-                        vfsTimer.restart()
+                        if (suppressedVfsPaths.remove(file.normalize().path) != null) return@forEach
+                        matched = true
+                        when (val kind = classifyVfsEvent(event)) {
+                            null -> pendingVfsForceRescan = true
+                            else -> pendingVfsEvents += PngChangeEvent(file, kind)
+                        }
                     }
+                    if (matched) vfsTimer.restart()
                 }
             },
         )
         ExtraComparisonSources.addChangeListener(this) {
             ApplicationManager.getApplication().invokeLater { refreshExtraItems() }
         }
+    }
+
+    /** Null means the platform event doesn't map to a single classified change (e.g. a rename/move)
+     * and the caller should force a rescan instead of guessing at a granular kind. */
+    private fun classifyVfsEvent(event: VFileEvent): PngChangeKind? = when (event) {
+        is VFileContentChangeEvent -> PngChangeKind.MODIFIED
+        is VFileCreateEvent, is VFileCopyEvent -> PngChangeKind.CREATED
+        is VFileDeleteEvent -> PngChangeKind.DELETED
+        is VFileMoveEvent, is VFilePropertyChangeEvent -> null
+        else -> null
+    }
+
+    private fun onVfsTimerFired() {
+        val events = pendingVfsEvents.toList()
+        val forceRescan = pendingVfsForceRescan
+        pendingVfsEvents.clear()
+        pendingVfsForceRescan = false
+        // Generate/Verify may write hundreds of files over several seconds. Their completion path
+        // already performs one refresh, so intermediate watcher batches would only waste work and
+        // risk racing a rescan against partially written files.
+        if (commandRunning) return
+        applyPngEvents(events, forceRescan)
+    }
+
+    private fun applyPngEvents(events: List<PngChangeEvent>, overflow: Boolean) {
+        val root = projectRoot ?: return
+        when (pngRefreshMode(events, overflow)) {
+            PngRefreshMode.NONE -> return
+            PngRefreshMode.RESCAN -> refresh(force = true, trigger = "filesystem_change")
+            PngRefreshMode.IN_PLACE -> {
+                val config = settings.toConfig()
+                val affected = affectedGoldens(events, root, config)
+                if (affected.isEmpty()) return
+                applyMergedItemUpdatesInPlace(root, config, affected)
+            }
+        }
+    }
+
+    /** Maps watcher events to the golden files whose merged status needs re-scanning: a direct
+     * golden-file change, or — for a changed generated file — the golden it is the counterpart of. */
+    private fun affectedGoldens(events: List<PngChangeEvent>, root: File, config: GoldenDiffConfig): Set<File> {
+        val mergedItems = controller.state.mergedItems
+        val goldensByPath = mergedItems.associateBy { it.golden.normalize().path }
+        val affected = linkedSetOf<File>()
+        events.forEach { event ->
+            goldensByPath[event.file.normalize().path]?.let { affected += it.golden }
+            if (config.containsGeneratedFile(root, event.file)) {
+                generatedGoldenBase(event.file, config)?.let { base ->
+                    mergedItems.asSequence()
+                        .filter { it.golden.nameWithoutExtension.equals(base, ignoreCase = true) }
+                        .mapTo(affected) { it.golden }
+                }
+            }
+        }
+        return affected
+    }
+
+    private fun generatedGoldenBase(file: File, config: GoldenDiffConfig): String? {
+        val regex = runCatching { Regex(config.normalizedForMatching().generatedFileRegex) }.getOrNull() ?: return null
+        val match = regex.matchEntire(file.name) ?: return null
+        return match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun applyMergedItemUpdatesInPlace(root: File, config: GoldenDiffConfig, affected: Set<File>) {
+        val request = controller.beginMergedItemUpdate()
+        AppExecutorUtil.getAppExecutorService().execute {
+            val result = runCatching { ChangeScanner.forGitProject(root, config).mergedItemsFor(affected.toList()) }
+            ApplicationManager.getApplication().invokeLater {
+                if (projectRoot != root || project.isDisposed) return@invokeLater
+                result.onSuccess { updated -> controller.applyMergedItemUpdates(request, updated) }
+            }
+        }
+    }
+
+    /** Ignores the next VFS event for [file] (an own write already reflected in state), so it does
+     * not queue a redundant watcher-triggered rescan on top of an already-applied in-place update. */
+    private fun suppressVfsEvent(file: File) {
+        suppressedVfsPaths[file.normalize().path] = System.currentTimeMillis() + VFS_SUPPRESSION_MS
     }
 
     private fun activeEditorPath(): String? {
@@ -1849,6 +1960,7 @@ class RedesignedScreenshotPanel internal constructor(
         val HeaderColor = com.intellij.ui.JBColor(Color(0xF2F3F5), Color(0x2B2D30))
         val BorderColor = com.intellij.ui.JBColor(Color(0xE1E3E8), Color(0x3A3C3F))
         val AcceptColor = com.intellij.ui.JBColor(Color(0xE0507E), Color(0xE0507E))
+        const val VFS_SUPPRESSION_MS = 2_000L
 
         fun iconButton(
             icon: javax.swing.Icon,

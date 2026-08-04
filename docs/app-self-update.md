@@ -69,7 +69,7 @@ Add `"update_download"` and `"update_homebrew"` to the `product.feature_used` �
 (next to the existing `update_open`).
 
 ## Verification
-- Lower `pluginVersion` (as in the earlier demo), `rm -f ~/.config/golden-diff/update.properties`,
+- Lower `appVersion` (as in the earlier demo), `rm -f ~/.config/golden-diff/update.properties`,
   `./gradlew :app:run` → banner + status appear.
 - **Homebrew machine** (beta cask under `…/Caskroom/golden-diff@beta`): button reads "Update with
   Homebrew" → click → spinner, brew output streamed, ends "restart to finish". Confirm
@@ -77,7 +77,7 @@ Add `"update_download"` and `"update_homebrew"` to the `product.feature_used` �
 - **Non-brew machine**: button reads "Download update" → `.dmg` lands in `~/Downloads` and the
   installer window opens; on a forced network error it falls back to the release page.
 - `./gradlew :telemetry:test :app:test` stay green (feature keys valid; no logic regressions).
-- Restore `pluginVersion` to `1.5.0-beta.4` afterward.
+- Restore `appVersion` to `1.5.0-beta.4` afterward.
 
 ## Out of scope
 Notarization / true silent in-place self-update; Windows/Linux updaters (app is macOS-only today).

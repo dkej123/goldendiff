@@ -2,8 +2,12 @@ package com.github.dkwasniak.goldendiff.app
 
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
+import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
+import com.github.dkwasniak.goldendiff.project.SnapshotFileStatus
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
+import org.json.JSONObject
 import java.io.File
 import java.util.Properties
 
@@ -64,6 +68,13 @@ object AppConfig {
             generatedPaths = list("generatedPaths"),
             generatedFileRegex = props.getProperty("generatedFileRegex")
                 ?.takeIf { it.isNotBlank() } ?: GoldenDiffDefaults.GENERATED_FILE_REGEX,
+            generatedSource = runCatching {
+                GeneratedSource.valueOf(props.getProperty("generatedSource").orEmpty().trim())
+            }.getOrDefault(GeneratedSource.DIRECTORY),
+            xcresultDerivedDataPath = props.getProperty("xcresultDerivedDataPath").orEmpty(),
+            xcresultScanWindowHours = props.getProperty("xcresultScanWindowHours")
+                ?.trim()?.toIntOrNull()?.takeIf { it > 0 } ?: EMPTY.xcresultScanWindowHours,
+            isIosProject = props.getProperty("isIosProject")?.toBooleanStrictOrNull() ?: false,
             matchMode = MatchMode.fromName(props.getProperty("matchMode").orEmpty()),
             annotatedFunctionRegex = props.getProperty("annotatedFunctionRegex")
                 ?.takeIf { it.isNotBlank() } ?: MatchingDefaults.ANNOTATION_NAME_REGEX,
@@ -95,6 +106,10 @@ object AppConfig {
             effective.goldenPaths.forEachIndexed { index, path -> setProperty("goldenPaths.$index", path) }
             setProperty("generatedPaths", effective.generatedPaths.joinToString(","))
             setProperty("generatedFileRegex", effective.generatedFileRegex)
+            setProperty("generatedSource", effective.generatedSource.name)
+            setProperty("xcresultDerivedDataPath", effective.xcresultDerivedDataPath)
+            setProperty("xcresultScanWindowHours", effective.xcresultScanWindowHours.toString())
+            setProperty("isIosProject", effective.isIosProject.toString())
             setProperty("matchMode", effective.matchMode.name)
             setProperty("annotatedFunctionRegex", effective.annotatedFunctionRegex)
             setProperty("goldenFilePatterns", effective.goldenFilePatterns.joinToString(","))
@@ -161,6 +176,94 @@ object AppConfig {
                 props.store(it, "Golden Diff open files — ${projectRoot.absolutePath}")
             }
         }
+    }
+
+    /**
+     * Tree search/filter/grouping state remembered per project between launches. Lives beside, not
+     * inside, [GoldenDiffConfig] for the same reason as [OpenFilesSession] — saving project settings
+     * must not clobber the current browsing state, and vice versa.
+     */
+    data class TreeSession(
+        val filter: String = "",
+        val grouped: Boolean = true,
+        val statusFilters: Set<SnapshotFileStatus> = emptySet(),
+    )
+
+    private fun treeSessionFileFor(projectRoot: File): File {
+        val key = Integer.toHexString(projectRoot.absolutePath.hashCode())
+        return File(configDir, "${projectRoot.name}-$key-tree.properties")
+    }
+
+    fun loadTreeSession(projectRoot: File): TreeSession {
+        val file = treeSessionFileFor(projectRoot)
+        if (!file.isFile) return TreeSession()
+        val props = Properties()
+        runCatching { file.inputStream().use(props::load) }.getOrElse { return TreeSession() }
+        val statusFilters = props.getProperty("statusFilters").orEmpty()
+            .split(',')
+            .mapNotNull { name -> runCatching { SnapshotFileStatus.valueOf(name.trim()) }.getOrNull() }
+            .toSet()
+        return TreeSession(
+            filter = props.getProperty("filter").orEmpty(),
+            grouped = props.getProperty("grouped")?.toBooleanStrictOrNull() ?: true,
+            statusFilters = statusFilters,
+        )
+    }
+
+    fun saveTreeSession(projectRoot: File, session: TreeSession): Result<Unit> {
+        val props = Properties().apply {
+            setProperty("filter", session.filter)
+            setProperty("grouped", session.grouped.toString())
+            setProperty("statusFilters", session.statusFilters.joinToString(",") { it.name })
+        }
+        return runCatching {
+            configDir.mkdirs()
+            treeSessionFileFor(projectRoot).outputStream().use {
+                props.store(it, "Golden Diff tree session — ${projectRoot.absolutePath}")
+            }
+        }
+    }
+
+    private fun xcodeRunSessionFileFor(projectRoot: File): File {
+        val key = Integer.toHexString(projectRoot.absolutePath.hashCode())
+        return File(configDir, "${projectRoot.name}-$key-xcode-run.properties")
+    }
+
+    /** Selected `.xcresult` is browsing state and must not be overwritten by CLI/settings saves. */
+    fun loadSelectedXcodeRun(projectRoot: File): String? {
+        val file = xcodeRunSessionFileFor(projectRoot).takeIf(File::isFile) ?: return null
+        val props = Properties()
+        runCatching { file.inputStream().use(props::load) }.getOrElse { return null }
+        return props.getProperty("path")?.trim()?.takeIf(String::isNotEmpty)
+    }
+
+    fun saveSelectedXcodeRun(projectRoot: File, path: String): Result<Unit> = runCatching {
+        configDir.mkdirs()
+        val props = Properties().apply { setProperty("path", path) }
+        xcodeRunSessionFileFor(projectRoot).outputStream().use {
+            props.store(it, "Golden Diff selected Xcode test run — ${projectRoot.absolutePath}")
+        }
+    }
+
+    private fun treeCacheFileFor(projectRoot: File): File {
+        val key = Integer.toHexString(projectRoot.absolutePath.hashCode())
+        return File(configDir, "${projectRoot.name}-$key-tree-cache.json")
+    }
+
+    /**
+     * Last known file/case tree for [projectRoot], persisted across app launches. The caller must
+     * still validate it against a fresh [com.github.dkwasniak.goldendiff.project.SnapshotIndexFingerprint]
+     * before treating it as more than a placeholder — this is a display cache, not a source of truth.
+     */
+    fun loadTreeCache(projectRoot: File): SnapshotFileIndex? {
+        val file = treeCacheFileFor(projectRoot)
+        if (!file.isFile) return null
+        return runCatching { SnapshotFileIndexCache.fromJson(JSONObject(file.readText())) }.getOrNull()
+    }
+
+    fun saveTreeCache(projectRoot: File, index: SnapshotFileIndex): Result<Unit> = runCatching {
+        configDir.mkdirs()
+        treeCacheFileFor(projectRoot).writeText(SnapshotFileIndexCache.toJson(index).toString())
     }
 
     /** Most recently opened project, so the app reopens where the user left off. */

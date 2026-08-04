@@ -1,9 +1,10 @@
 package com.github.dkwasniak.goldendiff.app
 
-import org.junit.Assert.assertTrue
+import com.github.dkwasniak.goldendiff.watch.PngChangeEvent
+import com.github.dkwasniak.goldendiff.watch.PngChangeKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 import java.nio.file.Files
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -12,37 +13,15 @@ import java.util.concurrent.TimeUnit
 class PngDirectoryWatcherTest {
 
     @Test
-    fun `refresh mode ignores empty batches`() {
-        assertEquals(PngRefreshMode.NONE, pngRefreshMode(emptyList(), overflow = false))
-    }
-
-    @Test
-    fun `refresh mode updates modifications in place`() {
-        val modified = listOf(PngDirectoryWatcher.Event(File("screen.png"), PngDirectoryWatcher.Kind.MODIFIED))
-
-        assertEquals(PngRefreshMode.IN_PLACE, pngRefreshMode(modified, overflow = false))
-    }
-
-    @Test
-    fun `refresh mode rescans after structural events or overflow`() {
-        val created = listOf(PngDirectoryWatcher.Event(File("screen.png"), PngDirectoryWatcher.Kind.CREATED))
-        val deleted = listOf(PngDirectoryWatcher.Event(File("screen.png"), PngDirectoryWatcher.Kind.DELETED))
-
-        assertEquals(PngRefreshMode.RESCAN, pngRefreshMode(created, overflow = false))
-        assertEquals(PngRefreshMode.RESCAN, pngRefreshMode(deleted, overflow = false))
-        assertEquals(PngRefreshMode.RESCAN, pngRefreshMode(emptyList(), overflow = true))
-    }
-
-    @Test
     fun `reports modification of an existing png and ignores other files`() {
         val root = Files.createTempDirectory("golden-diff-watch").toFile()
         val png = root.resolve("screen.png").apply { writeBytes(byteArrayOf(1)) }
-        val events = Collections.synchronizedList(mutableListOf<PngDirectoryWatcher.Event>())
+        val events = Collections.synchronizedList(mutableListOf<PngChangeEvent>())
         val latch = CountDownLatch(1)
 
         PngDirectoryWatcher(listOf(root)) { batch, _ ->
             events += batch
-            if (batch.any { it.file == png && it.kind == PngDirectoryWatcher.Kind.MODIFIED }) latch.countDown()
+            if (batch.any { it.file == png && it.kind == PngChangeKind.MODIFIED }) latch.countDown()
         }.use {
             root.resolve("notes.txt").writeText("ignored")
             png.writeBytes(byteArrayOf(2))

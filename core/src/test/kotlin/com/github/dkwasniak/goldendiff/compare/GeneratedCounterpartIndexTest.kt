@@ -114,6 +114,54 @@ class GeneratedCounterpartIndexTest {
         )
     }
 
+    @Test
+    fun `explicit generated candidate preserves its snapshot class directory without scanning simulator temp`() {
+        val project = tempDirectory()
+        val goldenRoot = File(project, "goldens").apply { mkdirs() }
+        val golden = generated(goldenRoot, "Badge/__Snapshots__/BadgeViewSnapshotTests/test_badge.1.png")
+        val actual = generated(
+            File(project, "CoreSimulator/data/tmp"),
+            "BadgeViewSnapshotTests/test_badge.1.png",
+        )
+
+        val index = GeneratedCounterpartIndex.build(
+            generatedRoots = emptyList(),
+            generatedFileRegex = "^(.+)\\.png$",
+            explicitCandidates = listOf(
+                GeneratedCounterpartIndex.ExplicitCandidate(
+                    file = actual,
+                    relativeParent = "BadgeViewSnapshotTests",
+                ),
+            ),
+        )
+
+        assertEquals(actual, (index.resolve(golden, listOf(goldenRoot)) as GeneratedCounterpartResolution.Exact).file)
+        assertEquals(0, index.stats.scannedRoots)
+        assertEquals(1, index.stats.indexedCandidates)
+    }
+
+    @Test
+    fun `host-resolved explicit basename is independent of the directory filename regex`() {
+        val project = tempDirectory()
+        val goldenRoot = File(project, "goldens").apply { mkdirs() }
+        val golden = generated(goldenRoot, "Tests/test_badge.1.png")
+        val actual = generated(File(project, "simulator/tmp"), "Tests/test_badge.1.png")
+
+        val index = GeneratedCounterpartIndex.build(
+            generatedRoots = emptyList(),
+            generatedFileRegex = "^(.+)_actual\\.png$",
+            explicitCandidates = listOf(
+                GeneratedCounterpartIndex.ExplicitCandidate(
+                    file = actual,
+                    relativeParent = "Tests",
+                    goldenBase = "test_badge.1",
+                ),
+            ),
+        )
+
+        assertEquals(actual, (index.resolve(golden, listOf(goldenRoot)) as GeneratedCounterpartResolution.Exact).file)
+    }
+
     private fun index(generatedRoot: File): GeneratedCounterpartIndex =
         GeneratedCounterpartIndex.build(listOf(generatedRoot), "^(.+)_actual\\.png$")
 }

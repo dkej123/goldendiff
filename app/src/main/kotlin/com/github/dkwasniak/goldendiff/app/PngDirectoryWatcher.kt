@@ -1,5 +1,7 @@
 package com.github.dkwasniak.goldendiff.app
 
+import com.github.dkwasniak.goldendiff.watch.PngChangeEvent
+import com.github.dkwasniak.goldendiff.watch.PngChangeKind
 import java.io.File
 import java.nio.file.FileSystems
 import java.nio.file.Files
@@ -23,12 +25,8 @@ import kotlin.concurrent.thread
  */
 internal class PngDirectoryWatcher(
     roots: Collection<File>,
-    private val onEvents: (List<Event>, overflow: Boolean) -> Unit,
+    private val onEvents: (List<PngChangeEvent>, overflow: Boolean) -> Unit,
 ) : AutoCloseable {
-
-    enum class Kind { CREATED, MODIFIED, DELETED }
-
-    data class Event(val file: File, val kind: Kind)
 
     private val service: WatchService = FileSystems.getDefault().newWatchService()
     private val directories = ConcurrentHashMap<WatchKey, Path>()
@@ -89,17 +87,17 @@ internal class PngDirectoryWatcher(
                                 // delivers the directory event. Pick up those already-written files.
                                 path.toFile().walkTopDown()
                                     .filter { it.isFile && it.extension.equals("png", ignoreCase = true) }
-                                    .forEach { add(Event(it, Kind.CREATED)) }
+                                    .forEach { add(PngChangeEvent(it, PngChangeKind.CREATED)) }
                             }
                             return@forEach
                         }
                         if (!path.fileName.toString().endsWith(".png", ignoreCase = true)) return@forEach
                         val kind = when (raw.kind()) {
-                            ENTRY_CREATE -> Kind.CREATED
-                            ENTRY_DELETE -> Kind.DELETED
-                            else -> Kind.MODIFIED
+                            ENTRY_CREATE -> PngChangeKind.CREATED
+                            ENTRY_DELETE -> PngChangeKind.DELETED
+                            else -> PngChangeKind.MODIFIED
                         }
-                        add(Event(path.toFile(), kind))
+                        add(PngChangeEvent(path.toFile(), kind))
                     }
                 }
             }
@@ -134,12 +132,6 @@ internal class PngDirectoryWatcher(
     }
 }
 
-internal enum class PngRefreshMode {
-    NONE,
-    IN_PLACE,
-    RESCAN,
-}
-
 /** Exact file state produced by an app-owned write. Content is included so a fast Git undo with the
  * same size cannot be mistaken for the write we intended to ignore. */
 internal data class PngFileState(
@@ -155,19 +147,3 @@ internal fun pngFileState(file: File): PngFileState =
         val bytes = runCatching { file.readBytes() }.getOrDefault(byteArrayOf())
         PngFileState(exists = true, size = bytes.size.toLong(), contentHash = bytes.contentHashCode())
     }
-
-/**
- * Chooses the state transition for a debounced, already-filtered watcher batch.
- *
- * Structural changes can alter list membership and therefore require an atomic soft rescan.
- * Modifying a PNG that is already on screen can update its merged item in place.
- */
-internal fun pngRefreshMode(
-    events: List<PngDirectoryWatcher.Event>,
-    overflow: Boolean,
-): PngRefreshMode = when {
-    !overflow && events.isEmpty() -> PngRefreshMode.NONE
-    overflow || events.any { it.kind != PngDirectoryWatcher.Kind.MODIFIED } ->
-        PngRefreshMode.RESCAN
-    else -> PngRefreshMode.IN_PLACE
-}

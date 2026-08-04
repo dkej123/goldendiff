@@ -35,12 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.github.dkwasniak.goldendiff.app.ui.Appearance
 import com.github.dkwasniak.goldendiff.app.ui.Dimens
+import com.github.dkwasniak.goldendiff.app.ui.FolderIcon
 import com.github.dkwasniak.goldendiff.app.ui.Type
 import com.github.dkwasniak.goldendiff.app.ui.ToolButton
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.match.MatchingDefaults
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffDefaults
 import kotlinx.coroutines.launch
@@ -52,6 +54,70 @@ import kotlinx.coroutines.launch
  * onboarding walkthrough render the exact same sections, so the two hosts stay pixel-identical and
  * a change to a control only has to be made once.
  */
+
+// region Project section
+
+@Composable
+internal fun ProjectSection(state: AppState) {
+    SectionHeader(
+        "Select your project",
+        "Golden Diff needs a project directory to find screenshot goldens and check Git status.",
+    )
+    ToolButton("Choose Directory…") {
+        chooseDirectory("Select project directory")?.let(state::openProject)
+    }
+    val root = state.projectRoot
+    if (root != null) {
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier.widthIn(max = 520.dp).fillMaxWidth().padding(bottom = 10.dp)
+                .border(1.dp, tokens.border, RoundedCornerShape(Dimens.controlRadius))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            FolderIcon(tokens.textFaint)
+            Text(
+                root.absolutePath,
+                color = tokens.text,
+                fontSize = Type.body,
+                fontFamily = Type.Mono,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        ProjectStatusPill(state)
+    }
+    Spacer(Modifier.height(20.dp))
+    IosProjectSection(state)
+}
+
+@Composable
+internal fun ProjectStatusPill(state: AppState) {
+    val error = state.blocker == Blocker.NoGit || state.blocker == Blocker.NotARepository
+    val text = when (state.blocker) {
+        Blocker.NoGit -> "git not found — install Git and restart"
+        Blocker.NotARepository -> "Not a Git repository"
+        else -> if (state.busy) "Checking…" else "Git repository"
+    }
+    if (state.busy && !error) {
+        Text(text, color = tokens.textDim, fontSize = Type.body)
+        return
+    }
+    val color = if (error) tokens.changed else tokens.new
+    val background = if (error) tokens.changedBg else tokens.newBg
+    Row(
+        Modifier.clip(RoundedCornerShape(Dimens.controlRadius)).background(background)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(if (error) "✕" else "✓", color = color, fontSize = Type.body, fontWeight = FontWeight.Bold)
+        Text(text, color = color, fontSize = Type.body, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// endregion
 
 // region Directory sections
 
@@ -83,8 +149,77 @@ internal fun GeneratedDirectoriesSection(state: AppState) {
 @Composable
 internal fun DirectoriesSection(state: AppState) {
     GoldenDirectoriesSection(state)
-    Spacer(Modifier.height(20.dp))
-    GeneratedDirectoriesSection(state)
+    if (state.config.generatedSource == GeneratedSource.DIRECTORY) {
+        Spacer(Modifier.height(20.dp))
+        GeneratedDirectoriesSection(state)
+    }
+}
+
+@Composable
+internal fun IosProjectSection(state: AppState) {
+    SectionHeader(
+        "Platform",
+        "Enables the device/simulator picker for choosing what Xcode's -destination targets when " +
+            "running the commands below.",
+    )
+    ConsentRow(
+        title = "iOS project",
+        description = "This project builds with Xcode.",
+        checked = state.config.isIosProject,
+    ) {
+        state.updateConfig(state.config.copy(isIosProject = !state.config.isIosProject))
+    }
+}
+
+@Composable
+internal fun XcresultSourceSection(state: AppState) {
+    SectionHeader(
+        "Test output source",
+        "Choose configured output directories or read failing snapshot paths directly from Xcode test results.",
+    )
+    val directory = state.config.generatedSource == GeneratedSource.DIRECTORY
+    RadioRow("Directory scan", directory) {
+        state.updateConfig(state.config.copy(generatedSource = GeneratedSource.DIRECTORY))
+    }
+    RadioRow("Xcode test results (.xcresult)", !directory) {
+        state.updateConfig(state.config.copy(generatedSource = GeneratedSource.XCRESULT))
+    }
+
+    if (directory) return
+
+    FieldLabel("DerivedData folder (optional — auto-detected if blank)")
+    Text(
+        "Point at the <Project>-<hash> folder under ~/Library/Developer/Xcode/DerivedData only when " +
+            "automatic project matching cannot identify it.",
+        color = tokens.textDim,
+        fontSize = 11.5.sp,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    MonoField(
+        value = state.config.xcresultDerivedDataPath,
+        enabled = true,
+        singleLine = true,
+        placeholder = "~/Library/Developer/Xcode/DerivedData/MyApp-abcdefgh",
+    ) { text ->
+        state.updateConfig(state.config.copy(xcresultDerivedDataPath = text.trim()))
+    }
+
+    FieldLabel("Scan window (hours)")
+    Text(
+        "How far back to list individual .xcresult test runs. Only the selected run is used. Default 48.",
+        color = tokens.textDim,
+        fontSize = 11.5.sp,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    MonoField(
+        value = state.config.xcresultScanWindowHours.toString(),
+        enabled = true,
+        singleLine = true,
+    ) { text ->
+        text.trim().toIntOrNull()?.takeIf { it > 0 }?.let { hours ->
+            state.updateConfig(state.config.copy(xcresultScanWindowHours = hours))
+        }
+    }
 }
 
 @Composable

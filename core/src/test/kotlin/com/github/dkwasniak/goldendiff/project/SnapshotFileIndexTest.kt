@@ -244,6 +244,36 @@ class SnapshotFileIndexTest {
     }
 
     @Test
+    fun `duplicate preview name is owned by source named in golden path`() {
+        val duplicatePreview = """
+            @ThemePreviews
+            fun ChangePaymentMethodBottomSheetPreview() {}
+        """.trimIndent()
+        source("presentation/map/MapScreen.kt", duplicatePreview)
+        val expectedOwner = "presentation/rfidcards/mychargingcard/MyChargingCardScreen.kt"
+        source(expectedOwner, duplicatePreview)
+        val image = golden(
+            "com.example.rfidcards.mychargingcard.MyChargingCardScreenKt." +
+                "ChangePaymentMethodBottomSheetPreview.Light.png",
+        )
+        val merged = MergedGoldenItem(
+            image,
+            GoldenSourceVariant(image, ExtraComparisonItemStatus.UNCHANGED),
+            null,
+        )
+        val annotated = GoldenDiffConfig(
+            goldenPaths = listOf("goldens"),
+            matchMode = MatchMode.ANNOTATED_METHOD,
+            annotatedFunctionRegex = ".*Preview.*",
+        )
+
+        val index = SnapshotFileIndex.build(ProjectFileIndex.scan(root), annotated, listOf(merged))
+
+        assertEquals(listOf(expectedOwner), index.paths)
+        assertEquals(expectedOwner, index.files.single().cases.single().generatorPath)
+    }
+
+    @Test
     fun `swift test methods are children of production view and test file is not another parent`() {
         source("Sources/LoginView.swift", "struct LoginView: View {}")
         source(

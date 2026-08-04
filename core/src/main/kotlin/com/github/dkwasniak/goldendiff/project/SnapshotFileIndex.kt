@@ -182,14 +182,16 @@ data class SnapshotFileIndex(
                     CaseEvidence(generator, method, paths)
                 }
             }
-            // A golden may contain more than one extracted name. Prefer the longest method and then a
-            // stable generator path so it is never duplicated between cases.
+            // A golden may contain more than one extracted name. Prefer the longest method, then the
+            // generator whose file/class owner is encoded in the golden path, and finally a stable
+            // path so it is never duplicated between cases.
             val caseByGolden = cases
                 .flatMap { case -> case.goldenPaths.map { it to case } }
                 .groupBy({ it.first }, { it.second })
-                .mapValues { (_, matches) ->
+                .mapValues { (goldenPath, matches) ->
                     matches.sortedWith(
                         compareByDescending<CaseEvidence> { it.methodName.length }
+                            .thenByDescending { case -> case.generator.ownerMatchLength(goldenPath) }
                             .thenBy(ProjectFileIndex.PATH_ORDER) { it.generator.relativePath },
                     ).first()
                 }
@@ -319,6 +321,10 @@ data class SnapshotFileIndex(
             (screen.classNames + screen.fileName)
                 .filter { it.length >= 3 && it.lowercase() !in GENERIC_OWNER_NAMES }
                 .distinct()
+
+        private fun SourceEvidence.ownerMatchLength(goldenPath: String): Int =
+            ownerNames().filter { owner -> ownerMatches(goldenPath, owner) }
+                .maxOfOrNull(String::length) ?: 0
 
         private fun SourceEvidence.testOwnerNames(): Set<String> =
             (screen.classNames + screen.fileName).mapNotNull { name ->

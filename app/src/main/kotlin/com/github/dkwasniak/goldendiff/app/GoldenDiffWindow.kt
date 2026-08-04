@@ -126,7 +126,37 @@ fun GoldenDiffWindow(state: AppState) {
                 }
                 if (state.quickOpenVisible) QuickOpenDialog(state)
                 state.acceptAllState?.let { AcceptAllOverlay(state, it) }
+                state.xcodeRunMismatch?.let { XcodeRunMismatchOverlay(state, it) }
             }
+        }
+    }
+}
+
+@Composable
+private fun XcodeRunMismatchOverlay(state: AppState, mismatch: XcodeRunMismatch) {
+    Box(
+        Modifier.fillMaxSize().background(tokens.scrim).clickable {},
+        contentAlignment = Alignment.Center,
+    ) {
+        val shape = RoundedCornerShape(10.dp)
+        Column(
+            Modifier.widthIn(min = 390.dp, max = 540.dp).clip(shape).background(tokens.panel)
+                .border(1.dp, tokens.borderStrong, shape).clickable(enabled = false) {}.padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Test run device differs", color = tokens.text, fontSize = Type.large, fontWeight = FontWeight.Bold)
+            Text(
+                "The selected run used ${mismatch.run.name} (${mismatch.run.platform}, ${mismatch.run.os}), " +
+                    "but this command targets ${mismatch.destination.name} " +
+                    "(${mismatch.destination.platform}, ${mismatch.destination.os}).",
+                color = tokens.textDim,
+                fontSize = Type.body,
+            )
+            Text("Run anyway does not change the selected run or device.", color = tokens.textFaint, fontSize = Type.small)
+            ModalActions(
+                secondary = "Cancel" to state::cancelPendingSnapshotCommand,
+                primary = "Run anyway" to state::runPendingSnapshotCommandAnyway,
+            )
         }
     }
 }
@@ -524,7 +554,73 @@ private fun LegendRow(state: AppState) {
         state.blockerText()?.let {
             Text(it, color = tokens.changed, fontSize = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         }
+        if (state.projectRoot != null && state.config.isIosProject) XcodeDestinationPicker(state)
         if (state.projectRoot != null) CommandGroup(state)
+    }
+}
+
+@Composable
+private fun XcodeDestinationPicker(state: AppState) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = state.selectedXcodeDestination
+    Box {
+        Row(
+            Modifier.height(26.dp).clip(RoundedCornerShape(Dimens.controlRadius))
+                .border(1.dp, if (state.xcodeDestinationsError == null) tokens.border else tokens.changed, RoundedCornerShape(Dimens.controlRadius))
+                .clickable(enabled = !state.commandRunning) { expanded = true }
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (state.xcodeDestinationsLoading) {
+                CircularProgressIndicator(Modifier.size(11.dp), color = tokens.accent, strokeWidth = 1.5.dp)
+            }
+            Text(
+                when {
+                    state.xcodeDestinationsError != null -> "Choose device"
+                    state.pendingXcodeDestination != null ->
+                        "Validating ${state.pendingXcodeDestination?.name.orEmpty()}…"
+                    selected != null -> buildString {
+                        append(selected.name.ifBlank { selected.id ?: "iOS device" })
+                        selected.os?.let { append(" · $it") }
+                    }
+                    else -> "Choose device"
+                },
+                color = if (state.xcodeDestinationsError == null) tokens.textDim else tokens.changed,
+                fontSize = Type.small,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Chevron(Direction.DOWN, tokens.textFaint, size = 7.dp)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            state.xcodeDestinations.forEach { destination ->
+                DropdownMenuItem(
+                    enabled = !state.xcodeDestinationsLoading,
+                    onClick = {
+                        expanded = false
+                        state.selectXcodeDestination(destination)
+                    },
+                ) {
+                    Text(
+                        destination.name + (destination.os?.let { " · $it" } ?: "") +
+                            if (destination.isSimulator) " · Simulator" else " · Device",
+                        color = tokens.text,
+                        fontSize = Type.small,
+                    )
+                }
+            }
+            if (state.xcodeDestinations.isEmpty() && !state.xcodeDestinationsLoading) {
+                DropdownMenuItem(onClick = {}) {
+                    Text(state.xcodeDestinationsError ?: "No available iOS destinations", color = tokens.textFaint, fontSize = Type.small)
+                }
+            }
+            Divider(color = tokens.border)
+            DropdownMenuItem(onClick = {
+                expanded = false
+                state.refreshXcodeDestinations()
+            }) { Text("Refresh devices", color = tokens.accent, fontSize = Type.small) }
+        }
     }
 }
 

@@ -67,6 +67,7 @@ import com.github.dkwasniak.goldendiff.app.ui.WrappingPaneHeader
 import com.github.dkwasniak.goldendiff.app.ui.hoverWash
 import com.github.dkwasniak.goldendiff.app.ui.tokens
 import com.github.dkwasniak.goldendiff.match.MatchMode
+import com.github.dkwasniak.goldendiff.settings.GeneratedSource
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import java.awt.Cursor
 
@@ -76,6 +77,7 @@ private val SettingsContentMinimumWidth = 320.dp
 
 /** The sections of the settings window, in nav order. */
 private enum class SettingsSection(val label: String) {
+    PROJECT("Project"),
     DIRECTORIES("Directories"),
     OUTPUT_MATCHING("Test output matching"),
     MATCHING("Golden matching"),
@@ -116,7 +118,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                     lightColors(background = palette.background, surface = palette.panel, primary = palette.accent)
                 },
             ) {
-                var section by remember { mutableStateOf(SettingsSection.DIRECTORIES) }
+                var section by remember { mutableStateOf(SettingsSection.PROJECT) }
                 Column(Modifier.fillMaxSize().background(tokens.background)) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val maximumPreviewWidth =
@@ -146,7 +148,7 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                 Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
                                     .padding(horizontal = 28.dp, vertical = 22.dp),
                             ) {
-                                if (state.projectRoot == null) {
+                                if (state.projectRoot == null && section != SettingsSection.PROJECT) {
                                     Text(
                                         "Open a project to view or change project-dependent settings.",
                                         color = tokens.textDim,
@@ -157,8 +159,15 @@ fun ApplicationScope.SettingsWindow(state: AppState, onClose: () -> Unit) {
                                     Spacer(Modifier.height(14.dp))
                                 }
                                 when (section) {
+                                    SettingsSection.PROJECT -> ProjectSection(state)
                                     SettingsSection.DIRECTORIES -> DirectoriesSection(state)
-                                    SettingsSection.OUTPUT_MATCHING -> OutputMatchingSection(state)
+                                    SettingsSection.OUTPUT_MATCHING -> {
+                                        XcresultSourceSection(state)
+                                        if (state.config.generatedSource == GeneratedSource.DIRECTORY) {
+                                            Spacer(Modifier.height(20.dp))
+                                            OutputMatchingSection(state)
+                                        }
+                                    }
                                     SettingsSection.MATCHING -> MatchingSection(state)
                                     SettingsSection.FILTERING -> FilteringSection(state)
                                     SettingsSection.DISPLAY -> DisplaySection(state)

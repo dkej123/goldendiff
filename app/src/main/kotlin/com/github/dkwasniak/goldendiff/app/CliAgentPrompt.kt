@@ -70,6 +70,11 @@ fun buildCliAgentPrompt(projectPath: String): String {
        stable project-relative layout, prefer one precise directory regex over a long list of paths.
        The regex is matched against the complete directory path using "/" separators.
 
+       If this project builds with Xcode (iOS/macOS/tvOS/watchOS — XCTest, swift-snapshot-testing,
+       etc.), pass --ios-project in step 5. It is independent of --generated-source: it enables
+       Golden Diff's device/destination picker for the Xcode commands configured in step 6, even when
+       generated output is read from a plain directory rather than an .xcresult bundle.
+
        Treat every matched directory as a MATCHING ROOT, not merely a directory that happens to
        contain PNGs. Golden Diff matches each golden's path RELATIVE to that root. Choose the root so
        the key required by the selected mode remains in the relative path:
@@ -80,10 +85,15 @@ fun buildCliAgentPrompt(projectPath: String): String {
        do not assume framework-specific folder names. Avoid roots broad enough to include unrelated
        generated output. This is the only required setting.
 
-    3. Find the test-output directory (optional). From the same framework's configuration or defaults,
+    3. Find the test-output directory (optional). From the framework's configuration or defaults,
        locate where a verification run WRITES the freshly generated images; those files are usually
-       named after the golden they correspond to (often with a suffix like _actual). Skip this if you
-       cannot identify it with confidence.
+       named after the golden they correspond to (often with a suffix like _actual). For
+       swift-snapshot-testing, follow its guide: Golden Diff discovers failing actual PNGs through
+       the project `.xcresult` selected in the Test Run picker, so configure
+       `--generated-source xcresult` and leave the generated directory unset. If the project instead
+       deliberately uses a stable artifact directory, choose the directory source as a separate setup.
+       Skip this setting if you cannot identify a
+       stable output directory with confidence.
 
     4. Decide the matching mode — how Golden Diff maps the file being edited to its goldens:
          • annotated (default) — producer functions carry annotations such as @Preview or @Test, and
@@ -100,6 +110,7 @@ fun buildCliAgentPrompt(projectPath: String): String {
          [--golden-dir <relative golden dir> ...] \
          [--golden-dir-regex '<full project-relative directory regex>' ...] \
          [--generated-dir <relative test-output dir>] \
+         [--ios-project] \
          --match-mode <annotated|file-class>
        Use one --golden-dir per literal directory or --golden-dir-regex per repeated layout; they may
        be combined. Leave Filtering, Display and Privacy at their defaults.
@@ -138,8 +149,8 @@ fun buildCliAgentPrompt(projectPath: String): String {
 
        Before saving, audit the four final command strings as one coherent set:
          • all four use the same user-confirmed scheme and destination;
-         • every command exports the framework's generated-artifact directory when the guide requires it,
-           and that path resolves to the same directory configured with --generated-dir;
+         • every command is compatible with the framework's generated-artifact setup from the guide;
+           when a generated directory is configured, its command-side path resolves to that directory;
          • Generate All/File enable recording; Verify All/File do not enable recording;
          • only the two per-file commands contain the framework's single-test selector and the appropriate
            Golden Diff placeholder; the all commands remain project-wide;

@@ -42,7 +42,7 @@ or set `JAVA_HOME` to a full JDK; `:app:run` and the tests are unaffected.
 Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → the built zip → restart.
 
 ## Release cycle
-- **Internal (Figma) plugin — automated.** Bump `pluginVersion` in `gradle.properties`, commit, and
+- **Internal (Figma) plugin — automated.** Bump `figmaPluginVersion` in `gradle.properties`, commit, and
   push to `main`. The `publish-internal.yml` workflow rebuilds it and commits the hosted files under
   `distribution/` (ZIP + `updatePlugins.xml`, served via `raw.githubusercontent.com`). No manual step;
   `./distribution/publish.sh` is only the local fallback. The team installs it once from the custom
@@ -51,8 +51,10 @@ Install into AS: Settings → Plugins → ⚙ → Install Plugin from Disk → t
 - **Public plugin beta — Marketplace.** Work on `beta`; tag `beta-v<ver>` to publish the same plugin
   ID to the Marketplace `beta` channel. Testers add
   `https://plugins.jetbrains.com/plugins/beta/32662`.
-- **Desktop app.** `app-v<ver>` publishes Stable and updates `golden-diff`; `app-beta-v<ver>` creates
-  a GitHub prerelease and updates `golden-diff@beta`. Both casks live on `main`.
+- **Desktop app.** Bump `appVersion` (and numeric `appPackageVersion`) in `app/version.properties`,
+  independently of `pluginVersion`. `app-v<ver>` publishes Stable and updates `golden-diff`;
+  `app-beta-v<ver>` creates a GitHub prerelease and updates `golden-diff@beta`. Both casks live on
+  `main`.
 - **Sentry is a release preflight, not an optional follow-up.** Before any public-plugin or desktop
   tag, confirm that `SENTRY_APP_DSN`, `SENTRY_PLUGIN_DSN`, and `SENTRY_AUTH_TOKEN` exist in GitHub
   Actions secrets. After publishing, verify that the workflow's **Create Sentry release** step was

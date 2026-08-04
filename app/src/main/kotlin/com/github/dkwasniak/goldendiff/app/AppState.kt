@@ -14,6 +14,7 @@ import com.github.dkwasniak.goldendiff.command.CompletionResult
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
 import com.github.dkwasniak.goldendiff.compare.PixelDiff
 import com.github.dkwasniak.goldendiff.compare.TransparentBorder
 import com.github.dkwasniak.goldendiff.compare.toArgbImage
@@ -25,6 +26,7 @@ import com.github.dkwasniak.goldendiff.match.MatchMode
 import com.github.dkwasniak.goldendiff.project.FuzzyFileMatcher
 import com.github.dkwasniak.goldendiff.project.ProjectFileIndex
 import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
+import com.github.dkwasniak.goldendiff.project.SnapshotFileStatus
 import com.github.dkwasniak.goldendiff.project.SnapshotIndexFingerprint
 import com.github.dkwasniak.goldendiff.project.SnapshotCase
 import com.github.dkwasniak.goldendiff.project.SnapshotSourceCache
@@ -47,6 +49,11 @@ import com.github.dkwasniak.goldendiff.telemetry.commandCompleted
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItem
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
 import com.github.dkwasniak.goldendiff.ui.CompareMode
+import com.github.dkwasniak.goldendiff.watch.PNG_REFRESH_DEBOUNCE_MS
+import com.github.dkwasniak.goldendiff.watch.PngChangeEvent
+import com.github.dkwasniak.goldendiff.watch.PngChangeKind
+import com.github.dkwasniak.goldendiff.watch.PngRefreshMode
+import com.github.dkwasniak.goldendiff.watch.pngRefreshMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,22 +85,28 @@ internal fun snapshotQuickOpenResults(
     index: SnapshotFileIndex?,
     query: String,
     limit: Int = 30,
+): List<QuickOpenResult> = projectQuickOpenResults(null, index, query, limit)
+
+internal fun projectQuickOpenResults(
+    project: ProjectFileIndex?,
+    snapshots: SnapshotFileIndex?,
+    query: String,
+    limit: Int = 30,
 ): List<QuickOpenResult> {
     val trimmed = query.trim()
-    if (index == null || trimmed.isEmpty()) return emptyList()
+    if (trimmed.isEmpty()) return emptyList()
     data class Scored(val result: QuickOpenResult, val score: Int)
 
-    return index.files.asSequence()
+    val sourcePaths = (project?.paths.orEmpty() + snapshots?.files.orEmpty().map { it.relativePath })
+        .distinct()
+    val sources = sourcePaths.asSequence().mapNotNull { path ->
+        FuzzyFileMatcher.score(path, trimmed)?.let { score ->
+            Scored(QuickOpenResult(path, File(path).name), score)
+        }
+    }
+    val cases = snapshots?.files.orEmpty().asSequence()
         .flatMap { file ->
             sequence {
-                FuzzyFileMatcher.score(file.relativePath, trimmed)?.let { score ->
-                    yield(
-                        Scored(
-                            QuickOpenResult(file.relativePath, File(file.relativePath).name),
-                            score,
-                        ),
-                    )
-                }
                 file.cases.forEach { case ->
                     FuzzyFileMatcher.score(case.methodName, trimmed)?.let { score ->
                         yield(Scored(QuickOpenResult(file.relativePath, case.methodName, case.id), score))
@@ -101,6 +114,7 @@ internal fun snapshotQuickOpenResults(
                 }
             }
         }
+    return (sources + cases)
         .sortedWith(
             compareByDescending<Scored> { it.score }
                 .thenBy { it.result.label.length }
@@ -141,11 +155,18 @@ sealed interface Blocker {
  * Every operation that touches disk or git is dispatched to [Dispatchers.IO]; nothing here may run on
  * the UI thread, because a project-wide scan on a large repository takes long enough to freeze it.
  */
-class AppState(
+class AppState internal constructor(
     private val scope: CoroutineScope,
-    val ui: UiPreferences = UiPreferences.load(),
+    val ui: UiPreferences,
     val telemetry: TelemetryClient,
+    private val xcodeResultGeneratedArtifacts: XcodeResultGeneratedArtifacts,
+    private val xcodeDestinationCatalog: XcodeDestinationCatalog,
 ) : AutoCloseable {
+    constructor(
+        scope: CoroutineScope,
+        ui: UiPreferences = UiPreferences.load(),
+        telemetry: TelemetryClient,
+    ) : this(scope, ui, telemetry, XcodeResultGeneratedArtifacts(), XcodeDestinationCatalog())
 
     var projectRoot by mutableStateOf<File?>(null)
         private set
@@ -237,6 +258,29 @@ class AppState(
     val commandLog = mutableStateListOf<String>()
     var commandLogVisible by mutableStateOf(false)
 
+    internal var xcodeRuns by mutableStateOf<List<XcodeTestRun>>(emptyList())
+        private set
+    internal var selectedXcodeRunPath by mutableStateOf<String?>(null)
+        private set
+    internal var xcodeRunsLoading by mutableStateOf(false)
+        private set
+    internal var xcodeRunsError by mutableStateOf<String?>(null)
+        private set
+    private var xcodeDestinationPickerState by mutableStateOf(XcodeDestinationPickerState())
+    internal val xcodeDestinations: List<XcodeDestination> get() = xcodeDestinationPickerState.destinations
+    internal val xcodeDestinationsLoading: Boolean get() = xcodeDestinationPickerState.loading
+    internal val xcodeDestinationsValidated: Boolean get() = xcodeDestinationPickerState.authoritative
+    internal val xcodeDestinationsError: String? get() = xcodeDestinationPickerState.error
+    internal val pendingXcodeDestination: XcodeDestination? get() = xcodeDestinationPickerState.pendingSelection
+    internal var pendingSnapshotCommand by mutableStateOf<PendingSnapshotCommand?>(null)
+        private set
+    internal var xcodeRunMismatch by mutableStateOf<XcodeRunMismatch?>(null)
+        private set
+    private var xcodeRunsGeneration = 0L
+    private var xcodeDestinationsGeneration = 0L
+    private var xcodeDestinationSaveGeneration = 0L
+    private val pendingXcodeCommandWorkflow = PendingXcodeCommandWorkflow()
+
     // The status-bar chip stays after a run finishes so the last outcome (e.g. "Verify failed (exit 1)")
     // remains visible; the user dismisses it with the chip's ✕. Set false when a new run starts.
     var commandStatusDismissed by mutableStateOf(false)
@@ -244,6 +288,12 @@ class AppState(
     fun dismissCommandStatus() {
         commandStatusDismissed = true
     }
+
+    internal val selectedXcodeRun: XcodeTestRun?
+        get() = selectedXcodeRunPath?.let { path -> xcodeRuns.firstOrNull { it.id == path } }
+
+    internal val selectedXcodeDestination: XcodeDestination?
+        get() = XcodeCommandDestination.selectedDestination(config).getOrNull()
 
     @Volatile
     private var commandCancelled = false
@@ -256,36 +306,58 @@ class AppState(
     var diagnosticsVisible by mutableStateOf(false)
 
     sealed interface AcceptAllState {
-        data class Confirm(val candidates: List<File>) : AcceptAllState
+        data class Confirm(val candidates: List<GoldenAccept.FrozenCandidate>) : AcceptAllState
         data class Progress(val completed: Int, val total: Int) : AcceptAllState
         data class Success(val count: Int) : AcceptAllState
-        data class Partial(val accepted: Int, val total: Int, val failed: List<GoldenAccept.BulkFailure>) : AcceptAllState
+        data class Partial(
+            val accepted: Int,
+            val total: Int,
+            val failed: List<GoldenAccept.FrozenCandidate>,
+        ) : AcceptAllState
         data object NothingToAccept : AcceptAllState
     }
 
     var acceptAllState by mutableStateOf<AcceptAllState?>(null)
         private set
+    private var acceptAllGeneration = 0L
+    private var acceptGeneration = 0L
 
     val acceptableCurrentFileGoldens: List<File>
         get() = mergedItems.filter { it.hasAcceptableTestOutput }.map { it.golden }
 
     fun requestAcceptAll() {
-        acceptAllState = acceptableCurrentFileGoldens
-            .takeIf { it.isNotEmpty() }
-            ?.let(AcceptAllState::Confirm)
-            ?: AcceptAllState.NothingToAccept
+        val candidates = mergedItems.filter { it.hasAcceptableTestOutput }
+        if (candidates.isEmpty()) {
+            acceptAllState = AcceptAllState.NothingToAccept
+            return
+        }
+        val root = projectRoot
+        val sourcePath = selectedSourcePath
+        val generation = ++acceptAllGeneration
+        acceptAllState = AcceptAllState.Progress(0, candidates.size)
+        scope.launch {
+            val frozen = withContext(Dispatchers.IO) {
+                candidates.map(::freezeDisplayedCandidate)
+            }
+            if (
+                generation != acceptAllGeneration ||
+                projectRoot != root ||
+                selectedSourcePath != sourcePath
+            ) return@launch
+            acceptAllState = AcceptAllState.Confirm(frozen)
+        }
     }
 
     fun dismissAcceptAll() {
+        acceptAllGeneration++
         acceptAllState = null
     }
 
-    fun confirmAcceptAll(candidates: List<File>) = runAcceptAll(candidates, retry = false)
+    fun confirmAcceptAll(candidates: List<GoldenAccept.FrozenCandidate>) = runAcceptAll(candidates, retry = false)
 
-    fun retryAcceptAll(failures: List<GoldenAccept.BulkFailure>) =
-        runAcceptAll(failures.map { it.golden }, retry = true)
+    fun retryAcceptAll(failures: List<GoldenAccept.FrozenCandidate>) = runAcceptAll(failures, retry = true)
 
-    private fun runAcceptAll(candidates: List<File>, retry: Boolean) {
+    private fun runAcceptAll(candidates: List<GoldenAccept.FrozenCandidate>, retry: Boolean) {
         if (candidates.isEmpty()) {
             acceptAllState = AcceptAllState.NothingToAccept
             telemetry.acceptCompleted(
@@ -299,18 +371,29 @@ class AppState(
             )
             return
         }
-        val root = projectRoot
+        val root = projectRoot ?: return
+        val generation = ++acceptAllGeneration
         acceptAllState = AcceptAllState.Progress(0, candidates.size)
         scope.launch {
             val result = withContext(Dispatchers.IO) {
-                GoldenAccept.acceptAll(candidates, config, root) { completed, total ->
-                    scope.launch { acceptAllState = AcceptAllState.Progress(completed, total) }
+                GoldenAccept.acceptAllResolved(candidates) { completed, total ->
+                    scope.launch {
+                        if (generation == acceptAllGeneration && projectRoot == root) {
+                            acceptAllState = AcceptAllState.Progress(completed, total)
+                        }
+                    }
                 }
             }
-            result.accepted.forEach(::suppressPngEvent)
-            acceptedGoldens = acceptedGoldens + result.accepted.map { it.absolutePath }
-            result.accepted.forEach(::invalidateCachesFor)
-            val acceptedPaths = result.accepted.mapTo(hashSetOf()) { it.normalize().path }
+            if (generation != acceptAllGeneration || projectRoot != root) return@launch
+            val acceptedFiles = result.accepted.map { it.golden }
+            acceptedFiles.forEach(::suppressPngEvent)
+            result.accepted.mapNotNull { (it.source as? GoldenAccept.FrozenSource.Exact)?.generated }
+                .forEach(::suppressPngEvent)
+            acceptedGoldens = acceptedGoldens + acceptedFiles.map { it.absolutePath }
+            acceptedFiles.forEach(::invalidateCachesFor)
+            val acceptedPaths = acceptedFiles.mapTo(hashSetOf()) { it.normalize().path }
+            // Patch the known outcome directly and synchronously — see acceptGenerated for why this
+            // must not go through an async rescan.
             mergedItems = mergedItems.map { item ->
                 if (item.golden.normalize().path in acceptedPaths) {
                     item.copy(
@@ -328,34 +411,51 @@ class AppState(
                 mergedItemsCache[key] = mergedItems
             }
             pngRevision++
-            acceptAllState = if (result.failed.isEmpty()) {
-                AcceptAllState.Success(result.accepted.size)
+            // The watcher event for these writes is suppressed above, so the tree row status would
+            // otherwise never get recomputed — refresh just the accepted files, not a full rescan.
+            refreshSnapshotStatuses(acceptedFiles)
+            val failedCandidates = result.items.mapNotNull { item ->
+                item.candidate.takeUnless { item.outcome is GoldenAccept.ResolvedOutcome.Success }
+            }
+            acceptAllState = if (failedCandidates.isEmpty()) {
+                AcceptAllState.Success(acceptedFiles.size)
             } else {
-                AcceptAllState.Partial(result.accepted.size, candidates.size, result.failed)
+                AcceptAllState.Partial(acceptedFiles.size, candidates.size, failedCandidates)
             }
             telemetry.acceptCompleted(
                 TelemetryAcceptMode.BULK,
                 when {
-                    result.failed.isEmpty() -> TelemetryAcceptResult.SUCCESS
-                    result.accepted.isNotEmpty() -> TelemetryAcceptResult.PARTIAL
+                    failedCandidates.isEmpty() -> TelemetryAcceptResult.SUCCESS
+                    acceptedFiles.isNotEmpty() -> TelemetryAcceptResult.PARTIAL
                     else -> TelemetryAcceptResult.FAILURE
                 },
-                when (result.failed.firstOrNull()?.failure) {
+                when (result.items.firstOrNull { it.candidate in failedCandidates }?.outcome) {
                     null -> TelemetryAcceptFailure.NONE
-                    GoldenAccept.Failure.NoGeneratedCounterpart -> TelemetryAcceptFailure.MISSING
-                    is GoldenAccept.Failure.Io -> TelemetryAcceptFailure.IO
+                    is GoldenAccept.ResolvedOutcome.Ambiguous -> TelemetryAcceptFailure.AMBIGUOUS
+                    is GoldenAccept.ResolvedOutcome.StaleSource -> TelemetryAcceptFailure.STALE
+                    is GoldenAccept.ResolvedOutcome.Io -> TelemetryAcceptFailure.IO
+                    else -> TelemetryAcceptFailure.MISSING
                 },
                 candidates = candidates.size,
-                accepted = result.accepted.size,
-                failed = result.failed.size,
+                accepted = acceptedFiles.size,
+                failed = failedCandidates.size,
                 retry = retry,
             )
             selected?.takeIf { it.normalize().path in acceptedPaths }?.let { golden ->
                 select(golden, "accept_all")
             }
-            refreshSnapshotStatuses()
         }
     }
+
+    private fun freezeDisplayedCandidate(item: MergedGoldenItem): GoldenAccept.FrozenCandidate =
+        when (val resolution = item.testOutputResolution) {
+            is GeneratedCounterpartResolution.Exact -> GoldenAccept.freeze(item.golden, resolution.file)
+                .getOrElse { GoldenAccept.FrozenCandidate(item.golden, GoldenAccept.FrozenSource.Missing) }
+            is GeneratedCounterpartResolution.Ambiguous ->
+                GoldenAccept.FrozenCandidate(item.golden, GoldenAccept.FrozenSource.Ambiguous(resolution.candidates))
+            GeneratedCounterpartResolution.Missing ->
+                GoldenAccept.FrozenCandidate(item.golden, GoldenAccept.FrozenSource.Missing)
+        }
 
     /** A newer app build on this install's channel, once the launch check has found one. */
     var update by mutableStateOf<UpdateChecker.UpdateInfo?>(null)
@@ -408,6 +508,46 @@ class AppState(
 
     /** Free-text filter over the project tree; empty means "show everything". */
     var treeFilter by mutableStateOf("")
+        private set
+
+    /** Whether the tree is grouped by folder or shown as a flat list. */
+    var treeGrouped by mutableStateOf(true)
+        private set
+
+    /** Active status chips (Failed/Modified/New); empty means "show everything". */
+    var treeStatusFilters by mutableStateOf<Set<SnapshotFileStatus>>(emptySet())
+        private set
+
+    /** Updates the tree filter and remembers it for the next launch of this project. */
+    fun updateTreeFilter(value: String) {
+        treeFilter = value
+        persistTreeSession()
+    }
+
+    /** Updates the tree grouping mode and remembers it for the next launch of this project. */
+    fun updateTreeGrouped(value: Boolean) {
+        treeGrouped = value
+        persistTreeSession()
+    }
+
+    fun toggleTreeStatusFilter(status: SnapshotFileStatus) {
+        treeStatusFilters = if (status in treeStatusFilters) {
+            treeStatusFilters - status
+        } else {
+            treeStatusFilters + status
+        }
+        persistTreeSession()
+    }
+
+    fun clearTreeStatusFilters() {
+        treeStatusFilters = emptySet()
+        persistTreeSession()
+    }
+
+    private fun persistTreeSession() {
+        val root = projectRoot ?: return
+        AppConfig.saveTreeSession(root, AppConfig.TreeSession(treeFilter, treeGrouped, treeStatusFilters))
+    }
 
     /** Toolbar summary: "9 screenshots · 4 changed · 3 new", with the zero parts dropped. */
     val summaryText: String
@@ -426,6 +566,7 @@ class AppState(
     private var comparisonGeneration = 0L
     private var pendingProjectOpenTrigger: String? = null
     private var snapshotIndexGeneration = 0L
+    private var snapshotStatusGeneration = 0L
     private data class CachedProjectIndexes(
         val files: ProjectFileIndex,
         val snapshots: SnapshotFileIndex?,
@@ -446,6 +587,7 @@ class AppState(
     private val mergedItemsCache = HashMap<String, List<MergedGoldenItem>>()
     private val tabSelection = HashMap<String, File>()
     private val comparisonCache = HashMap<String, Comparison>()
+    private val resolvedAcceptCandidates = HashMap<String, GoldenAccept.FrozenCandidate>()
     val thumbnailCache = HashMap<String, ImageBitmap>()
 
     /**
@@ -461,24 +603,30 @@ class AppState(
         private set
     private var pngWatcher: PngDirectoryWatcher? = null
     private var pngDebounceJob: Job? = null
-    private val pendingPngEvents = mutableListOf<PngDirectoryWatcher.Event>()
+    private var gitHeadWatcher: GitHeadWatcher? = null
+    private var gitHeadDetector: GitHeadChangeDetector? = null
+    private var gitHeadDebounceJob: Job? = null
+    private var gitHeadWatcherGeneration = 0L
+    private val pendingPngEvents = mutableListOf<PngChangeEvent>()
     private var pendingPngOverflow = false
     private var pngUpdateGeneration = 0L
     private data class SuppressedPngWrite(val state: PngFileState, val expiresAt: Long)
     private val suppressedPngPaths = HashMap<String, SuppressedPngWrite>()
 
     private fun comparisonKey(golden: File, source: BuiltInSource): String {
-        val variantMtime = mergedItems
+        val variant = mergedItems
             .firstOrNull { it.golden.normalize() == golden.normalize() }
-            ?.variant(source)?.file?.lastModified()
-            ?: golden.lastModified()
-        return "${source.name}|${golden.absolutePath}|$variantMtime|${config.trimTransparentPadding}"
+            ?.variant(source)?.file
+            ?: golden
+        return "${source.name}|${golden.absolutePath}|${variant.absolutePath}|${variant.lastModified()}|" +
+            config.trimTransparentPadding
     }
 
     private fun clearCaches() {
         itemsCache.clear()
         mergedItemsCache.clear()
         comparisonCache.clear()
+        resolvedAcceptCandidates.clear()
         thumbnailCache.clear()
     }
 
@@ -486,7 +634,7 @@ class AppState(
         caseId ?: path
 
     internal val quickOpenResults: List<QuickOpenResult>
-        get() = snapshotQuickOpenResults(snapshotFileIndex, quickOpenQuery)
+        get() = projectQuickOpenResults(fileIndex, snapshotFileIndex, quickOpenQuery)
 
     data class Comparison(
         val old: ImageBitmap?,
@@ -530,12 +678,23 @@ class AppState(
 
     fun openProject(root: File, restored: Boolean = false) {
         rememberCurrentProjectIndexes()
+        cancelPendingSnapshotCommand()
+        dismissAcceptAll()
+        acceptGeneration++
+        comparisonGeneration++
+        pngUpdateGeneration++
+        snapshotStatusGeneration++
         pendingProjectOpenTrigger = if (restored) "restored" else "manual"
         val loadedConfig = AppConfig.load(root)
+        val fingerprint = SnapshotIndexFingerprint.from(root, loadedConfig)
         val cached = projectIndexCache[projectCacheKey(root)]
-        val cachedSnapshots = cached?.snapshots?.takeIf {
-            it.fingerprint == SnapshotIndexFingerprint.from(root, loadedConfig)
-        }
+        val cachedSnapshots = cached?.snapshots?.takeIf { it.fingerprint == fingerprint }
+            ?: (cached == null).let { coldStart ->
+                // Nothing in this session's memory yet — fall back to the last on-disk tree so the
+                // pane shows the previous run's files immediately instead of a blank one while the
+                // real scan below (still surfaced through the "Indexing" banner) catches up.
+                if (coldStart) AppConfig.loadTreeCache(root)?.takeIf { it.fingerprint == fingerprint } else null
+            }
         // Invalidate both the visible tree and every in-flight index build before publishing the new
         // root. Otherwise Compose can briefly render the previous project's tree under the new name,
         // and a slower old scan can race the new one.
@@ -547,7 +706,12 @@ class AppState(
         snapshotIndexing = true
         projectRoot = root
         config = loadedConfig
+        selectedXcodeRunPath = AppConfig.loadSelectedXcodeRun(root)
+        xcodeRuns = emptyList()
+        xcodeRunsError = null
+        xcodeDestinationPickerState = XcodeDestinationPickerState()
         restartPngWatcher()
+        restartGitHeadWatcher()
         AppConfig.rememberProject(root)
         selectedSourcePath = null
         selectedSnapshotCaseId = null
@@ -557,9 +721,14 @@ class AppState(
         selected = null
         comparison = null
         onionOpacityByGolden.clear()
-        treeFilter = ""
+        val treeSession = AppConfig.loadTreeSession(root)
+        treeFilter = treeSession.filter
+        treeGrouped = treeSession.grouped
+        treeStatusFilters = treeSession.statusFilters
         clearCaches()
         tabSelection.clear()
+        if (loadedConfig.usesXcresultSource) refreshXcodeRuns()
+        if (loadedConfig.isIosProject) refreshXcodeDestinations()
         refresh("automatic")
         scope.launch {
             val (index, refreshed) = withContext(Dispatchers.IO) {
@@ -586,7 +755,7 @@ class AppState(
             if (projectRoot != root || snapshotIndexGeneration != openingGeneration) return@launch
             fileIndex = index
             if (refreshed != null) {
-                snapshotFileIndex = refreshed
+                publishSnapshotFileIndex(refreshed)
                 snapshotIndexing = false
                 projectIndexCache[projectCacheKey(root)] = CachedProjectIndexes(index, refreshed, sourceCache)
                 refreshed.files.firstOrNull()?.let { selectSourceFile(it.relativePath, "automatic") }
@@ -618,7 +787,7 @@ class AppState(
         ) {
             return
         }
-        snapshotFileIndex = rebuilt
+        publishSnapshotFileIndex(rebuilt)
         snapshotIndexing = false
         projectIndexCache[projectCacheKey(root)] = CachedProjectIndexes(index, rebuilt, sourceCache)
         val selectedPath = selectedSourcePath
@@ -781,10 +950,14 @@ class AppState(
                 "match_mode" to if (newConfig.matchMode.name == "ANNOTATED_METHOD") "annotated_method" else "file_class_regex",
                 "golden_dir_count_bucket" to TelemetryBuckets.count(newConfig.goldenPaths.size),
                 "generated_dir_count_bucket" to TelemetryBuckets.count(newConfig.generatedPaths.size),
-                "generated_configured" to newConfig.generatedPaths.isNotEmpty().toString(),
+                "generated_configured" to (
+                    newConfig.usesXcresultSource || newConfig.generatedPaths.isNotEmpty()
+                    ).toString(),
+                "generated_source" to newConfig.generatedSource.name.lowercase(),
                 "trim_enabled" to newConfig.trimTransparentPadding.toString(),
                 "changed_golden_dirs" to (old.goldenPaths != newConfig.goldenPaths).toString(),
                 "changed_generated_dirs" to (old.generatedPaths != newConfig.generatedPaths).toString(),
+                "changed_generated_source" to (old.generatedSource != newConfig.generatedSource).toString(),
                 "changed_matching" to (
                     old.matchMode != newConfig.matchMode ||
                         old.annotatedFunctionRegex != newConfig.annotatedFunctionRegex ||
@@ -832,14 +1005,37 @@ class AppState(
     ) {
         val rootsChanged =
             old.goldenPaths != updated.goldenPaths ||
-                old.generatedPaths != updated.generatedPaths
+                old.generatedPaths != updated.generatedPaths ||
+                old.generatedSource != updated.generatedSource
         if (rootsChanged) restartPngWatcher()
-
         val associationsChanged =
             SnapshotIndexFingerprint.from(root, old) != SnapshotIndexFingerprint.from(root, updated)
         val generatedMatchingChanged =
             old.generatedPaths != updated.generatedPaths ||
-                old.generatedFileRegex != updated.generatedFileRegex
+                old.generatedFileRegex != updated.generatedFileRegex ||
+                old.generatedSource != updated.generatedSource ||
+                old.xcresultDerivedDataPath != updated.xcresultDerivedDataPath ||
+                old.xcresultScanWindowHours != updated.xcresultScanWindowHours
+        val commandsChanged =
+            old.generateAllCommand != updated.generateAllCommand ||
+                old.generateFileCommand != updated.generateFileCommand ||
+                old.verifyAllCommand != updated.verifyAllCommand ||
+                old.verifyFileCommand != updated.verifyFileCommand ||
+                old.verifyCaseCommand != updated.verifyCaseCommand
+        if (updated.usesXcresultSource) {
+            if (generatedMatchingChanged) refreshXcodeRuns()
+        } else if (old.usesXcresultSource) {
+            xcodeRunsGeneration++
+            xcodeRuns = emptyList()
+            xcodeRunsLoading = false
+            xcodeRunsError = null
+        }
+        if (updated.isIosProject) {
+            if (commandsChanged || old.isIosProject != updated.isIosProject) refreshXcodeDestinations()
+        } else if (old.isIosProject) {
+            xcodeDestinationsGeneration++
+            xcodeDestinationPickerState = XcodeDestinationPickerState()
+        }
         when {
             associationsChanged -> {
                 clearCaches()
@@ -867,11 +1063,54 @@ class AppState(
         val configuredRoots = if (config.goldenPaths.any { GoldenDiffConfig.goldenDirectoryRegex(it) != null }) {
             listOf(root)
         } else {
-            config.resolvedGoldenPaths(root) + config.resolvedGeneratedPaths(root)
+            config.resolvedGoldenPaths(root) +
+                config.resolvedGeneratedPaths(root).takeUnless { config.usesXcresultSource }.orEmpty()
         }
         val watchRoots = configuredRoots.map { nearestExistingDirectory(it, root) }.distinctBy { it.absolutePath }
         pngWatcher = PngDirectoryWatcher(watchRoots) { events, overflow ->
             scope.launch { queuePngEvents(events, overflow) }
+        }
+    }
+
+    private fun restartGitHeadWatcher() {
+        val generation = ++gitHeadWatcherGeneration
+        gitHeadDebounceJob?.cancel()
+        gitHeadDebounceJob = null
+        gitHeadWatcher?.close()
+        gitHeadWatcher = null
+        gitHeadDetector = null
+        val root = projectRoot ?: return
+        scope.launch {
+            val setup = withContext(Dispatchers.IO) {
+                val git = GitCli(root)
+                git.gitMetadataDirectories() to GitHeadChangeDetector(git::headRevision).also { it.poll() }
+            }
+            if (projectRoot != root || generation != gitHeadWatcherGeneration) return@launch
+            val (directories, detector) = setup
+            if (directories.isEmpty()) return@launch
+            gitHeadDetector = detector
+            gitHeadWatcher = GitHeadWatcher(directories) {
+                scope.launch { queueGitHeadCheck(root, generation) }
+            }
+            // Close the small race between reading the baseline and registering WatchService.
+            queueGitHeadCheck(root, generation)
+        }
+    }
+
+    private fun queueGitHeadCheck(root: File, generation: Long) {
+        if (projectRoot != root || generation != gitHeadWatcherGeneration) return
+        gitHeadDebounceJob?.cancel()
+        gitHeadDebounceJob = scope.launch {
+            delay(GIT_HEAD_DEBOUNCE_MS)
+            val detector = gitHeadDetector ?: return@launch
+            val changed = withContext(Dispatchers.IO) { detector.poll() }
+            if (!changed || projectRoot != root || generation != gitHeadWatcherGeneration) return@launch
+            snapshotStatusGeneration++
+            pngUpdateGeneration++
+            clearCaches()
+            pngRevision++
+            refresh("git_head_change")
+            fileIndex?.let { index -> scope.launch { rebuildSnapshotIndex(index) } }
         }
     }
 
@@ -884,12 +1123,12 @@ class AppState(
         return candidate?.takeIf { it.isDirectory } ?: normalizedRoot
     }
 
-    private fun queuePngEvents(events: List<PngDirectoryWatcher.Event>, overflow: Boolean) {
+    private fun queuePngEvents(events: List<PngChangeEvent>, overflow: Boolean) {
         pendingPngEvents += events
         pendingPngOverflow = pendingPngOverflow || overflow
         pngDebounceJob?.cancel()
         pngDebounceJob = scope.launch {
-            delay(PNG_DEBOUNCE_MS)
+            delay(PNG_REFRESH_DEBOUNCE_MS)
             val batch = pendingPngEvents.toList()
             val overflowed = pendingPngOverflow
             pendingPngEvents.clear()
@@ -898,7 +1137,7 @@ class AppState(
         }
     }
 
-    private fun applyPngEvents(events: List<PngDirectoryWatcher.Event>, overflow: Boolean) {
+    private fun applyPngEvents(events: List<PngChangeEvent>, overflow: Boolean) {
         // Generate/Verify may write hundreds of files over several seconds. Their completion path
         // already performs one refresh, so intermediate watcher batches would only waste work.
         if (commandRunning) return
@@ -942,19 +1181,20 @@ class AppState(
 
     private fun refreshItemsInPlace(affected: Set<File>) {
         val root = projectRoot ?: return
+        val currentIndex = snapshotFileIndex
         val generation = ++pngUpdateGeneration
         scope.launch {
             val (refreshedMerged, indexedStatuses) = withContext(Dispatchers.IO) {
                 val changeScanner = scanner(root)
                 val visible = changeScanner.mergedItemsFor(affected.toList()).associateBy { it.golden.absolutePath }
-                val indexed = snapshotFileIndex?.files
+                val indexed = currentIndex?.files
                     ?.flatMap { it.goldenPaths }
                     ?.distinct()
                     ?.let { paths -> changeScanner.mergedItemsFor(paths.map(::File)) }
                     .orEmpty()
                 visible to indexed
             }
-            if (generation != pngUpdateGeneration) return@launch
+            if (generation != pngUpdateGeneration || projectRoot != root) return@launch
             mergedItems = mergedItems.map { item -> refreshedMerged[item.golden.absolutePath] ?: item }
             items = mergedItems.toLegacyItems()
             selectedSourcePath?.let {
@@ -967,10 +1207,20 @@ class AppState(
                 invalidateCachesFor(selectedFile)
                 select(selectedFile, "filesystem", keepCurrentPreview = true)
             }
-            snapshotFileIndex?.let { current ->
-                snapshotFileIndex = SnapshotFileIndex.refreshStatuses(current, indexedStatuses)
+            currentIndex?.takeIf { snapshotFileIndex === it }?.let { current ->
+                snapshotStatusGeneration++
+                publishSnapshotFileIndex(SnapshotFileIndex.refreshStatuses(current, indexedStatuses))
             }
         }
+    }
+
+    /** Publishes a freshly computed tree and remembers it to disk, so ordinary use (Accept, Verify,
+     * watcher-driven updates) keeps the next launch's instant-display cache current — not just a full
+     * project rescan. */
+    private fun publishSnapshotFileIndex(index: SnapshotFileIndex) {
+        snapshotFileIndex = index
+        val root = projectRoot ?: return
+        scope.launch(Dispatchers.IO) { AppConfig.saveTreeCache(root, index) }
     }
 
     private fun generatedGoldenBase(file: File): String? {
@@ -995,6 +1245,145 @@ class AppState(
         val unchanged = pngFileState(file) == expected.state
         if (!unchanged) suppressedPngPaths.remove(file.absolutePath)
         return unchanged
+    }
+
+    internal fun refreshXcodeRuns() {
+        val root = projectRoot ?: return
+        if (!config.usesXcresultSource) return
+        val generation = ++xcodeRunsGeneration
+        xcodeRunsLoading = true
+        xcodeRunsError = null
+        scope.launch { reloadXcodeRuns(root, generation, beforeVerify = null, refreshContent = false) }
+    }
+
+    private suspend fun reloadXcodeRuns(
+        root: File,
+        generation: Long,
+        beforeVerify: List<XcodeTestRun>?,
+        refreshContent: Boolean,
+    ) {
+        val loaded = withContext(Dispatchers.IO) { runCatching { xcodeResultGeneratedArtifacts.runs(root, config) } }
+        if (projectRoot != root || generation != xcodeRunsGeneration) return
+        xcodeRunsLoading = false
+        loaded.onFailure { xcodeRunsError = it.message ?: "Could not read Xcode test runs." }
+        val available = loaded.getOrNull() ?: return
+        xcodeRuns = available
+        val previousSelection = selectedXcodeRunPath
+        val chosen = if (beforeVerify != null) {
+            selectXcodeRunAfterVerify(beforeVerify, available, selectedXcodeRunPath)
+        } else {
+            selectAvailableXcodeRun(available, selectedXcodeRunPath)
+        }
+        selectedXcodeRunPath = chosen
+        chosen?.let { selected ->
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) { AppConfig.saveSelectedXcodeRun(root, selected) }
+                saved.onFailure {
+                    if (projectRoot == root && generation == xcodeRunsGeneration) {
+                        xcodeRunsError = it.message ?: "Could not save the selected test run."
+                    }
+                }
+            }
+        }
+        if (refreshContent || chosen != previousSelection) refreshForSelectedXcodeRun()
+    }
+
+    internal fun selectXcodeRun(path: String) {
+        val root = projectRoot ?: return
+        if (!config.usesXcresultSource || xcodeRuns.none { it.id == path } || selectedXcodeRunPath == path) return
+        selectedXcodeRunPath = path
+        refreshForSelectedXcodeRun()
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) { AppConfig.saveSelectedXcodeRun(root, path) }
+            if (projectRoot == root && selectedXcodeRunPath == path) {
+                saved.onFailure { xcodeRunsError = it.message ?: "Could not save the selected test run." }
+            }
+        }
+    }
+
+    private fun refreshForSelectedXcodeRun() {
+        clearCaches()
+        refresh("xcresult_run_change")
+        scope.launch { refreshSnapshotStatuses() }
+        selected?.let { select(it, "xcresult_run_change", keepCurrentPreview = true) }
+    }
+
+    internal fun refreshXcodeDestinations() {
+        val root = projectRoot ?: return
+        if (!config.isIosProject || commandRunning) return
+        val generation = ++xcodeDestinationsGeneration
+        xcodeDestinationPickerState = xcodeDestinationPickerState.startLoading()
+        scope.launch {
+            val requestedConfig = config
+            val result = withContext(Dispatchers.IO) { xcodeDestinationCatalog.load(root, requestedConfig) }
+            if (projectRoot != root || generation != xcodeDestinationsGeneration) return@launch
+            xcodeDestinationPickerState = xcodeDestinationPickerState.localLoaded(result)
+
+            // xcrun provides a sub-second local list. Reconcile it in the background with the
+            // scheme-aware xcodebuild result, which can spend tens of seconds resolving packages.
+            val authoritative = withContext(Dispatchers.IO) {
+                xcodeDestinationCatalog.loadAuthoritative(root, requestedConfig)
+            }
+            if (projectRoot != root || generation != xcodeDestinationsGeneration) return@launch
+            val update = xcodeDestinationPickerState.authoritativeLoaded(
+                authoritative,
+                fallbackError = result.exceptionOrNull()?.message,
+            )
+            xcodeDestinationPickerState = update.state
+            update.confirmedSelection?.let { persistXcodeDestination(root, it) }
+        }
+    }
+
+    internal fun selectXcodeDestination(destination: XcodeDestination) {
+        val root = projectRoot ?: return
+        if (commandRunning) return
+        val request = xcodeDestinationPickerState.requestSelection(destination)
+        xcodeDestinationPickerState = request.state
+        request.confirmedSelection?.let { persistXcodeDestination(root, it) }
+    }
+
+    private fun persistXcodeDestination(root: File, destination: XcodeDestination) {
+        val original = config
+        val updated = XcodeCommandDestination.rewriteAll(config, destination).getOrElse {
+            xcodeDestinationPickerState = xcodeDestinationPickerState.copy(
+                error = it.message ?: "Could not update Xcode commands.",
+            )
+            return
+        }
+        val generation = ++xcodeDestinationSaveGeneration
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) { AppConfig.save(root, updated) }
+            if (
+                projectRoot != root ||
+                config != original ||
+                generation != xcodeDestinationSaveGeneration
+            ) return@launch
+            saved.onSuccess {
+                config = updated
+                xcodeDestinationPickerState = xcodeDestinationPickerState.copy(error = null)
+            }.onFailure {
+                xcodeDestinationPickerState = xcodeDestinationPickerState.copy(
+                    error = it.message ?: "Could not save Xcode commands.",
+                )
+            }
+        }
+    }
+
+    internal fun cancelPendingSnapshotCommand() {
+        pendingXcodeCommandWorkflow.cancel()
+        pendingSnapshotCommand = null
+        xcodeRunMismatch = null
+    }
+
+    internal fun runPendingSnapshotCommandAnyway() {
+        val root = projectRoot ?: return
+        val pending = pendingXcodeCommandWorkflow.takeRunAnyway(root.canonicalProjectPath()) ?: return
+        pendingSnapshotCommand = null
+        xcodeRunMismatch = null
+        startCommands(
+            pending.kind, pending.relativePath, pending.caseId, pending.commands,
+            pending.label, pending.perFile, skipPreflight = true,
+        )
     }
 
     // region screenshot-test commands
@@ -1126,9 +1515,28 @@ class AppState(
         commands: List<String>,
         label: String,
         perFile: Boolean = true,
+        skipPreflight: Boolean = false,
     ) {
         if (commandRunning || commands.isEmpty()) return
         val root = projectRoot ?: return
+        if (!skipPreflight && config.usesXcresultSource) {
+            if (XcodeRunPreflight.awaitsRunCatalog(xcodeRunsLoading)) {
+                commandStatusDismissed = false
+                commandStatus = "Loading Xcode test runs — try again when the Test Run picker is ready."
+                return
+            }
+            val pending = PendingSnapshotCommand(
+                root.canonicalProjectPath(), kind, relativePath, caseId, commands, label, perFile,
+            )
+            if (!pendingXcodeCommandWorkflow.request(pending, selectedXcodeRun, selectedXcodeDestination)) {
+                pendingXcodeCommandWorkflow.confirmation?.let { confirmation ->
+                    pendingSnapshotCommand = confirmation.command
+                    xcodeRunMismatch = confirmation.mismatch
+                }
+                return
+            }
+        }
+        val runsBeforeCommand = xcodeRuns
         commandCancelled = false
         commandStatusDismissed = false
         commandRunning = true
@@ -1215,6 +1623,12 @@ class AppState(
                     else -> CompletionResult.FAILURE
                 },
             )?.let { MacNotifications.deliver(it.title, it.body) }
+            if (kind == CommandKind.VERIFY && config.usesXcresultSource) {
+                val generation = ++xcodeRunsGeneration
+                xcodeRunsLoading = true
+                xcodeRunsError = null
+                reloadXcodeRuns(root, generation, runsBeforeCommand, refreshContent = false)
+            }
             // Show the freshly written output without a manual refresh.
             clearCaches()
             restartPngWatcher()
@@ -1228,15 +1642,27 @@ class AppState(
     }
 
     private suspend fun refreshSnapshotStatuses() {
+        val current = snapshotFileIndex ?: return
+        refreshSnapshotStatuses(current.files.flatMap { it.goldenPaths }.distinct().map(::File))
+    }
+
+    /** Recomputes tree statuses for just [goldens], leaving every other row's status untouched. */
+    private suspend fun refreshSnapshotStatuses(goldens: List<File>) {
+        if (goldens.isEmpty()) return
         val root = projectRoot ?: return
         val current = snapshotFileIndex ?: return
-        val statuses = withContext(Dispatchers.IO) {
-            scanner(root).mergedItemsFor(current.files.flatMap { it.goldenPaths }.distinct().map(::File))
-        }
-        if (projectRoot == root && snapshotFileIndex?.fingerprint == current.fingerprint) {
-            snapshotFileIndex = SnapshotFileIndex.refreshStatuses(current, statuses)
+        val generation = ++snapshotStatusGeneration
+        val statuses = withContext(Dispatchers.IO) { scanner(root).mergedItemsFor(goldens) }
+        if (
+            projectRoot == root &&
+            generation == snapshotStatusGeneration &&
+            snapshotFileIndex === current
+        ) {
+            publishSnapshotFileIndex(SnapshotFileIndex.refreshStatuses(current, statuses))
         }
     }
+
+    private fun File.canonicalProjectPath(): String = runCatching { canonicalPath }.getOrElse { absolutePath }
 
     fun cancelCommand() {
         if (commandRunning) commandCancelled = true
@@ -1253,42 +1679,63 @@ class AppState(
      */
     fun acceptGenerated(golden: File) {
         if (commandRunning) return
-        val root = projectRoot
-        suppressPngEvent(golden)
+        val root = projectRoot ?: return
+        val generation = ++acceptGeneration
+        val frozen = resolvedAcceptCandidates[golden.normalize().path]
+        if (frozen == null) {
+            status = "Test output changed or was not displayed. Refreshing before Accept."
+            select(golden, "stale_source_recovery", keepCurrentPreview = true)
+            return
+        }
         scope.launch {
-            val result = withContext(Dispatchers.IO) { GoldenAccept.accept(golden, config, root) }
-            featureUsed(if (result.isSuccess) "accept_golden" else "accept_golden_failed")
-            val failure = result.exceptionOrNull()
-                ?.let { it as? GoldenAccept.AcceptException }
-                ?.failure
+            val result = withContext(Dispatchers.IO) { GoldenAccept.acceptFrozen(frozen) }
+            if (generation != acceptGeneration || projectRoot != root) return@launch
+            val succeeded = result is GoldenAccept.ResolvedOutcome.Success
+            featureUsed(if (succeeded) "accept_golden" else "accept_golden_failed")
             telemetry.acceptCompleted(
                 TelemetryAcceptMode.SINGLE,
-                if (result.isSuccess) TelemetryAcceptResult.SUCCESS else TelemetryAcceptResult.FAILURE,
-                when {
-                    result.isSuccess -> TelemetryAcceptFailure.NONE
-                    failure == null -> TelemetryAcceptFailure.UNKNOWN
-                    else -> when (failure) {
-                    GoldenAccept.Failure.NoGeneratedCounterpart -> TelemetryAcceptFailure.MISSING
-                    is GoldenAccept.Failure.Io -> TelemetryAcceptFailure.IO
-                    }
+                when (result) {
+                    is GoldenAccept.ResolvedOutcome.Success -> TelemetryAcceptResult.SUCCESS
+                    is GoldenAccept.ResolvedOutcome.NothingToAccept -> TelemetryAcceptResult.NOTHING_TO_ACCEPT
+                    else -> TelemetryAcceptResult.FAILURE
+                },
+                when (result) {
+                    is GoldenAccept.ResolvedOutcome.Success,
+                    is GoldenAccept.ResolvedOutcome.NothingToAccept -> TelemetryAcceptFailure.NONE
+                    is GoldenAccept.ResolvedOutcome.Ambiguous -> TelemetryAcceptFailure.AMBIGUOUS
+                    is GoldenAccept.ResolvedOutcome.StaleSource -> TelemetryAcceptFailure.STALE
+                    is GoldenAccept.ResolvedOutcome.Io -> TelemetryAcceptFailure.IO
                 },
                 candidates = 1,
-                accepted = if (result.isSuccess) 1 else 0,
-                failed = if (result.isSuccess) 0 else 1,
+                accepted = if (succeeded) 1 else 0,
+                failed = if (succeeded) 0 else 1,
             )
-            result.onFailure { error ->
-                val failure = (error as? GoldenAccept.AcceptException)?.failure
-                status = if (failure is GoldenAccept.Failure.NoGeneratedCounterpart) {
-                    "No generated output found for ${golden.name}."
-                } else {
-                    "Could not accept ${golden.name}."
+            if (!succeeded) {
+                status = when (result) {
+                    is GoldenAccept.ResolvedOutcome.StaleSource ->
+                        "Test output changed or moved. Refresh before accepting ${golden.name}."
+                    is GoldenAccept.ResolvedOutcome.Ambiguous -> "Generated output is ambiguous for ${golden.name}."
+                    is GoldenAccept.ResolvedOutcome.NothingToAccept -> "No generated output found for ${golden.name}."
+                    is GoldenAccept.ResolvedOutcome.Io -> "Could not accept ${golden.name}."
+                    is GoldenAccept.ResolvedOutcome.Success -> error("handled above")
+                }
+                if (result is GoldenAccept.ResolvedOutcome.StaleSource) {
+                    resolvedAcceptCandidates.remove(golden.normalize().path)
+                    select(golden, "stale_source_recovery", keepCurrentPreview = true)
                 }
                 return@launch
             }
-            result.getOrNull()?.let(::suppressPngEvent)
+            // Suppress after the write completes, capturing the state it actually produced — the
+            // golden's new bytes and the generated file's removal — not the state before it ran.
+            suppressPngEvent(golden)
+            (result as GoldenAccept.ResolvedOutcome.Success).generated.let(::suppressPngEvent)
+            resolvedAcceptCandidates.remove(golden.normalize().path)
             // Drop only this golden's stale image/comparison; the rest of the grid keeps its decodes.
             invalidateCachesFor(golden)
             acceptedGoldens = acceptedGoldens + golden.absolutePath
+            // Patch the known outcome directly and synchronously — accept already knows there is no
+            // longer a Test output for this golden, so an async rescan (racing the watcher or a
+            // stale in-flight refresh) could silently lose this update instead of just being slower.
             mergedItems = mergedItems.map { item ->
                 if (item.golden == golden) {
                     item.copy(
@@ -1300,6 +1747,14 @@ class AppState(
                 }
             }
             items = mergedItems.toLegacyItems()
+            selectedSourcePath?.let {
+                val key = selectionKey(it)
+                itemsCache[key] = items
+                mergedItemsCache[key] = mergedItems
+            }
+            // The watcher event for this write is suppressed above, so the tree row status would
+            // otherwise never get recomputed — refresh just this one file, not a full rescan.
+            refreshSnapshotStatuses(listOf(golden))
             status = "Accepted ${golden.name} as the golden."
             if (selected == golden) {
                 // Repaint from the freshly written golden with an "Accepted" banner. Reloading the
@@ -1323,7 +1778,6 @@ class AppState(
                     comparison = accepted
                 }
             }
-            refreshSnapshotStatuses()
         }
     }
 
@@ -1370,9 +1824,12 @@ class AppState(
         }
     }
 
-    private fun scanner(root: File, scannerConfig: GoldenDiffConfig = config): ChangeScanner {
-        return ChangeScanner.forGitProject(root, scannerConfig)
-    }
+    private fun scanner(root: File, scannerConfig: GoldenDiffConfig = config): ChangeScanner =
+        ChangeScanner.forGitProject(
+            root,
+            scannerConfig,
+            explicitGeneratedCandidates = xcodeResultGeneratedArtifacts.find(root, scannerConfig, selectedXcodeRunPath),
+        )
 
     fun refresh(trigger: String = "automatic") {
         val root = projectRoot ?: return
@@ -1620,6 +2077,7 @@ class AppState(
         }
         val merged = mergedItems.firstOrNull { it.golden.normalize() == file.normalize() }
         val requestedSource = automaticGoldenSource(merged)
+        val sourceFile = comparisonSourceFile(file, requestedSource, merged)
         // Picking a golden never touches the tree. The tree's highlight follows the tree's own
         // selection and the explicit reveal action; clearing it from here dropped the highlight of
         // the file whose goldens are on screen the moment one of them was clicked.
@@ -1639,7 +2097,14 @@ class AppState(
                 mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue(), "cache_hit" to "false"),
             )
             val loaded = withContext(Dispatchers.IO) {
-                runCatching { loadComparison(root, file, requestedSource) }
+                runCatching {
+                    loadComparison(root, file, requestedSource, sourceFile) to
+                        if (requestedSource == BuiltInSource.GENERATED && sourceFile != null) {
+                            GoldenAccept.freeze(file, sourceFile).getOrNull()
+                        } else {
+                            null
+                        }
+                }
             }
             span.finish(if (loaded.isSuccess) TelemetrySpanStatus.OK else TelemetrySpanStatus.ERROR)
             val result = loaded.getOrElse { error ->
@@ -1654,13 +2119,17 @@ class AppState(
                         "source" to requestedSource.wireValue(),
                     ),
                 )
-                Comparison(null, null, null, 0.0, "Could not read image.", false)
+                Comparison(null, null, null, 0.0, "Could not read image.", false) to null
             }
             if (generation == comparisonGeneration && selected == file && selectedSource == requestedSource) {
-                comparisonCache[comparisonKey(file, requestedSource)] = result
-                comparison = result
+                val (loadedComparison, frozen) = result
+                val goldenKey = file.normalize().path
+                if (frozen == null) resolvedAcceptCandidates.remove(goldenKey)
+                else resolvedAcceptCandidates[goldenKey] = frozen
+                comparisonCache[comparisonKey(file, requestedSource)] = loadedComparison
+                comparison = loadedComparison
                 comparisonViewed(
-                    result,
+                    loadedComparison,
                     requestedSource,
                     cacheHit = false,
                     selectionTrigger = selectionTrigger,
@@ -1713,27 +2182,17 @@ class AppState(
         )
     }
 
-    private fun loadComparison(root: File, golden: File, requestedSource: BuiltInSource): Comparison {
+    private fun loadComparison(
+        root: File,
+        golden: File,
+        requestedSource: BuiltInSource,
+        sourceFile: File?,
+    ): Comparison {
         val git = GitCli(root)
         val headBytes = telemetry.measureSpan(
             "git.head_read",
             mapOf("scope" to CURRENT_FILE_SCOPE, "source" to requestedSource.wireValue()),
         ) { git.headBytes(golden) }
-        val sourceFile = when (requestedSource) {
-            BuiltInSource.WORKING_COPY -> golden
-            BuiltInSource.GENERATED -> telemetry.measureSpan(
-                "generated.lookup",
-                mapOf("scope" to CURRENT_FILE_SCOPE, "source" to "test_output"),
-            ) {
-                com.github.dkwasniak.goldendiff.compare.GeneratedImageSource.findForGolden(
-                    golden = golden,
-                    goldenRoots = config.resolvedGoldenPaths(root),
-                    generatedRoots = config.resolvedGeneratedPaths(root),
-                    generatedFileRegex = config.normalizedForMatching().generatedFileRegex,
-                    excludedSuffixes = config.excludedSuffixes,
-                )
-            }
-        }
         val newBytes = sourceFile?.let(ImageBytes::workingBytes)
 
         // Comparing bytes before decoding is what makes "no change" cheap - two PNG decodes of a
@@ -1836,6 +2295,12 @@ class AppState(
     }
 
     override fun close() {
+        xcodeRunsGeneration++
+        xcodeDestinationsGeneration++
+        gitHeadWatcherGeneration++
+        pendingXcodeCommandWorkflow.cancel()
+        gitHeadDebounceJob?.cancel()
+        gitHeadWatcher?.close()
         pngDebounceJob?.cancel()
         pngWatcher?.close()
         telemetry.close()
@@ -1850,7 +2315,7 @@ class AppState(
 
     private companion object {
         const val MAX_CACHED_PROJECTS = 6
-        const val PNG_DEBOUNCE_MS = 400L
+        const val GIT_HEAD_DEBOUNCE_MS = 350L
         const val PNG_SUPPRESSION_MS = 2_000L
     }
 }

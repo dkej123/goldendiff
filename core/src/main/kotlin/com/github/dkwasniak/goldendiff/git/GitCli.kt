@@ -2,7 +2,9 @@ package com.github.dkwasniak.goldendiff.git
 
 import com.github.dkwasniak.goldendiff.compare.HeadBytesSource
 import com.github.dkwasniak.goldendiff.variant.ExtraComparisonItemStatus
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 
 /**
  * Git access via the `git` command-line tool, for hosts with no VCS integration of their own.
@@ -26,6 +28,34 @@ class GitCli(private val projectRoot: File) : HeadBytesSource, WorkingCopyStatus
     fun isInsideWorkTree(): Boolean =
         run("rev-parse", "--is-inside-work-tree", cwd = projectRoot)
             ?.toString(Charsets.UTF_8)?.trim() == "true"
+
+    /** Current commit identity, or null when HEAD cannot be resolved (for example in an empty repo). */
+    fun headRevision(): String? =
+        run("rev-parse", "--verify", "HEAD", cwd = projectRoot)
+            ?.toString(Charsets.UTF_8)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Metadata directories whose HEAD/refs changes can move [headRevision]. Both paths are needed
+     * for linked worktrees: their HEAD lives in a worktree-specific git dir while branch refs live
+     * in the repository's common dir.
+     */
+    fun gitMetadataDirectories(): List<File> {
+        val gitDirectory = run("rev-parse", "--absolute-git-dir", cwd = projectRoot)
+            ?.toString(Charsets.UTF_8)?.trim()?.takeIf(String::isNotEmpty)?.let(::File)
+        val commonValue = run("rev-parse", "--git-common-dir", cwd = projectRoot)
+            ?.toString(Charsets.UTF_8)?.trim()?.takeIf(String::isNotEmpty)
+        val commonDirectory = commonValue?.let { path ->
+            File(path).takeIf(File::isAbsolute) ?: File(projectRoot, path)
+        }
+        return listOfNotNull(gitDirectory, commonDirectory)
+            .map { directory ->
+                runCatching { directory.canonicalFile }.getOrElse { directory.absoluteFile.normalize() }
+            }
+            .filter(File::isDirectory)
+            .distinctBy(File::getPath)
+    }
 
     /**
      * Files changed in the working copy, with the status derived straight from the porcelain code.
@@ -83,6 +113,101 @@ class GitCli(private val projectRoot: File) : HeadBytesSource, WorkingCopyStatus
         // locating the repository root — which need not be the project root (submodules, monorepos,
         // a project opened on a subdirectory).
         return run("show", "HEAD:./${file.name}", cwd = parent)?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * One `git cat-file --batch` process for every file instead of one `git show` per file.
+     *
+     * A project-wide status refresh calls [headBytes] once per golden; each call used to spawn its own
+     * process, and process spawn overhead (tens of milliseconds on macOS) dominates once a project has
+     * more than a handful of goldens. This still degrades to the one-shot form — per unresolved path,
+     * or for the whole batch if the process itself fails to start or read — so a bad environment loses
+     * speed, not correctness.
+     */
+    override fun headBytes(files: Collection<File>): Map<File, ByteArray?> {
+        if (files.isEmpty()) return emptyMap()
+        val distinct = files.distinct()
+        val (batchable, unbatchable) = distinct.partition { it.batchSpec() != null }
+
+        val batchedContent = batchable.takeIf { it.isNotEmpty() }
+            ?.let { targets -> runCatching { readBatch(targets.map { file -> file.batchSpec()!! }) }.getOrNull() }
+
+        val result = LinkedHashMap<File, ByteArray?>(distinct.size)
+        if (batchedContent != null) {
+            batchable.forEachIndexed { index, file -> result[file] = batchedContent.getOrNull(index) }
+        } else {
+            // The batch process failed outright (git missing mid-scan, permissions, ...) — degrade to
+            // the one-shot form per file rather than losing every status in the scan.
+            batchable.forEach { file -> result[file] = headBytes(file) }
+        }
+        unbatchable.forEach { file -> result[file] = headBytes(file) }
+        return result
+    }
+
+    /** A `HEAD:./relative/path` object spec resolved against [projectRoot], or null if [this] is not
+     * inside it (the one-shot [headBytes] path handles those instead). */
+    private fun File.batchSpec(): String? {
+        val relative = runCatching { normalize().relativeTo(projectRoot.normalize()) }.getOrNull() ?: return null
+        val path = relative.path.replace(File.separatorChar, '/')
+        if (relative.isAbsolute || path == ".." || path.startsWith("../")) return null
+        return "HEAD:./$path"
+    }
+
+    /**
+     * Runs one `git cat-file --batch` process for [specs], returning content in the same order — a
+     * null entry marks an object that is missing (untracked, deleted in HEAD, or unreadable).
+     *
+     * `git cat-file --batch` reads one query line, writes its full payload, then reads the next query —
+     * so writing every query upfront and only then reading stdout can deadlock: once a payload exceeds
+     * the OS pipe buffer, git blocks writing stdout while this process is still blocked writing stdin.
+     * The write happens on a separate thread so stdout is drained concurrently, the same way the query
+     * lines are produced.
+     */
+    private fun readBatch(specs: List<String>): List<ByteArray?> {
+        val process = ProcessBuilder("git", "cat-file", "--batch")
+            .directory(projectRoot)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        try {
+            val stdin = process.outputStream
+            val stdout = process.inputStream
+            val writer = Thread({
+                runCatching {
+                    specs.forEach { stdin.write(("$it\n").toByteArray(Charsets.UTF_8)) }
+                    stdin.flush()
+                }
+                stdin.close()
+            }, "git-cat-file-batch-writer").apply { isDaemon = true; start() }
+            val results = specs.map { readBatchEntry(stdout) }
+            writer.join()
+            stdout.close()
+            process.waitFor()
+            return results
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+        }
+    }
+
+    /** Reads one `<sha1> <type> <size>\n<content><\n>` (or `<object> missing\n`) record. */
+    private fun readBatchEntry(stdout: InputStream): ByteArray? {
+        val header = readLine(stdout) ?: return null
+        if (header.endsWith(" missing")) return null
+        val size = header.substringAfterLast(' ').toIntOrNull() ?: return null
+        val content = stdout.readNBytes(size)
+        stdout.read() // the newline that follows the object payload
+        return content.takeIf { it.size == size }
+    }
+
+    /** A hand-rolled line reader: the header line is text, but what follows it is a binary blob, so a
+     * buffering [java.io.BufferedReader] could read past the header and swallow part of that blob. */
+    private fun readLine(stream: InputStream): String? {
+        val line = ByteArrayOutputStream()
+        while (true) {
+            val next = stream.read()
+            if (next == -1) return null
+            if (next == '\n'.code) return line.toString(Charsets.UTF_8.name())
+            line.write(next)
+        }
     }
 
     /**

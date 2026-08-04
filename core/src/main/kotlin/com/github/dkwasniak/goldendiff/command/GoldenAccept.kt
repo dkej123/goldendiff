@@ -1,6 +1,8 @@
 package com.github.dkwasniak.goldendiff.command
 
 import com.github.dkwasniak.goldendiff.compare.GeneratedImageSource
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartIndex
+import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
 import com.github.dkwasniak.goldendiff.settings.GoldenDiffConfig
 import java.io.File
 import java.io.IOException
@@ -15,8 +17,8 @@ import java.security.MessageDigest
  * "Accepting" **moves** the generated counterpart onto the golden: its bytes are written to the
  * golden's path (taking the golden's name) and the generated file is then removed, so the leftover
  * `_actual` no longer lingers in the working tree. The counterpart is resolved with the same
- * [GeneratedImageSource.findForGolden] the comparison view already uses, so Accept always promotes
- * the exact image the tool was showing as "Test output".
+ * the same generated-counterpart rules as the comparison view, so Accept promotes the image shown
+ * as "Test output".
  *
  * File I/O — never call on a UI thread.
  */
@@ -105,6 +107,9 @@ object GoldenAccept {
     data class BulkResult(
         val accepted: List<File>,
         val failed: List<BulkFailure>,
+        /** The generated counterpart consumed (moved/deleted) for each accepted golden, in the same
+         * order as [accepted] — lets hosts suppress their own watcher events for both files. */
+        val consumedGenerated: List<File> = emptyList(),
     )
 
     data class BulkFailure(
@@ -211,15 +216,38 @@ object GoldenAccept {
      * success, or a typed [Failure]. [projectRoot] resolves the configured relative golden/generated
      * directories.
      */
-    fun accept(golden: File, config: GoldenDiffConfig, projectRoot: File?): Result<File> {
+    fun accept(
+        golden: File,
+        config: GoldenDiffConfig,
+        projectRoot: File?,
+        explicitGeneratedCandidates: List<GeneratedCounterpartIndex.ExplicitCandidate> = emptyList(),
+    ): Result<File> {
         val normalized = config.normalizedForMatching()
-        val generated = GeneratedImageSource.findForGolden(
-            golden = golden,
-            goldenRoots = config.resolvedGoldenPaths(projectRoot),
-            generatedRoots = config.resolvedGeneratedPaths(projectRoot),
-            generatedFileRegex = normalized.generatedFileRegex,
-            excludedSuffixes = config.excludedSuffixes,
-        ) ?: return Result.failure(AcceptException(Failure.NoGeneratedCounterpart))
+        val goldenRoots = config.resolvedGoldenPaths(projectRoot)
+        val generatedRoots = config.resolvedGeneratedPaths(projectRoot)
+        val generated = if (explicitGeneratedCandidates.isEmpty()) {
+            GeneratedImageSource.findForGolden(
+                golden = golden,
+                goldenRoots = goldenRoots,
+                generatedRoots = generatedRoots,
+                generatedFileRegex = normalized.generatedFileRegex,
+                excludedSuffixes = config.excludedSuffixes,
+            )
+        } else {
+            when (
+                val resolution = GeneratedCounterpartIndex.build(
+                    generatedRoots = generatedRoots,
+                    generatedFileRegex = normalized.generatedFileRegex,
+                    excludedSuffixes = config.excludedSuffixes,
+                    explicitCandidates = explicitGeneratedCandidates,
+                ).resolve(golden, goldenRoots)
+            ) {
+                is GeneratedCounterpartResolution.Exact -> resolution.file
+                GeneratedCounterpartResolution.Missing,
+                is GeneratedCounterpartResolution.Ambiguous,
+                -> null
+            }
+        } ?: return Result.failure(AcceptException(Failure.NoGeneratedCounterpart))
 
         return runCatching {
             val bytes = generated.readBytes()
@@ -255,14 +283,19 @@ object GoldenAccept {
         goldens: Collection<File>,
         config: GoldenDiffConfig,
         projectRoot: File?,
+        explicitGeneratedCandidates: List<GeneratedCounterpartIndex.ExplicitCandidate> = emptyList(),
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
     ): BulkResult {
         val distinct = goldens.distinctBy { it.normalize().path }
         val accepted = mutableListOf<File>()
+        val consumedGenerated = mutableListOf<File>()
         val failed = mutableListOf<BulkFailure>()
         distinct.forEachIndexed { index, golden ->
-            accept(golden, config, projectRoot)
-                .onSuccess { accepted += golden }
+            accept(golden, config, projectRoot, explicitGeneratedCandidates)
+                .onSuccess { generated ->
+                    accepted += golden
+                    consumedGenerated += generated
+                }
                 .onFailure { error ->
                     failed += BulkFailure(
                         golden,
@@ -271,7 +304,7 @@ object GoldenAccept {
                 }
             onProgress(index + 1, distinct.size)
         }
-        return BulkResult(accepted, failed)
+        return BulkResult(accepted, failed, consumedGenerated)
     }
 
     /** Carries a typed [Failure] out of [accept] while still using [Result]. */
