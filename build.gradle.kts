@@ -11,6 +11,11 @@ plugins {
     // Kotlin itself, so it tracks the Kotlin version above rather than the Compose one.
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.20" apply false
     id("org.jetbrains.compose") version "1.8.2" apply false
+    // Only used by :sample-android, a local manual-QA fixture for exercising GoldenDiff itself
+    // against a real Android/Compose/Roborazzi project — not part of the plugin or app build graph.
+    // AGP 9+ compiles Kotlin itself, so no separate org.jetbrains.kotlin.android plugin is declared.
+    id("com.android.application") version "9.4.0" apply false
+    id("io.github.takahirom.roborazzi") version "1.74.0" apply false
 }
 
 tasks.wrapper {
