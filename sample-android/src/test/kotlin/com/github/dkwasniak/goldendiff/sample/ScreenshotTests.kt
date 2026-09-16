@@ -33,21 +33,27 @@ class ScreenshotTests {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun loginScreen() = capture { LoginScreen() }
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun profileScreen() = capture { ProfileScreen() }
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun productListScreen() = capture { ProductListScreen() }
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun productDetailScreen() = capture { ProductDetailScreen() }
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun settingsScreen() = capture { SettingsScreen() }
 
+    @Config(sdk = [34], qualifiers = "w360dp-h640dp")
     @Test
     fun chatScreen() = capture { ChatScreen() }
 
