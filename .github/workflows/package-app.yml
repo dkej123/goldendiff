@@ -137,10 +137,6 @@ jobs:
           git commit -m "Update Homebrew ${APP_CHANNEL} Cask to ${APP_VERSION}"
           git push origin main
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: golden-diff-${{ matrix.os }}
-          path: app/build/compose/binaries/main/${{ matrix.artifact }}/*
 
   # Kept green on Linux from day one. It is the cheapest possible signal that core has not absorbed
   # assumptions about macOS's case-insensitive filesystem or path handling, long before anyone builds
