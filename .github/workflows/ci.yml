@@ -32,17 +32,3 @@ jobs:
 
       - name: Check architecture boundaries
         run: .agents/skills/golden-diff-architecture/scripts/check-architecture.sh
-
-      - name: Upload public plugin artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: golden-diff-plugin
-          path: public-plugin/build/distributions/golden-diff-[0-9]*.zip
-          if-no-files-found: error
-
-      - name: Upload internal (Figma) plugin artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: golden-diff-figma-plugin
-          path: internal-plugin/build/distributions/golden-diff-figma-[0-9]*.zip
-          if-no-files-found: error
