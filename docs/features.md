@@ -1,21 +1,33 @@
 # Features & behavior
 
 ## Tool window
-The plugin is a snapshot-aware **Files → Goldens → Compare** workflow. There is no global Scope or
-Working/Test selector.
+The plugin is a snapshot-aware **Files / Review** workflow with one layout at every tool-window
+width. There is no global Scope or Working/Test selector.
 
-- **Files** is a project-wide Folder → View → Snapshot case tree. Opening or switching editor tabs
-  selects and reveals the corresponding View. Moving the caret in the same file does nothing.
-- **Goldens** shows every golden associated with the selected View or Case once, with independent
-  Working-copy and Test-output status chips.
+- The **toolbar** holds Generate ▾ / Verify ▾ (whole project or current View/Case), a spinner and
+  Stop while a command runs, and Refresh. Settings, *Accept All in File*, the extension filter and
+  *Open Comparison in Separate Window* live in the tool window's ⋮ menu.
+- **Files** is a full-height, project-wide list: folder headers (sticky while scrolling, collapsible,
+  with failed / total View counts) → Views → Snapshot cases. The tab shows the number of failed Views.
+  Picking a View or Case switches to Review. Opening or switching editor tabs selects the
+  corresponding View without switching tabs; moving the caret in the same file does nothing.
+- **Review** has a file row showing the View's status label (Failed / Modified / New / Accepted, or
+  Unchanged for a file opened by hand). ‹ › step one View at a time through the **review queue** —
+  every changed View in Files order, independent of Files search and filters — and wrap; Accepted
+  Views keep their place and label. A file outside the queue shows no position and ‹ › jump to the
+  nearest queued View; with nothing changed, ‹ › and the counter are hidden. `Files ▾` opens the
+  same list as an overlay that closes on pick, scrim click, Esc or tab switch. Below it is a horizontal goldens
+  strip (thumbnails sized by their own aspect, a 6px status bar, a source glyph for extension cards),
+  the Side / Swipe / Onion / Diff mode row with **Accept** on the right, and the comparison.
 - **Compare** derives the displayed source automatically and preserves mode/zoom while selection and
-  layout change. Its opposite-corner action opens a modeless, resizable comparison window that
-  follows the live golden selection while keeping its own comparison mode and zoom.
+  tabs change. Its opposite-corner action opens a modeless, resizable comparison window that follows
+  the live golden selection while keeping its own comparison mode and zoom.
+- The **status bar** shows the build version and the selected golden's status (Failed, Modified, New,
+  Accepted, Unchanged), or the progress/result of a running command or Accept all.
 
-At wide widths Files is a full-width strip above Goldens | Compare. At medium widths it opens from a
-Files rail beside the resizable Goldens | Compare split. Below 320 px the three panes become
-single-pane tabs; selecting a View/Case advances to Goldens and selecting a golden advances to Compare.
-Selection and comparison state survive width-class changes.
+**Accepted** is a session-only status shown on the card, row, and status bar after Accept. It stays
+until the golden fails again, a full refresh finds it unchanged (e.g. after a commit) or missing, or
+the golden file is rewritten outside Accept.
 
 ## Files, search, and status filters
 The Files index contains only Views associated with at least one existing golden. A Case is an
@@ -188,8 +200,9 @@ the relevant caches and rescan. The onboarding walkthrough additionally advances
 completed by the CLI.
 
 ### Generate / Verify buttons
-The tool window (plugin) and toolbar (app) expose whole-project Generate/Verify in the main header and
-View/Case-scoped actions in the Goldens header.
+The tool window (plugin) and toolbar (app) expose whole-project and View/Case-scoped Generate/Verify.
+In the plugin, the ▾ menu next to each button chooses the scope, and Files context menus run the
+command for one View or Case.
 
 Where the live output appears differs by host:
 - **Plugin** — the command runs through IntelliJ's own execution layer, so its output streams into the
@@ -211,6 +224,9 @@ Accept is only offered for an automatically selected, differing **Test output** 
 such as Roborazzi's `_actual` files). Generation frameworks overwrite the golden directly, so there is
 nothing to promote in that case. After Accept consumes the Test output, the status and comparison
 automatically return to Working copy.
+
+In the plugin, **Accept** stays in the mode row and is disabled (not hidden) when the selected golden
+has no acceptable Test output; after success it reads **✓ Accepted**.
 
 **Accept all (N)** is View-scoped in both hosts and promotes every differing Test output associated
 with that View, independent of selected Case, golden, search, or filters. It confirms the operation,
@@ -266,10 +282,11 @@ PNGs committed to git and can be matched by the configured annotation and filena
 ## Optional comparison extensions
 
 A dependent plugin may contribute reference cards through `ExtraComparisonSource`. Those cards are
-shown in the same Goldens grid as Working/Test-backed goldens for the active View. Selecting a Case
-limits extension cards to the matching function. A source-provided filter chip appears only when the
-current View or Case contains extension cards; it is off by default and, when enabled, shows only
-those cards. Leaving that scope hides and resets the filter.
+shown in the same goldens strip as Working/Test-backed goldens for the active View, marked with the
+source's glyph. Selecting a Case limits extension cards to the matching function. A source-provided
+*Show Only … Goldens* toggle appears in the ⋮ menu only when the current View or Case contains
+extension cards; it is off by default and, when enabled, shows only those cards. Leaving that scope
+hides and resets the filter.
 
 The internal Figma extension contributes its five-colour mark and lists
 `figma-compose-preview` functions. A missing cached reference remains visible as a

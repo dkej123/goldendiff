@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-26
+
+### Changed
+- The plugin tool window has a new **Files / Review** layout that is used at every width. Files is a
+  full-height list with collapsible, sticky folder headers showing failed / total counts. Review gives
+  the comparison almost all of the height: step through files with ‹ ›, open the file list as an
+  overlay, and pick goldens from a horizontal thumbnail strip that shows each golden's status.
+- Review ‹ › now walk only changed files (Failed, Modified, New, and files accepted in this session),
+  and the file row shows the file's status. Files opened by hand are shown outside that queue; with no
+  changes the navigation is hidden.
+- Accept now stays in the comparison mode row. It is disabled when there is nothing to accept and
+  shows **Accepted** after promoting a Test output; accepted goldens keep an Accepted status for the
+  session until they change again.
+- Settings, Accept All in File, the reference-only filter and the separate comparison window moved to
+  the tool window's ⋮ menu; the toolbar gained Refresh and a running-command indicator.
+
 ## [2.0.0] - 2026-07-30
 
 ### Added

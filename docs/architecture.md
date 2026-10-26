@@ -70,13 +70,18 @@ never a fork of the public plugin.
 - **`toolwindow/`** — UI entry point and the list side.
   - `ScreenshotToolWindowFactory` — Java `ToolWindowFactory` that installs
     `RedesignedScreenshotPanel`.
-  - `RedesignedScreenshotPanel` — the Swing shell for Files → Goldens → Compare, responsive
-    Wide/Medium/Narrow layouts, command and Accept actions, editor/VFS subscriptions and extension
-    items in the shared Goldens grid.
-  - `PluginSnapshotController` — typed lifecycle and stable View/Case/golden selection state. It
-    rejects stale asynchronous refreshes and contains no Swing widget references.
-  - `SnapshotFilesPanel` / `MergedGoldenCellRenderer` — native JBUI adapters over the shared snapshot
-    projection and merged golden model.
+  - `RedesignedScreenshotPanel` — the Swing shell: Generate/Verify toolbar, Files / Review tabs,
+    ⋮ gear actions, status bar, command and Accept actions, editor/VFS subscriptions. It owns I/O and
+    rendering; durable UI state lives in the controller.
+  - `PluginSnapshotController` — typed lifecycle, stable View/Case/golden selection, and the
+    Files / Review shell state (tab, overlay, search, filters, collapsed folders, expanded Views,
+    session-scoped Accepted goldens). It rejects stale asynchronous refreshes and contains no Swing
+    widget references.
+  - `FilesListPanel` (flat Folder / View / Case list with sticky folder headers, used by the Files
+    tab and the Review overlay via `FilesOverlayLayer`) and `GoldenStripPanel` (variable-width
+    thumbnail canvas) render pure presentations: `FilesListPresentation`, `ReviewNavigation`,
+    `GoldenDisplayStatus` / `AcceptButtonState`. Tokens are in `GoldenDiffColors`, small controls in
+    `ReviewControls`.
   - `BatchCommandExecution` — sequential View command batches in one IntelliJ Run content, including
     partial-failure and cancellation outcomes.
 - **`match/`** — figuring out what to show.

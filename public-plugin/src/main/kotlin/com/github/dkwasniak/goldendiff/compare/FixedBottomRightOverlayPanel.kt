@@ -21,6 +21,8 @@ internal class FixedBottomRightOverlayPanel(
     private val content: JComponent,
     private val overlay: JComponent,
     private val margin: Int = 12,
+    /** Extra space kept free above the bottom edge, e.g. for a slider row inside [content]. */
+    private val bottomReserve: () -> Int = { 0 },
 ) : JPanel(null) {
     init {
         add(content)
@@ -43,12 +45,14 @@ internal class FixedBottomRightOverlayPanel(
         positionOverlay()
     }
 
+    fun repositionOverlay() = positionOverlay()
+
     private fun positionOverlay() {
         val overlaySize = overlay.preferredSize
         val scaledMargin = JBUI.scale(margin)
         overlay.setBounds(
             (width - overlaySize.width - scaledMargin).coerceAtLeast(scaledMargin),
-            (height - overlaySize.height - scaledMargin).coerceAtLeast(scaledMargin),
+            (height - overlaySize.height - scaledMargin - bottomReserve()).coerceAtLeast(scaledMargin),
             overlaySize.width,
             overlaySize.height,
         )

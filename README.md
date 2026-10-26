@@ -5,7 +5,7 @@
 [![Rating](https://img.shields.io/jetbrains/plugin/r/rating/32662-golden-diff.svg)](https://plugins.jetbrains.com/plugin/32662-golden-diff/reviews)
 
 An Android Studio / IntelliJ plugin that helps you review **screenshot-test goldens** without leaving
-the editor. Its snapshot-aware **Files → Goldens → Compare** workflow follows the file open in the
+the editor. Its snapshot-aware **Files / Review** workflow follows the file open in the
 editor, groups matching snapshots by View and Case, and compares the **committed (git HEAD)** version
 against your **working copy** or generated test output in four ways:
 
@@ -19,8 +19,10 @@ comparison source, the comparison is skipped and you just get a single preview l
 *"No changes vs HEAD"*.
 
 ## Features
-- A project-wide **Folder → View → Snapshot case** tree with search, status filters, failing-view
-  counts, editor-tab synchronization, and selection-preserving refreshes.
+- A project-wide **Folder → View → Snapshot case** list with search, status filters, sticky folder
+  headers with failing-view counts, editor-tab synchronization, and selection-preserving refreshes.
+- A **Review** tab built for narrow tool windows: step through files with ‹ ›, pick goldens from a
+  thumbnail strip, and keep almost all of the height for the comparison.
 - Matches goldens to the file you're editing in two modes: by **annotated preview/test method**, or by
   a **file/class regex** (`{file_name}` / `{class_name}`). Matching runs against each golden's path, so
   nested (package/class-as-directory) layouts work too.

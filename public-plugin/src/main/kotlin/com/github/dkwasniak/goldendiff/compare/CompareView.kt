@@ -1,15 +1,16 @@
 package com.github.dkwasniak.goldendiff.compare
 
 import com.github.dkwasniak.goldendiff.toolwindow.AcceptActionButton
+import com.github.dkwasniak.goldendiff.toolwindow.AcceptButtonState
 import com.github.dkwasniak.goldendiff.toolwindow.FlatHeaderButton
-import com.intellij.ui.JBColor
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
+import com.github.dkwasniak.goldendiff.toolwindow.SegmentedControl
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import java.awt.BorderLayout
 import java.awt.BasicStroke
+import java.awt.BorderLayout
 import java.awt.CardLayout
-import java.awt.Container
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
@@ -19,19 +20,16 @@ import java.awt.RenderingHints
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.image.BufferedImage
-import java.awt.Color
-import javax.swing.BorderFactory
-import javax.swing.BoxLayout
-import javax.swing.ButtonGroup
-import javax.swing.JButton
-import javax.swing.JComponent
-import javax.swing.JPanel
-import javax.swing.SwingConstants
-import javax.swing.Timer
-import javax.swing.JToggleButton
 import javax.swing.Icon
+import javax.swing.JButton
+import javax.swing.JPanel
+import javax.swing.Timer
 
-/** Hosts the three comparison modes plus a single-image view, the mode switcher and a zoom control. */
+/**
+ * Review comparison area: the Side / Swipe / Onion / Diff mode row with Accept on the right, the
+ * comparison canvases with a floating zoom control, and a message line that is shown only when
+ * there is no regular comparison (loading, blocked, retry, single image).
+ */
 class CompareView(
     private val onModeSelected: (String) -> Unit = {},
     private val onZoomSelected: (String, String) -> Unit = { _, _ -> },
@@ -49,85 +47,73 @@ class CompareView(
     private val diff = DiffPanel()
     private val single = SingleImagePanel()
 
-    private val modeButtons = mutableListOf<JToggleButton>()
-    private val acceptedGreen = JBColor(Color(0x2E7D32), Color(0x6FBF73))
-    private val acceptPink = JBColor(Color(0xD72F72), Color(0xE7468A))
-    private val acceptButton = AcceptActionButton(
-        "\u2713 Accept test output",
-        acceptPink,
-        pill = false,
-    ).apply {
+    private val modes = SegmentedControl(
+        listOf(MODE_TWO_UP to "Side", MODE_SWIPE to "Swipe", MODE_ONION to "Onion", MODE_DIFF to "Diff"),
+    ) { mode -> selectMode(mode) }
+    private val acceptButton = AcceptActionButton("✓ Accept", GoldenDiffColors.brand, pill = false).apply {
         toolTipText = "Accept test output as the golden"
-        isVisible = false
         addActionListener { onAccept() }
     }
-    private val acceptedLabel = JBLabel("\u2713 Accepted").apply {
-        font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
-        foreground = acceptedGreen
-        border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(acceptedGreen),
-            JBUI.Borders.empty(4, 10),
-        )
-        isVisible = false
-    }
+    private var acceptState = AcceptButtonState.DISABLED
     private val openSeparateButton = onOpenSeparate?.let { action ->
         FlatHeaderButton("", CompareExpandIcon, height = 22, horizontalPadding = 3).apply {
             toolTipText = "Open comparison in a separate window"
-            accessibleContext.accessibleName = toolTipText
+            getAccessibleContext()?.accessibleName = toolTipText
             preferredSize = Dimension(JBUI.scale(22), JBUI.scale(22))
             minimumSize = preferredSize
             maximumSize = preferredSize
             addActionListener { action() }
         }
     }
-    private var titleText: String? = null
-    private val titleArea = JBLabel().apply {
-        border = JBUI.Borders.empty(4, 6, 2, 0)
-        font = Font(Font.MONOSPACED, Font.BOLD, 11)
-    }
-    private val acceptActions = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
-        isOpaque = false
-        add(acceptButton)
-        add(acceptedLabel)
-        openSeparateButton?.let(::add)
-    }
-    private val titleActions = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        add(acceptActions, BorderLayout.EAST)
-    }
-    private val titleBar = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(4, 4, 4, 6)
-        titleArea.alignmentX = LEFT_ALIGNMENT
-        titleActions.alignmentX = LEFT_ALIGNMENT
-        add(titleArea)
-        add(titleActions)
-        isVisible = false
+    private val modeRow = JPanel(BorderLayout()).apply {
+        isOpaque = true
+        background = GoldenDiffColors.background
+        border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(GoldenDiffColors.border, 0, 0, 1, 0),
+            JBUI.Borders.empty(6, 8, 6, 10),
+        )
+        add(modes, BorderLayout.WEST)
+        add(
+            JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
+                isOpaque = false
+                openSeparateButton?.let(::add)
+                add(acceptButton)
+            },
+            BorderLayout.EAST,
+        )
     }
     private val status = JBLabel().apply {
-        font = UIUtil.getLabelFont().deriveFont(10f)
-        border = JBUI.Borders.empty(4)
+        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(11f).toFloat())
+        foreground = GoldenDiffColors.dim
+        border = JBUI.Borders.empty(6, 12)
     }
     private var retryAction: (() -> Unit)? = null
     private val retryButton = JButton("Retry").apply {
-        font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
-        border = JBUI.Borders.empty(2, 8)
+        font = UIUtil.getLabelFont().deriveFont(Font.BOLD, JBUI.scaleFontSize(10.5f).toFloat())
         isVisible = false
         addActionListener { retryAction?.invoke() }
     }
-    private val statusBar = JPanel(BorderLayout()).apply {
+    private val messageBar = JPanel(BorderLayout()).apply {
+        isOpaque = true
+        background = GoldenDiffColors.background
         add(status, BorderLayout.CENTER)
-        add(retryButton, BorderLayout.EAST)
+        add(
+            JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), JBUI.scale(4))).apply {
+                isOpaque = false
+                add(retryButton)
+            },
+            BorderLayout.EAST,
+        )
     }
     private val zoomLabel = JBLabel().apply {
-        font = UIUtil.getLabelFont().deriveFont(9f)
-        horizontalAlignment = SwingConstants.CENTER
+        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(9f).toFloat())
+        horizontalAlignment = JBLabel.CENTER
         foreground = UIUtil.getContextHelpForeground()
-        preferredSize = Dimension(JBUI.scale(26), JBUI.scale(18))
+        preferredSize = Dimension(JBUI.scale(30), JBUI.scale(18))
         minimumSize = preferredSize
         maximumSize = preferredSize
     }
-    private val zoomOutButton = createZoomButton("\u2212").apply {
+    private val zoomOutButton = createZoomButton("−").apply {
         toolTipText = "Zoom out"
         addActionListener { changeZoom(-1) }
     }
@@ -138,10 +124,7 @@ class CompareView(
     private val fitButton = FlatHeaderButton("Fit", height = 18, horizontalPadding = 1).apply {
         toolTipText = "Fit images to the available area"
         isFocusable = false
-        val compactSize = Dimension(
-            getFontMetrics(font).stringWidth(text) + JBUI.scale(6),
-            JBUI.scale(18),
-        )
+        val compactSize = Dimension(getFontMetrics(font).stringWidth(text) + JBUI.scale(6), JBUI.scale(18))
         preferredSize = compactSize
         minimumSize = compactSize
         maximumSize = compactSize
@@ -158,13 +141,18 @@ class CompareView(
         add(zoomLabel)
         add(zoomInButton)
     }
-    private val zoomBar = JPanel(BorderLayout()).apply {
-        isOpaque = false
-        border = JBUI.Borders.empty(6, 12)
-        add(zoomOverlay, BorderLayout.EAST)
+
+    private val zoomLayer = FixedBottomRightOverlayPanel(cards, zoomOverlay, margin = 10) {
+        when {
+            !showingComparison -> 0
+            selectedMode == MODE_SWIPE -> swipe.controlsHeight()
+            selectedMode == MODE_ONION -> onion.controlsHeight()
+            else -> 0
+        }
     }
 
     private var selectedMode = MODE_TWO_UP
+    private var showingComparison = false
     private var currentZoom = ImagePainting.FIT
     private var pendingZoomAction = "zoom_in"
     private val zoomTelemetryTimer = Timer(500) {
@@ -178,47 +166,28 @@ class CompareView(
     }.apply { isRepeats = false }
 
     init {
+        isOpaque = true
+        background = GoldenDiffColors.background
         cards.add(twoUp, MODE_TWO_UP)
         cards.add(swipe, MODE_SWIPE)
         cards.add(onion, MODE_ONION)
         cards.add(diff, MODE_DIFF)
         cards.add(single, MODE_SINGLE)
 
-        add(
-            JPanel(BorderLayout()).apply {
-                add(titleBar, BorderLayout.NORTH)
-                add(buildToolbar(), BorderLayout.SOUTH)
-            },
-            BorderLayout.NORTH,
-        )
-        add(cards, BorderLayout.CENTER)
-        add(
-            JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(zoomBar, BorderLayout.NORTH)
-                add(statusBar, BorderLayout.SOUTH)
-            },
-            BorderLayout.SOUTH,
-        )
+        add(modeRow, BorderLayout.NORTH)
+        add(zoomLayer, BorderLayout.CENTER)
+        add(messageBar, BorderLayout.SOUTH)
 
+        modes.select(selectedMode)
         cardLayout.show(cards, MODE_SINGLE)
-        setModeButtonsVisible(false)
+        setComparisonControls(false)
+        renderAcceptState()
         updateZoomControls()
         addComponentListener(
             object : ComponentAdapter() {
                 override fun componentResized(e: ComponentEvent) = updateZoomControls()
             },
         )
-    }
-
-    /** Sets the file name shown as a header at the top of the preview; hidden when null/blank. */
-    fun setTitle(text: String?) {
-        titleText = text?.takeIf { it.isNotBlank() }
-        titleArea.text = titleText.orEmpty()
-        titleArea.toolTipText = titleText
-        titleBar.isVisible = titleText != null
-        titleBar.revalidate()
-        mirrors.forEach { it.setTitle(text) }
     }
 
     fun showComparison(
@@ -236,10 +205,9 @@ class CompareView(
         swipe.setLabels(oldLabel, newLabel)
         onion.setLabels(oldLabel, newLabel)
         applyZoom(currentZoom)
-        status.text = statusText
+        showMessage(statusText, visible = false)
         hideRetry()
-        hideAcceptState()
-        setModeButtonsVisible(true)
+        setComparisonControls(true)
         cardLayout.show(cards, selectedMode)
         updateZoomControls()
         mirrors.forEach { it.showComparison(old, new, statusText, oldLabel, newLabel) }
@@ -248,10 +216,9 @@ class CompareView(
     fun showSingle(image: BufferedImage?, statusText: String) {
         single.setImage(image)
         single.setZoom(currentZoom)
-        status.text = statusText
+        showMessage(statusText, visible = statusText.isNotBlank())
         hideRetry()
-        hideAcceptState()
-        setModeButtonsVisible(false)
+        setComparisonControls(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
         mirrors.forEach { it.showSingle(image, statusText) }
@@ -270,12 +237,11 @@ class CompareView(
     ) {
         single.setImage(null)
         single.setZoom(currentZoom)
-        status.text = "<html><b>$title</b><br>${body.replace("\n", "<br>")}</html>"
+        showMessage("<html><b>$title</b><br>${body.replace("\n", "<br>")}</html>", visible = true)
         retryAction = action
         retryButton.text = actionLabel.orEmpty()
         retryButton.isVisible = action != null && !actionLabel.isNullOrBlank()
-        hideAcceptState()
-        setModeButtonsVisible(false)
+        setComparisonControls(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
         mirrors.forEach { it.showBlocked(title, body, actionLabel, action) }
@@ -285,49 +251,21 @@ class CompareView(
     fun showRetry(statusText: String, retryLabel: String = "Retry", action: () -> Unit) {
         single.setImage(null)
         single.setZoom(currentZoom)
-        status.text = statusText
+        showMessage(statusText, visible = true)
         retryAction = action
         retryButton.text = retryLabel
         retryButton.isVisible = true
-        hideAcceptState()
-        setModeButtonsVisible(false)
+        setComparisonControls(false)
         cardLayout.show(cards, MODE_SINGLE)
         updateZoomControls()
         mirrors.forEach { it.showRetry(statusText, retryLabel, action) }
     }
 
-    private fun hideRetry() {
-        retryButton.isVisible = false
-        retryAction = null
-    }
-
-    /** Shows the generated-output promotion next to the comparison mode controls. */
-    fun showAccept(enabled: Boolean = true) {
-        acceptedLabel.isVisible = false
-        acceptButton.text = "\u2713 Accept test output"
-        acceptButton.isEnabled = enabled
-        acceptButton.isVisible = true
-        mirrors.forEach { it.showAccept(enabled) }
-    }
-
-    /** Keeps the preview stable while the file move and decode happen off the EDT. */
-    fun showAccepting() {
-        acceptedLabel.isVisible = false
-        acceptButton.text = "Accepting\u2026"
-        acceptButton.isEnabled = false
-        acceptButton.isVisible = true
-        mirrors.forEach { it.showAccepting() }
-    }
-
-    /** Replaces the comparison with the promoted image and a persistent confirmation state. */
-    fun showAccepted(image: BufferedImage?, statusText: String) {
-        showSingle(image, statusText)
-        acceptButton.isVisible = false
-        acceptedLabel.isVisible = true
-        mirrors.forEach {
-            it.acceptButton.isVisible = false
-            it.acceptedLabel.isVisible = true
-        }
+    /** Accept is always present in the mode row; only a promotable Test output enables it. */
+    internal fun setAcceptState(state: AcceptButtonState) {
+        acceptState = state
+        renderAcceptState()
+        mirrors.forEach { it.setAcceptState(state) }
     }
 
     /** Keeps a detached comparison rendering in sync while preserving its independent mode/zoom. */
@@ -340,9 +278,53 @@ class CompareView(
         mirrors -= view
     }
 
-    private fun hideAcceptState() {
-        acceptButton.isVisible = false
-        acceptedLabel.isVisible = false
+    private fun renderAcceptState() {
+        acceptButton.text = when (acceptState) {
+            AcceptButtonState.ACCEPTING -> "Accepting…"
+            AcceptButtonState.ACCEPTED -> "✓ Accepted"
+            AcceptButtonState.ENABLED, AcceptButtonState.DISABLED -> "✓ Accept"
+        }
+        acceptButton.isEnabled = acceptState == AcceptButtonState.ENABLED
+        acceptButton.toolTipText = when (acceptState) {
+            AcceptButtonState.ENABLED -> "Accept test output as the golden"
+            AcceptButtonState.ACCEPTED -> "Test output accepted as the golden"
+            AcceptButtonState.ACCEPTING -> "Accepting test output…"
+            AcceptButtonState.DISABLED -> "No test output to accept"
+        }
+        acceptButton.revalidate()
+        acceptButton.repaint()
+    }
+
+    private fun showMessage(text: String, visible: Boolean) {
+        status.text = text
+        messageBar.isVisible = visible
+        revalidate()
+    }
+
+    private fun hideRetry() {
+        retryButton.isVisible = false
+        retryAction = null
+    }
+
+    private fun selectMode(mode: String) {
+        selectedMode = mode
+        if (showingComparison) cardLayout.show(cards, mode)
+        zoomLayer.repositionOverlay()
+        updateZoomControls()
+        onModeSelected(
+            when (mode) {
+                MODE_TWO_UP -> "side_by_side"
+                MODE_SWIPE -> "swipe"
+                MODE_ONION -> "onion"
+                else -> "diff"
+            },
+        )
+    }
+
+    private fun setComparisonControls(comparison: Boolean) {
+        showingComparison = comparison
+        modes.isEnabled = comparison
+        zoomLayer.repositionOverlay()
     }
 
     private fun applyZoom(zoom: Double) {
@@ -352,44 +334,6 @@ class CompareView(
         diff.setZoom(zoom)
         single.setZoom(zoom)
         updateZoomControls()
-    }
-
-    private fun buildToolbar(): JPanel {
-        val group = ButtonGroup()
-        val toolbar = JPanel(WrapLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(4)))
-
-        fun modeButton(title: String, mode: String): JToggleButton =
-            JToggleButton(title).apply {
-                font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 10.5f)
-                margin = JBUI.insets(3, 7)
-                isSelected = mode == selectedMode
-                addActionListener {
-                    selectedMode = mode
-                    cardLayout.show(cards, mode)
-                    updateZoomControls()
-                    onModeSelected(
-                        when (mode) {
-                            MODE_TWO_UP -> "side_by_side"
-                            MODE_SWIPE -> "swipe"
-                            MODE_ONION -> "onion"
-                            else -> "diff"
-                        },
-                    )
-                }
-                group.add(this)
-                modeButtons.add(this)
-                toolbar.add(this)
-            }
-
-        modeButton("Side by side", MODE_TWO_UP)
-        modeButton("Swipe", MODE_SWIPE)
-        modeButton("Onion skin", MODE_ONION)
-        modeButton("Pixel diff", MODE_DIFF)
-        return toolbar
-    }
-
-    private fun setModeButtonsVisible(visible: Boolean) {
-        modeButtons.forEach { it.isVisible = visible }
     }
 
     private fun changeZoom(direction: Int) {
@@ -412,18 +356,21 @@ class CompareView(
     }
 
     private fun effectiveZoom(): Double =
-        when (selectedMode) {
-            MODE_TWO_UP -> twoUp.effectiveZoom()
-            MODE_SWIPE -> swipe.effectiveZoom()
-            MODE_ONION -> onion.effectiveZoom()
-            MODE_DIFF -> diff.effectiveZoom()
-            else -> single.effectiveZoom()
+        if (!showingComparison) {
+            single.effectiveZoom()
+        } else {
+            when (selectedMode) {
+                MODE_TWO_UP -> twoUp.effectiveZoom()
+                MODE_SWIPE -> swipe.effectiveZoom()
+                MODE_ONION -> onion.effectiveZoom()
+                else -> diff.effectiveZoom()
+            }
         }
 
     private fun createZoomButton(text: String): JButton =
         FlatHeaderButton(text, height = 18, horizontalPadding = 3).apply {
             val accessibleName = if (text == "+") "Zoom in" else "Zoom out"
-            accessibleContext.accessibleName = accessibleName
+            getAccessibleContext()?.accessibleName = accessibleName
             isFocusable = false
             preferredSize = Dimension(JBUI.scale(18), JBUI.scale(18))
             minimumSize = preferredSize
@@ -482,71 +429,13 @@ private class RoundedZoomPanel : JPanel(
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             val arc = JBUI.scale(10)
-            g.color = SurfaceColor
+            g.color = GoldenDiffColors.header
             g.fillRoundRect(0, 0, width, height, arc, arc)
-            g.color = BorderColor
+            g.color = GoldenDiffColors.border
             g.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
         } finally {
             g.dispose()
         }
         super.paintComponent(graphics)
-    }
-
-    private companion object {
-        val SurfaceColor = JBColor(Color(0xF2F3F5), Color(0x2B2D30))
-        val BorderColor = JBColor(Color(0xE1E3E8), Color(0x3A3C3F))
-    }
-}
-
-private class WrapLayout(
-    align: Int,
-    hgap: Int,
-    vgap: Int,
-) : FlowLayout(align, hgap, vgap) {
-
-    override fun preferredLayoutSize(target: Container): Dimension =
-        layoutSize(target, preferred = true)
-
-    override fun minimumLayoutSize(target: Container): Dimension =
-        layoutSize(target, preferred = false).apply { width -= hgap + 1 }
-
-    private fun layoutSize(target: Container, preferred: Boolean): Dimension {
-        synchronized(target.treeLock) {
-            val insets = target.insets
-            val horizontalInsetsAndGap = insets.left + insets.right + hgap * 2
-            val maxWidth = if (target.width > 0) {
-                target.width - horizontalInsetsAndGap
-            } else {
-                Int.MAX_VALUE
-            }
-            val dimension = Dimension(0, 0)
-            var rowWidth = 0
-            var rowHeight = 0
-
-            for (index in 0 until target.componentCount) {
-                val component = target.getComponent(index)
-                if (!component.isVisible) continue
-                val size = if (preferred) component.preferredSize else component.minimumSize
-                if (rowWidth > 0 && rowWidth + hgap + size.width > maxWidth) {
-                    addRow(dimension, rowWidth, rowHeight)
-                    rowWidth = 0
-                    rowHeight = 0
-                }
-                if (rowWidth > 0) rowWidth += hgap
-                rowWidth += size.width
-                rowHeight = maxOf(rowHeight, size.height)
-            }
-
-            addRow(dimension, rowWidth, rowHeight)
-            dimension.width += horizontalInsetsAndGap
-            dimension.height += insets.top + insets.bottom + vgap * 2
-            return dimension
-        }
-    }
-
-    private fun addRow(dimension: Dimension, rowWidth: Int, rowHeight: Int) {
-        dimension.width = maxOf(dimension.width, rowWidth)
-        if (dimension.height > 0) dimension.height += vgap
-        dimension.height += rowHeight
     }
 }

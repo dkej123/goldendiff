@@ -7,18 +7,18 @@ import com.github.dkwasniak.goldendiff.command.CompletionNotificationPolicy
 import com.github.dkwasniak.goldendiff.command.CompletionResult
 import com.github.dkwasniak.goldendiff.command.GoldenAccept
 import com.github.dkwasniak.goldendiff.compare.CompareView
-import com.github.dkwasniak.goldendiff.compare.FixedBottomRightOverlayPanel
 import com.github.dkwasniak.goldendiff.compare.GeneratedCounterpartResolution
 import com.github.dkwasniak.goldendiff.compare.ImageBytes
 import com.github.dkwasniak.goldendiff.compare.ImagePainting
 import com.github.dkwasniak.goldendiff.compare.PixelDiff
 import com.github.dkwasniak.goldendiff.compare.toArgbImage
 import com.github.dkwasniak.goldendiff.git.GitCli
+import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.match.GenericScreenExtractor
 import com.github.dkwasniak.goldendiff.match.GoldenFinder
-import com.github.dkwasniak.goldendiff.match.CurrentScreen
 import com.github.dkwasniak.goldendiff.project.ProjectFileIndex
 import com.github.dkwasniak.goldendiff.project.SnapshotFileIndex
+import com.github.dkwasniak.goldendiff.project.SnapshotFileStatus
 import com.github.dkwasniak.goldendiff.scan.BuiltInSource
 import com.github.dkwasniak.goldendiff.scan.ChangeScanner
 import com.github.dkwasniak.goldendiff.scan.MergedGoldenItem
@@ -53,12 +53,18 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -75,53 +81,46 @@ import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.JBSplitter
+import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.ui.JBColor
-import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.RoundedLineBorder
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBList
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Component
-import java.awt.Dimension
 import java.awt.Dialog
+import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Font
 import java.awt.Frame
 import java.awt.Window
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
+import java.awt.datatransfer.StringSelection
 import java.awt.event.KeyEvent
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
-import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.BorderFactory
 import javax.swing.AbstractAction
-import javax.swing.AbstractButton
-import javax.swing.ButtonGroup
-import javax.swing.DefaultListModel
-import javax.swing.Icon
+import javax.swing.BorderFactory
+import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JDialog
-import javax.swing.JList
 import javax.swing.JPanel
-import javax.swing.JToggleButton
 import javax.swing.KeyStroke
-import javax.swing.ListSelectionModel
 import javax.swing.Timer
 import javax.swing.WindowConstants
 
 /**
- * Snapshot-aware public-plugin Tool Window. It deliberately shares only models with the standalone
- * app; all rendering remains Swing/JBUI for the plugin's open-ended 241+ compatibility range.
+ * Snapshot-aware public-plugin Tool Window: a Generate/Verify toolbar, Files / Review tabs and a
+ * status bar. It deliberately shares only models with the standalone app; all rendering remains
+ * Swing/JBUI for the plugin's open-ended 241+ compatibility range. Durable UI state lives in
+ * [PluginSnapshotController]; this class owns I/O, platform listeners and rendering.
  */
 class RedesignedScreenshotPanel internal constructor(
     private val project: Project,
@@ -134,87 +133,24 @@ class RedesignedScreenshotPanel internal constructor(
     private val settings = ScreenshotSettings.getInstance(project)
     private val projectRoot get() = project.basePath?.let(::File)
     private val controller = PluginSnapshotController(::renderState)
-    private val goldenModel = DefaultListModel<GoldenGridItem>()
-    private var cardWidth = JBUI.scale(60)
-    private var gridColumns = 3
-    private val goldenRenderer = MergedGoldenCellRenderer(project) { cardWidth }
-    private val goldens = object : JBList<GoldenGridItem>(goldenModel) {
-        override fun getScrollableTracksViewportWidth(): Boolean = true
-    }.apply {
-        cellRenderer = goldenRenderer
-        layoutOrientation = JList.HORIZONTAL_WRAP
-        visibleRowCount = -1
-        selectionMode = ListSelectionModel.SINGLE_SELECTION
-        fixedCellWidth = cardWidth
-        fixedCellHeight = -1
-        border = JBUI.Borders.empty(0, 10)
-        accessibleContext.accessibleName = "Goldens"
-        installGoldenArrowNavigation()
-    }
-    private val goldensScroll = JBScrollPane(goldens).apply { border = JBUI.Borders.empty() }
 
-    private val files = SnapshotFilesPanel(
-        onSelection = ::onFilesSelection,
-        onOpen = ::openFilesSelection,
-        onRevealActive = { controller.editorChanged(activeEditorPath()) },
-        onCollapse = ::toggleFilesPane,
-        onContextMenu = ::showFilesContextMenu,
+    private val filesList = FilesListPanel(FilesActions())
+    private val strip = GoldenStripPanel(
+        trimTransparentPadding = { settings.trimTransparentPadding },
+        statusOf = ::displayStatusOf,
+        onSelect = { gridId, trigger ->
+            nextSelectionTrigger = trigger
+            controller.selectGridItem(gridId)
+        },
+        onContextMenu = ::showGoldenContextMenu,
     )
     private var comparisonGeneration = 0L
+    private var lastComparisonKey: ComparisonKey? = null
     private val resolvedAcceptCandidates = HashMap<String, GoldenAccept.FrozenCandidate>()
+    private var acceptingGoldenId: String? = null
     private val compare = createCompareView(detachable = true)
     private var detachedWindow: JDialog? = null
 
-    private val viewTitle = JBLabel("Select a View").apply {
-        font = UIUtil.getLabelFont().deriveFont(
-            java.awt.Font.BOLD,
-            JBUI.scaleFontSize(12f).toFloat(),
-        )
-    }
-    private val goldenCount = JBLabel().apply {
-        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(10f).toFloat())
-        foreground = UIUtil.getContextHelpForeground()
-    }
-    private val extraFilter = ExtraSourceFilterChip().apply {
-        isVisible = false
-        addActionListener { controller.setExtraOnly(isSelected) }
-    }
-    private val acceptAll = AcceptActionButton("", AcceptColor, pill = true).apply {
-        isVisible = false
-        addActionListener { acceptAllForSelectedView() }
-    }
-    private val gridColumnButtons = (1..3).map { columns ->
-        GridColumnButton(columns).apply {
-            isSelected = columns == gridColumns
-            addActionListener { setGridColumns(columns) }
-        }
-    }
-    private val gridColumnsPanel = object : JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(1), 0)) {
-        override fun paintComponent(graphics: java.awt.Graphics) {
-            val g = graphics.create() as java.awt.Graphics2D
-            try {
-                g.setRenderingHint(
-                    java.awt.RenderingHints.KEY_ANTIALIASING,
-                    java.awt.RenderingHints.VALUE_ANTIALIAS_ON,
-                )
-                g.color = HeaderColor
-                g.fillRoundRect(0, 0, width, height, JBUI.scale(10), JBUI.scale(10))
-                g.color = BorderColor
-                g.drawRoundRect(0, 0, width - 1, height - 1, JBUI.scale(10), JBUI.scale(10))
-            } finally {
-                g.dispose()
-            }
-            super.paintComponent(graphics)
-        }
-    }.apply {
-        isOpaque = false
-        border = JBUI.Borders.empty(3, 4)
-        val group = ButtonGroup()
-        gridColumnButtons.forEach {
-            group.add(it)
-            add(it)
-        }
-    }
     private val generateProject = FlatHeaderButton("Generate", AllIcons.Actions.Execute).apply {
         addActionListener { runHeaderCommand(CommandKind.GENERATE) }
     }
@@ -227,60 +163,92 @@ class RedesignedScreenshotPanel internal constructor(
     private val verifyScope = scopeMenuButton("Choose Verify scope") { anchor ->
         showCommandScopeMenu(CommandKind.VERIFY, anchor)
     }
-    private val settingsButton = iconButton(AllIcons.General.GearPlain, "Golden Diff settings") {
-        ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
-        refresh(force = true, trigger = "config_change")
-    }
-    private val stopButton = JButton("Stop", AllIcons.Actions.Suspend).apply {
-        makeCompactTextButton()
+    private val runningIcon = AsyncProcessIcon("Golden Diff command").apply {
         isVisible = false
-        addActionListener { activeBatch?.cancel() }
+        suspend()
     }
-    private val commandStatus = JBLabel().apply {
-        foreground = AcceptColor
+    private val stopButton = iconButton(AllIcons.Actions.Suspend, "Stop") { activeBatch?.cancel() }.apply {
         isVisible = false
-        border = JBUI.Borders.empty(2, 8)
     }
-    private val statusBar = JPanel(BorderLayout()).apply {
-        border = JBUI.Borders.customLine(BorderColor, 1, 0, 0, 0)
-        add(buildVersionFooter(), BorderLayout.WEST)
-        add(commandStatus, BorderLayout.CENTER)
-        add(buildBadgeFooter(), BorderLayout.EAST)
+    private val refreshButton = iconButton(AllIcons.Actions.Refresh, "Refresh snapshots") {
+        refresh(force = true, trigger = "manual_refresh")
     }
 
-    private val goldensPane = JPanel(BorderLayout()).apply {
-        minimumSize = Dimension(JBUI.scale(120), 0)
-        add(buildGoldensHeader(), BorderLayout.NORTH)
+    private val tabsHeader = ReviewTabsHeader(controller::showTab)
+    private val prevFile = navButton("‹", "Previous file") { controller.stepView(-1) }
+    private val nextFile = navButton("›", "Next file") { controller.stepView(1) }
+    private val fileName = JBLabel().apply {
+        font = Font(Font.MONOSPACED, Font.BOLD, JBUI.scaleFontSize(12f))
+        foreground = GoldenDiffColors.text
+    }
+    private val filePosition = JBLabel().apply {
+        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(11f).toFloat())
+        foreground = GoldenDiffColors.faint
+    }
+    private val viewStatus = PillLabel()
+    private val filesToggle = FlatHeaderButton("Files ▾", height = 24, horizontalPadding = 8).apply {
+        toolTipText = "Show files"
+        addActionListener { controller.toggleFilesOverlay() }
+    }
+    private val navRow = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+        isOpaque = true
+        background = GoldenDiffColors.background
+        border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(GoldenDiffColors.border, 0, 0, 1, 0),
+            JBUI.Borders.empty(4, 6, 4, 8),
+        )
+        add(prevFile, BorderLayout.WEST)
+        add(fileName, BorderLayout.CENTER)
         add(
-            FixedBottomRightOverlayPanel(goldensScroll, gridColumnsPanel, margin = 10),
-            BorderLayout.CENTER,
+            JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+                isOpaque = false
+                add(viewStatus)
+                add(filePosition)
+                add(nextFile)
+                add(filesToggle)
+            },
+            BorderLayout.EAST,
         )
     }
-    private val comparePane = JPanel(BorderLayout()).apply {
-        minimumSize = Dimension(JBUI.scale(160), 0)
+    private val reviewContent = JPanel(BorderLayout()).apply {
+        isOpaque = true
+        background = GoldenDiffColors.background
+        add(
+            JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                isOpaque = false
+                add(navRow)
+                add(strip)
+            },
+            BorderLayout.NORTH,
+        )
         add(compare, BorderLayout.CENTER)
     }
-    private val center = JPanel(BorderLayout())
-    private val narrowCards = JPanel(CardLayout())
-    private val narrowTabs = JPanel(java.awt.GridLayout(1, 3))
-    private var widthClass: WidthClass? = null
-    private var narrowPane = Pane.FILES
-    private var mediumFilesVisible = false
-    private var filesOnBottom = false
-    private var renderedFilesOnBottom = false
-    private var filesHeightPx = JBUI.scale(160)
-    private var filesHeightAdjusted = false
-    private var expandedFilesHeightPx = filesHeightPx
-    private var filesCollapsed = false
-    private var goldensWidthPx = JBUI.scale(220)
-    private var activeFilesSplitter: JBSplitter? = null
-    private var activeGoldensSplitter: JBSplitter? = null
-    private var applyingPixelSplitterSizes = false
+    private val reviewLayer = FilesOverlayLayer(reviewContent, navRow) { controller.closeFilesOverlay() }
+    private val filesTab = JPanel(BorderLayout()).apply { isOpaque = true; background = GoldenDiffColors.panel }
+    private val tabCards = JPanel(CardLayout()).apply {
+        add(filesTab, ReviewTab.FILES.name)
+        add(reviewLayer, ReviewTab.REVIEW.name)
+    }
+    private val statusText = JBLabel().apply {
+        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(10f).toFloat())
+        border = JBUI.Borders.empty(0, 8)
+    }
+    private var commandMessage: String? = null
+    private val statusBar = JPanel(BorderLayout()).apply {
+        isOpaque = true
+        background = GoldenDiffColors.background
+        border = JBUI.Borders.customLine(GoldenDiffColors.border, 1, 0, 0, 0)
+        preferredSize = Dimension(0, JBUI.scale(24))
+        add(buildVersionFooter(), BorderLayout.WEST)
+        add(statusText, BorderLayout.EAST)
+    }
+
     private var commandRunning = false
+    private var runningKind: CommandKind? = null
     private var generateTarget = CommandTarget.PROJECT
     private var verifyTarget = CommandTarget.PROJECT
     private var activeBatch: BatchCommandExecution.Handle? = null
-    private var updatingGoldenModel = false
     private var nextSelectionTrigger = "automatic"
     private var lastReportedComparisonKey: String? = null
     private val pendingVfsEvents = mutableListOf<PngChangeEvent>()
@@ -288,62 +256,102 @@ class RedesignedScreenshotPanel internal constructor(
     private val suppressedVfsPaths = mutableMapOf<String, Long>()
     private val vfsTimer = Timer(PNG_REFRESH_DEBOUNCE_MS.toInt()) { onVfsTimerFired() }
         .apply { isRepeats = false }
+    private val commandMessageTimer = Timer(4000) { setCommandMessage(null) }.apply { isRepeats = false }
 
     init {
         telemetry.panelOpened(project)
         border = JBUI.Borders.empty()
-        add(buildHeader(), BorderLayout.NORTH)
-        add(center, BorderLayout.CENTER)
+        background = GoldenDiffColors.background
+        add(buildToolbar(), BorderLayout.NORTH)
+        add(
+            JPanel(BorderLayout()).apply {
+                add(tabsHeader, BorderLayout.NORTH)
+                add(tabCards, BorderLayout.CENTER)
+            },
+            BorderLayout.CENTER,
+        )
         add(statusBar, BorderLayout.SOUTH)
-
-        goldens.addListSelectionListener { event ->
-            if (event.valueIsAdjusting || updatingGoldenModel) return@addListSelectionListener
-            val item = goldens.selectedValue ?: return@addListSelectionListener
-            if (nextSelectionTrigger != "keyboard") nextSelectionTrigger = "grid"
-            controller.selectGridItem(item.id)
-            if (currentWidthClass() == WidthClass.NARROW) {
-                narrowPane = Pane.COMPARE
-                rebuildResponsiveLayout()
-            }
-        }
-        addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) {
-                val next = currentWidthClass()
-                if (next != widthClass) {
-                    rebuildResponsiveLayout()
-                } else {
-                    applyPixelSplitterSizes()
-                }
-            }
+        reviewLayer.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "files.overlay.close")
+        reviewLayer.actionMap.put("files.overlay.close", object : AbstractAction() {
+            override fun actionPerformed(event: java.awt.event.ActionEvent) = controller.closeFilesOverlay()
         })
-        goldensScroll.viewport.addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) = updateGoldenGridGeometry()
-        })
+        com.intellij.openapi.util.Disposer.register(this, runningIcon)
+        installGearActions()
         subscribe()
         reportEditorSelection()
-        rebuildResponsiveLayout()
+        renderState(controller.state)
         refresh(force = true, trigger = "automatic")
     }
 
-    private fun buildHeader(): JPanel {
-        return JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            background = HeaderColor
-            border = JBUI.Borders.customLine(BorderColor, 0, 0, 1, 0)
-            minimumSize = Dimension(0, JBUI.scale(30))
-            preferredSize = Dimension(0, JBUI.scale(30))
-            val left = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), JBUI.scale(3))).apply {
-                isOpaque = false
-                add(commandScopeControl(generateProject, generateScope))
-                add(commandScopeControl(verifyProject, verifyScope))
-            }
-            val right = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), JBUI.scale(3))).apply {
-                isOpaque = false
-                add(stopButton)
-                add(settingsButton)
-            }
-            add(left, BorderLayout.WEST)
-            add(right, BorderLayout.EAST)
+    private fun buildToolbar(): JPanel =
+        JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+            isOpaque = true
+            background = GoldenDiffColors.background
+            border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(GoldenDiffColors.border, 0, 0, 1, 0),
+                JBUI.Borders.empty(0, 4),
+            )
+            preferredSize = Dimension(0, JBUI.scale(38))
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(7))).apply {
+                    isOpaque = false
+                    add(commandScopeControl(generateProject, generateScope))
+                    add(commandScopeControl(verifyProject, verifyScope))
+                },
+                BorderLayout.WEST,
+            )
+            add(
+                JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), JBUI.scale(7))).apply {
+                    isOpaque = false
+                    add(runningIcon)
+                    add(stopButton)
+                    add(refreshButton)
+                },
+                BorderLayout.EAST,
+            )
         }
+
+    /** Settings and the actions with no place in the compact layout live in the tool window's ⋮ menu. */
+    private fun installGearActions() {
+        val group = DefaultActionGroup().apply {
+            add(panelAction("Settings…", AllIcons.General.Settings) { openSettings() })
+            add(panelAction("Refresh", AllIcons.Actions.Refresh) { refresh(force = true, trigger = "manual_refresh") })
+            add(Separator.getInstance())
+            add(object : DumbAwareAction("Accept All in File") {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+                override fun update(event: AnActionEvent) {
+                    val count = acceptAllCandidates().size
+                    event.presentation.isEnabled = count > 0 && !commandRunning
+                    event.presentation.text = if (count > 0) "Accept All in File ($count)" else "Accept All in File"
+                }
+
+                override fun actionPerformed(event: AnActionEvent) = acceptAllForSelectedView()
+            })
+            add(object : DumbAwareToggleAction("Show Only Reference Goldens") {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+                override fun update(event: AnActionEvent) {
+                    super.update(event)
+                    val source = controller.state.extraFilterSource
+                    event.presentation.isVisible = source != null
+                    event.presentation.text = "Show Only ${source?.title ?: "Reference"} Goldens"
+                    event.presentation.icon = source?.filterIcon
+                }
+
+                override fun isSelected(event: AnActionEvent): Boolean = controller.state.extraOnly
+
+                override fun setSelected(event: AnActionEvent, state: Boolean) = controller.setExtraOnly(state)
+            })
+            add(panelAction("Open Comparison in Separate Window") { openDetachedComparison() })
+        }
+        (toolWindow as? ToolWindowEx)?.setAdditionalGearActions(group)
+    }
+
+    private fun openSettings() {
+        ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
+        refresh(force = true, trigger = "config_change")
     }
 
     private fun createCompareView(detachable: Boolean): CompareView {
@@ -404,6 +412,7 @@ class RedesignedScreenshotPanel internal constructor(
         compare.addMirror(detached)
         window.isVisible = true
         loadSelectedComparison(reportViewed = false)
+        renderAcceptState()
     }
 
     private fun detachedWindowTitle(): String =
@@ -415,54 +424,15 @@ class RedesignedScreenshotPanel internal constructor(
         }?.let { "Golden Diff — $it" }
             ?: "Golden Diff — Compare"
 
-    private fun buildGoldensHeader(): JPanel {
-        val top = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(5, 8, 2, 8)
-            val title = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
-                isOpaque = false
-                add(viewTitle)
-                add(goldenCount)
-            }
-            add(title, BorderLayout.CENTER)
-        }
-        val bottom = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(0, 8, 5, 8)
-            val filters = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                isOpaque = false
-                add(extraFilter)
-            }
-            val commands = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(3), 0)).apply {
-                isOpaque = false
-                add(acceptAll)
-            }
-            add(filters, BorderLayout.WEST)
-            add(commands, BorderLayout.EAST)
-        }
-        return JPanel(BorderLayout()).apply {
-            background = HeaderColor
-            border = JBUI.Borders.customLine(BorderColor, 0, 0, 1, 0)
-            add(top, BorderLayout.NORTH)
-            add(bottom, BorderLayout.SOUTH)
-        }
-    }
-
     private fun buildVersionFooter(): JComponent {
         val service = PluginTelemetryService.getInstance()
-        return JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+        return JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
             isOpaque = false
-            border = JBUI.Borders.empty(2, 8, 2, 0)
+            border = JBUI.Borders.empty(4, 10, 0, 0)
             add(JBLabel(service.appVersion).apply {
-                foreground = UIUtil.getContextHelpForeground()
-                font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(9f).toFloat())
+                foreground = GoldenDiffColors.faint
+                font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(10f).toFloat())
             })
-        }
-    }
-
-    private fun buildBadgeFooter(): JComponent {
-        val service = PluginTelemetryService.getInstance()
-        return JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0)).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(2, 0, 2, 8)
             service.metadata.badges.forEach { badge ->
                 val color = when (badge) {
                     BuildBadge.DEV -> JBColor(Color(0xA9761A), Color(0xD9A441))
@@ -470,10 +440,7 @@ class RedesignedScreenshotPanel internal constructor(
                 }
                 add(JBLabel(badge.label).apply {
                     foreground = color
-                    font = UIUtil.getLabelFont().deriveFont(
-                        java.awt.Font.BOLD,
-                        JBUI.scaleFontSize(8f).toFloat(),
-                    )
+                    font = UIUtil.getLabelFont().deriveFont(Font.BOLD, JBUI.scaleFontSize(8f).toFloat())
                     border = BorderFactory.createCompoundBorder(
                         RoundedLineBorder(color, JBUI.scale(5), 1),
                         JBUI.Borders.empty(0, 4),
@@ -484,127 +451,212 @@ class RedesignedScreenshotPanel internal constructor(
         }
     }
 
-    private fun rebuildResponsiveLayout() {
-        capturePixelSplitterSizes()
-        activeFilesSplitter = null
-        activeGoldensSplitter = null
-        val target = currentWidthClass()
-        widthClass = target
-        detach(files)
-        detach(goldensPane)
-        detach(comparePane)
-        // CardLayout.removeLayoutComponent auto-advances to the next card when the currently shown
-        // one is removed, so detaching all three panes out of the NARROW card deck leaves at most one
-        // of them visible=true and the rest permanently visible=false — plain container adds elsewhere
-        // (BorderLayout/Splitter) never restore visibility on their own. Force it back before reuse.
-        files.isVisible = true
-        goldensPane.isVisible = true
-        comparePane.isVisible = true
-        center.removeAll()
-        when (target) {
-            WidthClass.WIDE -> {
-                files.setCollapsePresentation(filesCollapsed, SnapshotFilesCollapsePresentation.WIDE)
-                comparePane.minimumSize = Dimension(JBUI.scale(180), 0)
-                goldensPane.minimumSize = Dimension(JBUI.scale(160), 0)
-                val filesAndCompare = OnePixelSplitter(
-                    true,
-                    filesProportion().coerceIn(0.1f, 0.9f),
-                    0.1f,
-                    0.9f,
-                ).apply {
-                    setHonorComponentsMinimumSize(true)
-                    firstComponent = if (filesOnBottom) comparePane else files
-                    secondComponent = if (filesOnBottom) files else comparePane
-                    installFilesPixelTracking(this)
-                }
-                activeFilesSplitter = filesAndCompare
-                val goldensAndRest = OnePixelSplitter(
-                    false,
-                    goldensProportion().coerceIn(0.18f, 0.65f),
-                    0.18f,
-                    0.65f,
-                ).apply {
-                    setHonorComponentsMinimumSize(true)
-                    firstComponent = goldensPane
-                    secondComponent = filesAndCompare
-                    installGoldensPixelTracking(this)
-                }
-                activeGoldensSplitter = goldensAndRest
-                center.add(goldensAndRest, BorderLayout.CENTER)
+    private fun renderState(state: PluginSnapshotState) {
+        detachedWindow?.title = detachedWindowTitle()
+        tabsHeader.render(state.tab, state.failedViewCount)
+        placeFilesList(state)
+        val presentation = state.filesList()
+        filesList.render(
+            FilesListRenderState(
+                presentation = presentation,
+                query = state.fileQuery,
+                filters = state.statusFilters,
+                indexing = state.loadState == SnapshotLoadState.INITIAL_INDEXING ||
+                    state.loadState == SnapshotLoadState.REFRESHING,
+                hasIndex = state.index != null,
+                hiddenActiveViewName = state.activeEditorPath
+                    ?.takeIf { path -> state.index?.files?.any { it.relativePath == path } == true }
+                    ?.takeIf { it !in presentation.viewOrder }
+                    ?.let { File(it).nameWithoutExtension },
+            ),
+        )
+        strip.render(state.visibleGridItems, state.selectedGridId)
+        renderNavRow(state)
+        updateCommandButtons()
+        renderAcceptState()
+        renderStatusText()
+        val key = ComparisonKey(state.selectedGridItem, state.generation, state.loadState, state.activeFileHasSnapshots)
+        if (key == lastComparisonKey) return
+        lastComparisonKey = key
+        if (state.selectedGridItem != null) loadSelectedComparison() else clearComparison(state)
+    }
+
+    private fun placeFilesList(state: PluginSnapshotState) {
+        val overlay = state.tab == ReviewTab.REVIEW && state.filesOverlayOpen
+        val target = when {
+            state.tab == ReviewTab.FILES -> filesTab
+            overlay -> reviewLayer.host
+            else -> null
+        }
+        if (filesList.parent !== target) {
+            detach(filesList)
+            target?.add(filesList, BorderLayout.CENTER)
+            target?.revalidate()
+            if (overlay) ApplicationManager.getApplication().invokeLater { filesList.focusSearch() }
+        }
+        reviewLayer.setOverlay(overlay)
+        filesToggle.setForeground(if (overlay) GoldenDiffColors.accent else GoldenDiffColors.dim)
+        (tabCards.layout as CardLayout).show(tabCards, state.tab.name)
+    }
+
+    private fun renderNavRow(state: PluginSnapshotState) {
+        val view = state.selectedView
+        fileName.text = when {
+            view == null -> when (state.loadState) {
+                SnapshotLoadState.UNCONFIGURED -> "No configuration"
+                SnapshotLoadState.INITIAL_INDEXING -> "Indexing snapshots…"
+                SnapshotLoadState.EMPTY -> "No snapshot-related files"
+                SnapshotLoadState.ERROR -> "Snapshot index unavailable"
+                else -> "Select a file"
             }
-            WidthClass.MEDIUM -> {
-                files.setCollapsePresentation(false, SnapshotFilesCollapsePresentation.OVERLAY)
-                goldensPane.minimumSize = Dimension(JBUI.scale(120), 0)
-                comparePane.minimumSize = Dimension(JBUI.scale(160), 0)
-                val rail = JButton(AllIcons.Nodes.Folder).apply {
-                    toolTipText = "Show Files"
-                    accessibleContext.accessibleName = "Show Files"
-                    preferredSize = Dimension(JBUI.scale(30), JBUI.scale(30))
-                    addActionListener {
-                        mediumFilesVisible = !mediumFilesVisible
-                        rebuildResponsiveLayout()
-                    }
-                }
-                val railPanel = JPanel(BorderLayout()).apply {
-                        border = JBUI.Borders.empty(4)
-                        add(rail, BorderLayout.NORTH)
-                }
-                val split = OnePixelSplitter(
-                    false,
-                    goldensProportion().coerceIn(0.25f, 0.7f),
-                    0.25f,
-                    0.7f,
-                ).apply {
-                    setHonorComponentsMinimumSize(true)
-                    firstComponent = goldensPane
-                    secondComponent = comparePane
-                    installGoldensPixelTracking(this)
-                }
-                activeGoldensSplitter = split
-                val base = JPanel(BorderLayout()).apply {
-                    add(railPanel, BorderLayout.WEST)
-                    add(split, BorderLayout.CENTER)
-                }
-                center.add(
-                    if (mediumFilesVisible) {
-                        MediumFilesOverlayPanel(base, files) {
-                            mediumFilesVisible = false
-                            rebuildResponsiveLayout()
-                        }
-                    } else {
-                        base
-                    },
-                    BorderLayout.CENTER,
-                )
+            state.selectedCase != null ->
+                "${File(view.relativePath).nameWithoutExtension} › ${state.selectedCase!!.methodName}"
+            else -> File(view.relativePath).nameWithoutExtension
+        }
+        fileName.toolTipText = view?.relativePath
+        // ‹ › only walk changed Views; without any there is nothing to navigate.
+        val hasQueue = state.reviewQueue.isNotEmpty()
+        prevFile.isVisible = hasQueue
+        nextFile.isVisible = hasQueue
+        filePosition.text = state.reviewPosition.orEmpty()
+        filePosition.isVisible = hasQueue && state.reviewPosition != null
+        when (val status = state.selectedViewStatus) {
+            null -> viewStatus.setPill(null)
+            GoldenDisplayStatus.UNCHANGED -> viewStatus.setPill("Unchanged", GoldenDiffColors.faint, GoldenDiffColors.disabledFill)
+            else -> viewStatus.showStatus(status)
+        }
+    }
+
+    private fun displayStatusOf(item: GoldenGridItem): GoldenDisplayStatus = when (item) {
+        is GoldenGridItem.BuiltIn -> controller.state.goldenDisplayStatus(item.item.golden.path)
+            ?: item.item.displayStatus.toDisplayStatus()
+        is GoldenGridItem.Extension -> item.item.status.toDisplayStatus()
+    }
+
+    private fun renderAcceptState() {
+        val state = controller.state
+        val item = state.selectedGridItem
+        val goldenId = (item as? GoldenGridItem.BuiltIn)?.item?.golden?.normalize()?.path
+        val accepted = goldenId != null && goldenId in state.acceptedGoldens
+        val base = acceptButtonState(item, accepted, accepting = goldenId != null && goldenId == acceptingGoldenId)
+        // Accept writes the exact Test output shown, so it waits until that output is frozen.
+        compare.setAcceptState(
+            if (base == AcceptButtonState.ENABLED && goldenId !in resolvedAcceptCandidates) {
+                AcceptButtonState.DISABLED
+            } else {
+                base
+            },
+        )
+    }
+
+    private fun renderStatusText() {
+        val message = commandMessage
+        if (message != null) {
+            statusText.text = message
+            statusText.foreground = GoldenDiffColors.brand
+            return
+        }
+        when (val item = controller.state.selectedGridItem) {
+            null -> statusText.text = ""
+            is GoldenGridItem.Extension -> {
+                statusText.text = "${item.source.title} reference"
+                statusText.foreground = GoldenDiffColors.dim
             }
-            WidthClass.NARROW -> {
-                goldensPane.minimumSize = Dimension(JBUI.scale(120), 0)
-                narrowTabs.removeAll()
-                Pane.entries.forEach { pane ->
-                    narrowTabs.add(JToggleButton(pane.label).apply {
-                        isSelected = pane == narrowPane
-                        addActionListener {
-                            narrowPane = pane
-                            rebuildResponsiveLayout()
-                        }
-                    })
-                }
-                narrowCards.removeAll()
-                narrowCards.add(files, Pane.FILES.name)
-                narrowCards.add(goldensPane, Pane.GOLDENS.name)
-                narrowCards.add(comparePane, Pane.COMPARE.name)
-                (narrowCards.layout as CardLayout).show(narrowCards, narrowPane.name)
-                center.add(narrowTabs, BorderLayout.NORTH)
-                center.add(narrowCards, BorderLayout.CENTER)
+            is GoldenGridItem.BuiltIn -> {
+                val status = displayStatusOf(item)
+                statusText.text = status.statusText
+                statusText.foreground = GoldenDiffColors.status(status)
             }
         }
-        center.revalidate()
-        center.repaint()
-        renderedFilesOnBottom = filesOnBottom
-        ApplicationManager.getApplication().invokeLater {
-            applyPixelSplitterSizes()
-            updateGoldenGridGeometry()
+    }
+
+    private fun setCommandMessage(message: String?, transient: Boolean = false) {
+        commandMessage = message
+        if (transient) commandMessageTimer.restart() else commandMessageTimer.stop()
+        renderStatusText()
+    }
+
+    private fun pickFilesSelection(selection: SnapshotFilesSelection) {
+        nextSelectionTrigger = "automatic"
+        when (selection) {
+            is SnapshotFilesSelection.View -> controller.openView(selection.sourcePath)
+            is SnapshotFilesSelection.Case -> controller.openCase(selection.sourcePath, selection.caseId)
         }
+        fileForSelection(selection)?.let { file ->
+            val virtual = LocalFileSystem.getInstance().findFileByIoFile(file)
+            telemetry.sourceFileSelected(
+                memoryKey = file.normalize().path,
+                trigger = "project_tree",
+                fileFamily = fileFamily(file.extension),
+                alreadyOpen = virtual?.let { FileEditorManager.getInstance(project).isFileOpen(it) } == true,
+            )
+        }
+    }
+
+    private inner class FilesActions : FilesListPanel.Actions {
+        override fun queryChanged(query: String) = controller.setFileQuery(query)
+        override fun filterChanged(status: SnapshotFileStatus, enabled: Boolean) =
+            controller.setStatusFilter(status, enabled)
+        override fun folderToggled(path: String, collapsed: Boolean) = controller.setFolderCollapsed(path, collapsed)
+        override fun viewExpansionToggled(viewId: String, expanded: Boolean) =
+            controller.setViewExpanded(viewId, expanded)
+        override fun picked(selection: SnapshotFilesSelection) = pickFilesSelection(selection)
+        override fun expandAll() = controller.expandAllFolders()
+        override fun collapseAll() = controller.collapseAllFolders()
+        override fun clearSearchAndFilters() = controller.clearFileFilters()
+
+        override fun revealActive() {
+            controller.clearFileFilters()
+            activeEditorPath()?.let(controller::selectView)
+        }
+
+        override fun contextMenu(selection: SnapshotFilesSelection, component: Component, x: Int, y: Int) {
+            // Commands in the menu act on the selected View/Case, so select without leaving the list.
+            when (selection) {
+                is SnapshotFilesSelection.View -> controller.selectView(selection.sourcePath)
+                is SnapshotFilesSelection.Case -> controller.selectCase(selection.sourcePath, selection.caseId)
+            }
+            showFilesContextMenu(selection, component, x, y)
+        }
+    }
+
+    private fun showGoldenContextMenu(item: GoldenGridItem, component: Component, x: Int, y: Int) {
+        controller.selectGridItem(item.id)
+        val popup = StyledContextMenu()
+        popup.addHeader(
+            when (item) {
+                is GoldenGridItem.BuiltIn -> item.item.golden.name
+                is GoldenGridItem.Extension -> item.item.title
+            },
+        )
+        popup.addSectionSeparator()
+        if (item is GoldenGridItem.BuiltIn) {
+            popup.addAction(
+                text = "Accept",
+                enabled = item.item.hasAcceptableTestOutput && !commandRunning,
+            ) { acceptGolden(item.item) }
+            val candidates = acceptAllCandidates()
+            popup.addAction(
+                text = "Accept All in File (${candidates.size})",
+                enabled = candidates.isNotEmpty() && !commandRunning,
+            ) { acceptAllForSelectedView() }
+            popup.addSectionSeparator()
+        }
+        popup.addAction("Show in File Manager", AllIcons.Actions.MenuOpen) {
+            telemetry.event("product.feature_used", mapOf("feature" to "reveal_in_file_manager"))
+            RevealFileAction.openFile(item.file)
+        }
+        popup.addAction("Copy Absolute Path", AllIcons.Actions.Copy) {
+            telemetry.event("product.feature_used", mapOf("feature" to "copy_path"))
+            CopyPasteManager.getInstance().setContents(StringSelection(item.file.absolutePath))
+        }
+        popup.show(component, x, y)
+    }
+
+    private fun acceptAllCandidates(): List<MergedGoldenItem> {
+        val view = controller.state.selectedView ?: return emptyList()
+        val byPath = controller.state.mergedItems.associateBy { it.golden.normalize().path }
+        return view.goldenPaths.mapNotNull { path -> byPath[path]?.takeIf(MergedGoldenItem::hasAcceptableTestOutput) }
     }
 
     private fun refresh(force: Boolean = false, trigger: String = "automatic") {
@@ -698,65 +750,13 @@ class RedesignedScreenshotPanel internal constructor(
         )
     }
 
-    private fun renderState(state: PluginSnapshotState) {
-        detachedWindow?.title = detachedWindowTitle()
-        val selection = when {
-            state.selection.viewId == null -> null
-            state.selection.caseId != null ->
-                SnapshotFilesSelection.Case(state.selection.viewId, state.selection.caseId)
-            else -> SnapshotFilesSelection.View(state.selection.viewId)
-        }
-        files.update(
-            index = state.index,
-            activePath = state.activeEditorPath,
-            selection = selection,
-            indexing = state.loadState == SnapshotLoadState.INITIAL_INDEXING ||
-                state.loadState == SnapshotLoadState.REFRESHING,
-        )
-        val selected = state.visibleGridItems
-        val selectedId = state.selectedGridId
-        updatingGoldenModel = true
-        try {
-            goldenModel.clear()
-            selected.forEach(goldenModel::addElement)
-            val selectionIndex = selected.indexOfFirst { it.id == selectedId }
-            if (selectionIndex >= 0) goldens.selectedIndex = selectionIndex
-            else goldens.clearSelection()
-        } finally {
-            updatingGoldenModel = false
-        }
-        viewTitle.text = state.selectedCase?.methodName
-            ?: state.selectedView?.relativePath?.let { File(it).nameWithoutExtension }
-            ?: when (state.loadState) {
-                SnapshotLoadState.UNCONFIGURED -> "No configuration"
-                SnapshotLoadState.INITIAL_INDEXING -> "Indexing snapshots…"
-                SnapshotLoadState.EMPTY -> "No snapshot-related files"
-                SnapshotLoadState.ERROR -> "Snapshot index unavailable"
-                else -> "Select a View"
-            }
-        goldenCount.text = if (selected.isEmpty()) "" else "${selected.size} golden${if (selected.size == 1) "" else "s"}"
-        val filterSource = state.extraFilterSource
-        extraFilter.configure(filterSource?.title, filterSource?.filterIcon, state.extraOnly)
-        val acceptCount = state.selectedView?.goldenPaths.orEmpty()
-            .mapNotNull { path -> state.mergedItems.firstOrNull { it.golden.normalize().path == path } }
-            .count(MergedGoldenItem::hasAcceptableTestOutput)
-        acceptAll.text = "Accept all ($acceptCount)"
-        acceptAll.isVisible = acceptCount > 0
-        updateCommandButtons()
-        if (state.selectedGridItem != null) loadSelectedComparison() else clearComparison(state)
-    }
-
     private fun clearComparison(state: PluginSnapshotState) {
-        compare.setTitle(null)
         if (state.loadState == SnapshotLoadState.UNCONFIGURED) {
             compare.showBlocked(
                 "No configuration",
                 "Choose at least one golden directory to start indexing snapshots.",
                 "Open Settings",
-            ) {
-                ShowSettingsUtil.getInstance().editConfigurable(project, ScreenshotConfigurable(project))
-                refresh(force = true, trigger = "config_change")
-            }
+            ) { openSettings() }
             return
         }
         val message = when (state.loadState) {
@@ -794,7 +794,6 @@ class RedesignedScreenshotPanel internal constructor(
             "comparison.load",
             mapOf("scope" to "project_tree", "source" to sourceWire, "cache_hit" to "false"),
         )
-        compare.setTitle(item.golden.name)
         val ambiguity = item.testOutputResolution as? GeneratedCounterpartResolution.Ambiguous
         if (ambiguity != null) {
             comparisonSpan.finish()
@@ -903,7 +902,7 @@ class RedesignedScreenshotPanel internal constructor(
                         if (source == BuiltInSource.GENERATED) "Test output" else "Working copy",
                     )
                 }
-                if (source == BuiltInSource.GENERATED && item.hasAcceptableTestOutput) compare.showAccept()
+                renderAcceptState()
                 if (shouldReport) {
                     val emitted = telemetry.event(
                         "product.comparison_viewed",
@@ -944,7 +943,6 @@ class RedesignedScreenshotPanel internal constructor(
 
     private fun loadExtensionComparison(item: GoldenGridItem.Extension) {
         val generation = ++comparisonGeneration
-        compare.setTitle(item.item.title)
         compare.showLoading(
             if (item.item.isLoading) "Loading ${item.source.title}…" else "Loading comparison…",
         )
@@ -960,7 +958,7 @@ class RedesignedScreenshotPanel internal constructor(
                     ) { loadSelectedComparison() }
                 }.onSuccess { comparison ->
                     if (item.item.isLoading && item.item.file.isFile) {
-                        goldenRenderer.clear(item.item.file)
+                        strip.invalidate(item.item.file)
                         controller.markExtensionLoaded(item.id)
                         return@onSuccess
                     }
@@ -1007,27 +1005,6 @@ class RedesignedScreenshotPanel internal constructor(
         }
     }
 
-    private fun onFilesSelection(selection: SnapshotFilesSelection) {
-        nextSelectionTrigger = "automatic"
-        when (selection) {
-            is SnapshotFilesSelection.View -> controller.selectView(selection.sourcePath)
-            is SnapshotFilesSelection.Case -> controller.selectCase(selection.sourcePath, selection.caseId)
-        }
-        fileForSelection(selection)?.let { file ->
-            val virtual = LocalFileSystem.getInstance().findFileByIoFile(file)
-            telemetry.sourceFileSelected(
-                memoryKey = file.normalize().path,
-                trigger = "project_tree",
-                fileFamily = fileFamily(file.extension),
-                alreadyOpen = virtual?.let { FileEditorManager.getInstance(project).isFileOpen(it) } == true,
-            )
-        }
-        if (currentWidthClass() == WidthClass.NARROW) {
-            narrowPane = Pane.GOLDENS
-            rebuildResponsiveLayout()
-        }
-    }
-
     private fun openFilesSelection(selection: SnapshotFilesSelection) {
         val relativePath = when (selection) {
             is SnapshotFilesSelection.View -> selection.sourcePath
@@ -1038,29 +1015,6 @@ class RedesignedScreenshotPanel internal constructor(
         val file = projectRoot?.let { File(it, relativePath) } ?: return
         LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)?.let {
             FileEditorManager.getInstance(project).openFile(it, true)
-        }
-    }
-
-    private fun toggleFilesPane() {
-        when (currentWidthClass()) {
-            WidthClass.WIDE -> {
-                if (filesCollapsed) {
-                    filesHeightPx = expandedFilesHeightPx.coerceIn(JBUI.scale(80), JBUI.scale(420))
-                    filesCollapsed = false
-                } else {
-                    expandedFilesHeightPx = filesHeightPx.coerceAtLeast(JBUI.scale(160))
-                    filesHeightPx = JBUI.scale(80)
-                    filesCollapsed = true
-                }
-                filesHeightAdjusted = true
-                files.setCollapsePresentation(filesCollapsed, SnapshotFilesCollapsePresentation.WIDE)
-                applyPixelSplitterSizes()
-            }
-            WidthClass.MEDIUM -> {
-                mediumFilesVisible = false
-                rebuildResponsiveLayout()
-            }
-            WidthClass.NARROW -> Unit
         }
     }
 
@@ -1143,7 +1097,9 @@ class RedesignedScreenshotPanel internal constructor(
             refresh(force = true, trigger = "stale_source_recovery")
             return
         }
-        compare.showAccepting()
+        val goldenId = item.golden.normalize().path
+        acceptingGoldenId = goldenId
+        renderAcceptState()
         AppExecutorUtil.getAppExecutorService().execute {
             val result = GoldenAccept.acceptFrozen(frozen)
             ApplicationManager.getApplication().invokeLater {
@@ -1173,19 +1129,29 @@ class RedesignedScreenshotPanel internal constructor(
                         "feature" to if (accepted == 1) "accept_golden" else "accept_golden_failed",
                     ),
                 )
+                if (result !is GoldenAccept.ResolvedOutcome.Success) acceptingGoldenId = null
                 when (result) {
                     is GoldenAccept.ResolvedOutcome.Success -> {
-                        resolvedAcceptCandidates.remove(item.golden.normalize().path)
+                        resolvedAcceptCandidates.remove(goldenId)
                         suppressVfsEvent(item.golden)
                         suppressVfsEvent(generated)
                         LocalFileSystem.getInstance().refreshIoFiles(listOf(item.golden, generated))
+                        controller.acceptSucceeded(listOf(goldenId))
                         val root = projectRoot
                         if (root != null) {
-                            applyMergedItemUpdatesInPlace(root, settings.toConfig(), setOf(item.golden))
+                            applyMergedItemUpdatesInPlace(root, settings.toConfig(), setOf(item.golden)) {
+                                if (acceptingGoldenId == goldenId) acceptingGoldenId = null
+                                renderAcceptState()
+                            }
+                        } else {
+                            acceptingGoldenId = null
                         }
+                        renderAcceptState()
                     }
-                    is GoldenAccept.ResolvedOutcome.NothingToAccept ->
+                    is GoldenAccept.ResolvedOutcome.NothingToAccept -> {
+                        renderAcceptState()
                         compare.showSingle(null, "Nothing to accept")
+                    }
                     is GoldenAccept.ResolvedOutcome.Ambiguous ->
                         compare.showBlocked(
                             "Ambiguous Test output",
@@ -1199,7 +1165,7 @@ class RedesignedScreenshotPanel internal constructor(
                         refresh(force = true, trigger = "stale_source_recovery")
                     }
                     is GoldenAccept.ResolvedOutcome.Io -> {
-                        compare.showAccept()
+                        renderAcceptState()
                         Messages.showErrorDialog(
                             project,
                             "Could not accept ${item.golden.name}. The Test output was left untouched.",
@@ -1213,11 +1179,7 @@ class RedesignedScreenshotPanel internal constructor(
 
     private fun acceptAllForSelectedView() {
         val view = controller.state.selectedView ?: return
-        val candidates = view.goldenPaths.mapNotNull { path ->
-            controller.state.mergedItems.firstOrNull {
-                it.golden.normalize().path == path && it.hasAcceptableTestOutput
-            }
-        }
+        val candidates = acceptAllCandidates()
         if (candidates.isEmpty()) return
         val answer = Messages.showYesNoDialog(
             project,
@@ -1229,18 +1191,17 @@ class RedesignedScreenshotPanel internal constructor(
             Messages.getWarningIcon(),
         )
         if (answer != Messages.YES) return
-        commandStatus.text = "Accepting 0 of ${candidates.size}…"
-        commandStatus.isVisible = true
+        setCommandMessage("Accepting 0 of ${candidates.size}…")
         val displayedCandidates = resolvedAcceptCandidates.toMap()
         AppExecutorUtil.getAppExecutorService().execute {
             val frozen = freezeAcceptAllCandidates(candidates, displayedCandidates)
             val result = GoldenAccept.acceptAllResolved(frozen) { done, total ->
                 ApplicationManager.getApplication().invokeLater {
-                    commandStatus.text = "Accepting $done of $total…"
+                    setCommandMessage("Accepting $done of $total…")
                 }
             }
             ApplicationManager.getApplication().invokeLater {
-                commandStatus.isVisible = false
+                setCommandMessage(null)
                 val failures = result.items.count { it.outcome !is GoldenAccept.ResolvedOutcome.Success }
                 val nothingToAccept = result.items.count {
                     it.outcome is GoldenAccept.ResolvedOutcome.NothingToAccept
@@ -1268,6 +1229,7 @@ class RedesignedScreenshotPanel internal constructor(
                     accepted = result.accepted.size,
                     failed = failures,
                 )
+                controller.acceptSucceeded(result.accepted.map { it.golden.normalize().path })
                 result.accepted.forEach { accepted ->
                     suppressVfsEvent(accepted.golden)
                     (accepted.source as? GoldenAccept.FrozenSource.Exact)?.generated?.let(::suppressVfsEvent)
@@ -1425,8 +1387,8 @@ class RedesignedScreenshotPanel internal constructor(
         if (commandRunning) return
         val root = projectRoot ?: return
         commandRunning = true
-        commandStatus.text = "${kind.label} · $scope · ${commands.size} commands"
-        commandStatus.isVisible = true
+        runningKind = kind
+        setCommandMessage("${kind.label} · $scope · ${commands.size} commands")
         telemetry.event(
             "product.feature_used",
             mapOf("feature" to if (kind == CommandKind.GENERATE) "generate_run" else "verify_run"),
@@ -1440,13 +1402,17 @@ class RedesignedScreenshotPanel internal constructor(
             onCompleted = { outcome ->
                 ApplicationManager.getApplication().invokeLater {
                     commandRunning = false
+                    runningKind = null
                     activeBatch = null
-                    commandStatus.text = when (outcome) {
-                        is BatchCommandOutcome.Success -> "${kind.label} completed"
-                        is BatchCommandOutcome.Failure -> "${kind.label} failed"
-                        is BatchCommandOutcome.PartialFailure -> "${kind.label} partially failed"
-                        is BatchCommandOutcome.Cancelled -> "${kind.label} cancelled"
-                    }
+                    setCommandMessage(
+                        when (outcome) {
+                            is BatchCommandOutcome.Success -> "${kind.label} completed"
+                            is BatchCommandOutcome.Failure -> "${kind.label} failed"
+                            is BatchCommandOutcome.PartialFailure -> "${kind.label} partially failed"
+                            is BatchCommandOutcome.Cancelled -> "${kind.label} cancelled"
+                        },
+                        transient = true,
+                    )
                     val result = when (outcome) {
                         is BatchCommandOutcome.Success -> CompletionResult.SUCCESS
                         is BatchCommandOutcome.Cancelled -> CompletionResult.CANCELLED
@@ -1467,15 +1433,13 @@ class RedesignedScreenshotPanel internal constructor(
                     updateCommandButtons()
                     LocalFileSystem.getInstance().refreshIoFiles(settings.resolvedGeneratedPaths(project))
                     refresh(force = true, trigger = "command_finished")
-                    Timer(4000) { commandStatus.isVisible = false }.apply {
-                        isRepeats = false
-                        start()
-                    }
                 }
             },
         )
         if (activeBatch == null) {
             commandRunning = false
+            runningKind = null
+            setCommandMessage(null)
             telemetry.client.commandCompleted(
                 kind.telemetryKind(),
                 telemetryScope,
@@ -1503,9 +1467,8 @@ class RedesignedScreenshotPanel internal constructor(
         }
         val root = projectRoot ?: return
         commandRunning = true
-        stopButton.isVisible = false
-        commandStatus.text = "${kind.label} · $scope"
-        commandStatus.isVisible = true
+        runningKind = kind
+        setCommandMessage("${kind.label} · $scope")
         telemetry.event(
             "product.feature_used",
             mapOf("feature" to if (kind == CommandKind.GENERATE) "generate_run" else "verify_run"),
@@ -1521,11 +1484,15 @@ class RedesignedScreenshotPanel internal constructor(
                 ApplicationManager.getApplication().invokeLater {
                     if (!completionReported.compareAndSet(false, true)) return@invokeLater
                     commandRunning = false
-                    commandStatus.text = when (it) {
-                        0 -> "${kind.label} completed"
-                        null -> "${kind.label} could not start"
-                        else -> "${kind.label} failed (exit $it)"
-                    }
+                    runningKind = null
+                    setCommandMessage(
+                        when (it) {
+                            0 -> "${kind.label} completed"
+                            null -> "${kind.label} could not start"
+                            else -> "${kind.label} failed (exit $it)"
+                        },
+                        transient = true,
+                    )
                     notifyCommand(
                         kind,
                         scope,
@@ -1544,15 +1511,13 @@ class RedesignedScreenshotPanel internal constructor(
                     updateCommandButtons()
                     LocalFileSystem.getInstance().refreshIoFiles(settings.resolvedGeneratedPaths(project))
                     refresh(force = true, trigger = "command_finished")
-                    Timer(4000) { commandStatus.isVisible = false }.apply {
-                        isRepeats = false
-                        start()
-                    }
                 }
             },
         )
         if (!started) {
             commandRunning = false
+            runningKind = null
+            setCommandMessage(null)
             if (completionReported.compareAndSet(false, true)) {
                 telemetry.client.commandCompleted(
                     kind.telemetryKind(),
@@ -1616,6 +1581,10 @@ class RedesignedScreenshotPanel internal constructor(
         verifyProject.toolTipText = commandTargetTooltip(CommandKind.VERIFY, verifyTarget)
         generateScope.isEnabled = !commandRunning
         verifyScope.isEnabled = !commandRunning
+        generateProject.text = if (runningKind == CommandKind.GENERATE) "Generating…" else CommandKind.GENERATE.label
+        verifyProject.text = if (runningKind == CommandKind.VERIFY) "Verifying…" else CommandKind.VERIFY.label
+        runningIcon.isVisible = commandRunning
+        if (commandRunning) runningIcon.resume() else runningIcon.suspend()
         stopButton.isVisible = activeBatch != null
     }
 
@@ -1631,145 +1600,6 @@ class RedesignedScreenshotPanel internal constructor(
                 ?: "current View"
             "$action for View $viewName"
         }
-    }
-
-    private fun setGridColumns(columns: Int) {
-        gridColumns = columns.coerceIn(1, 3)
-        updateGoldenGridGeometry()
-    }
-
-    private fun updateGoldenGridGeometry() {
-        val viewportWidth = goldensScroll.viewport.extentSize.width
-            .takeIf { it > 0 }
-            ?: goldensWidthPx
-        val geometry = goldenGridGeometry(
-            viewportWidth = viewportWidth,
-            columns = gridColumns,
-            horizontalInsets = JBUI.scale(20),
-            cellGap = JBUI.scale(8),
-            minimumCellWidth = JBUI.scale(32),
-            minimumCardWidth = JBUI.scale(24),
-        )
-        cardWidth = geometry.cardWidth
-        goldens.fixedCellWidth = geometry.cellWidth
-        goldens.fixedCellHeight = -1
-        goldenRenderer.clearScaledCache()
-        goldens.revalidate()
-        goldens.repaint()
-    }
-
-    private fun JList<GoldenGridItem>.installGoldenArrowNavigation() {
-        fun bind(keyCode: Int, actionKey: String, delta: () -> Int) {
-            getInputMap(JComponent.WHEN_FOCUSED).put(
-                KeyStroke.getKeyStroke(keyCode, 0),
-                actionKey,
-            )
-            actionMap.put(actionKey, object : AbstractAction() {
-                override fun actionPerformed(event: java.awt.event.ActionEvent) {
-                    moveGoldenSelection(delta())
-                }
-            })
-        }
-        bind(KeyEvent.VK_LEFT, "golden.selectLeft") { -1 }
-        bind(KeyEvent.VK_RIGHT, "golden.selectRight") { 1 }
-        bind(KeyEvent.VK_UP, "golden.selectUp") { -gridColumns }
-        bind(KeyEvent.VK_DOWN, "golden.selectDown") { gridColumns }
-    }
-
-    private fun moveGoldenSelection(delta: Int) {
-        if (goldenModel.isEmpty) return
-        val current = goldens.selectedIndex
-        val next = if (current < 0) {
-            0
-        } else {
-            (current + delta).coerceIn(0, goldenModel.size - 1)
-        }
-        if (next == current) return
-        nextSelectionTrigger = "keyboard"
-        goldens.selectedIndex = next
-        goldens.ensureIndexIsVisible(next)
-    }
-
-    private fun capturePixelSplitterSizes() {
-        if (applyingPixelSplitterSizes) return
-        activeGoldensSplitter?.takeIf { it.width > 0 }?.let { splitter ->
-            goldensWidthPx = splitter.firstComponent.width
-                .takeIf { it > 0 }
-                ?.coerceIn(JBUI.scale(120), JBUI.scale(700))
-                ?: goldensWidthPx
-        }
-        activeFilesSplitter?.takeIf { it.height > 0 }?.let { splitter ->
-            val filesComponent = if (renderedFilesOnBottom) splitter.secondComponent else splitter.firstComponent
-            filesHeightPx = filesComponent.height
-                .takeIf { it > 0 }
-                ?.coerceIn(JBUI.scale(80), JBUI.scale(420))
-                ?: filesHeightPx
-            filesHeightAdjusted = true
-        }
-    }
-
-    private fun applyPixelSplitterSizes() {
-        applyingPixelSplitterSizes = true
-        try {
-            activeGoldensSplitter?.takeIf { it.width > 0 }?.let { splitter ->
-                splitter.proportion = (goldensWidthPx.toFloat() / splitter.width)
-                    .coerceIn(0.01f, 0.99f)
-            }
-            activeFilesSplitter?.takeIf { it.height > 0 }?.let { splitter ->
-                val filesShare = if (filesHeightAdjusted) {
-                    (filesHeightPx.toFloat() / splitter.height).coerceIn(0.01f, 0.99f)
-                } else {
-                    0.5f
-                }
-                splitter.proportion = if (renderedFilesOnBottom) 1f - filesShare else filesShare
-            }
-        } finally {
-            applyingPixelSplitterSizes = false
-        }
-    }
-
-    private fun goldensProportion(): Float {
-        val available = center.width.takeIf { it > 0 }
-            ?: width.takeIf { it > 0 }
-            ?: JBUI.scale(570)
-        return (goldensWidthPx.toFloat() / available).coerceIn(0.01f, 0.99f)
-    }
-
-    private fun filesProportion(): Float {
-        if (!filesHeightAdjusted) return 0.5f
-        val available = center.height.takeIf { it > 0 }
-            ?: height.takeIf { it > 0 }
-            ?: JBUI.scale(920)
-        val filesShare = (filesHeightPx.toFloat() / available).coerceIn(0.01f, 0.99f)
-        return if (filesOnBottom) 1f - filesShare else filesShare
-    }
-
-    private fun installGoldensPixelTracking(splitter: JBSplitter) {
-        splitter.addPropertyChangeListener("proportion") {
-            if (!applyingPixelSplitterSizes && splitter.width > 0) {
-                goldensWidthPx = (splitter.width * splitter.proportion).toInt()
-                    .coerceIn(JBUI.scale(120), JBUI.scale(700))
-                updateGoldenGridGeometry()
-            }
-        }
-    }
-
-    private fun installFilesPixelTracking(splitter: JBSplitter) {
-        splitter.addPropertyChangeListener("proportion") {
-            if (!applyingPixelSplitterSizes && splitter.height > 0) {
-                val filesShare = if (renderedFilesOnBottom) 1f - splitter.proportion else splitter.proportion
-                filesHeightPx = (splitter.height * filesShare).toInt()
-                    .coerceIn(JBUI.scale(80), JBUI.scale(420))
-                filesHeightAdjusted = true
-            }
-        }
-    }
-
-    private fun JButton.makeCompactTextButton() {
-        font = font.deriveFont(JBUI.scaleFontSize(11f).toFloat())
-        margin = JBUI.insets(2, 8)
-        preferredSize = Dimension(preferredSize.width, JBUI.scale(24))
-        minimumSize = Dimension(minimumSize.width, JBUI.scale(24))
     }
 
     private fun subscribe() {
@@ -1801,6 +1631,7 @@ class RedesignedScreenshotPanel internal constructor(
                     val now = System.currentTimeMillis()
                     suppressedVfsPaths.entries.removeIf { it.value < now }
                     var matched = false
+                    val externalGoldens = mutableListOf<String>()
                     events.forEach { event ->
                         val file = File(event.path)
                         if (!file.extension.equals("png", ignoreCase = true)) return@forEach
@@ -1808,10 +1639,16 @@ class RedesignedScreenshotPanel internal constructor(
                             return@forEach
                         }
                         if (suppressedVfsPaths.remove(file.normalize().path) != null) return@forEach
+                        if (config.containsGoldenFile(root, file)) externalGoldens += file.normalize().path
                         matched = true
                         when (val kind = classifyVfsEvent(event)) {
                             null -> pendingVfsForceRescan = true
                             else -> pendingVfsEvents += PngChangeEvent(file, kind)
+                        }
+                    }
+                    if (externalGoldens.isNotEmpty()) {
+                        ApplicationManager.getApplication().invokeLater {
+                            controller.goldensChangedExternally(externalGoldens)
                         }
                     }
                     if (matched) vfsTimer.restart()
@@ -1884,13 +1721,19 @@ class RedesignedScreenshotPanel internal constructor(
         return match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
     }
 
-    private fun applyMergedItemUpdatesInPlace(root: File, config: GoldenDiffConfig, affected: Set<File>) {
+    private fun applyMergedItemUpdatesInPlace(
+        root: File,
+        config: GoldenDiffConfig,
+        affected: Set<File>,
+        onApplied: () -> Unit = {},
+    ) {
         val request = controller.beginMergedItemUpdate()
         AppExecutorUtil.getAppExecutorService().execute {
             val result = runCatching { ChangeScanner.forGitProject(root, config).mergedItemsFor(affected.toList()) }
             ApplicationManager.getApplication().invokeLater {
                 if (projectRoot != root || project.isDisposed) return@invokeLater
                 result.onSuccess { updated -> controller.applyMergedItemUpdates(request, updated) }
+                onApplied()
             }
         }
     }
@@ -1919,25 +1762,15 @@ class RedesignedScreenshotPanel internal constructor(
         )
     }
 
-    private fun currentWidthClass(): WidthClass {
-        val effective = width.takeIf { it > 0 } ?: preferredSize.width
-        return when {
-            effective <= JBUI.scale(320) -> WidthClass.NARROW
-            effective <= JBUI.scale(480) -> WidthClass.MEDIUM
-            else -> WidthClass.WIDE
-        }
-    }
-
     override fun dispose() {
         vfsTimer.stop()
+        commandMessageTimer.stop()
         comparisonGeneration++
         detachedWindow?.dispose()
         detachedWindow = null
         telemetry.panelClosed()
     }
 
-    private enum class WidthClass { WIDE, MEDIUM, NARROW }
-    private enum class Pane(val label: String) { FILES("Files"), GOLDENS("Goldens"), COMPARE("Compare") }
     private enum class CommandKind(val label: String) {
         GENERATE("Generate"),
         VERIFY("Verify");
@@ -1946,6 +1779,14 @@ class RedesignedScreenshotPanel internal constructor(
             if (this == GENERATE) TelemetryCommandKind.GENERATE else TelemetryCommandKind.VERIFY
     }
     private enum class CommandTarget { PROJECT, CURRENT }
+
+    /** Identity of what the compare area shows; unrelated state changes must not reload it. */
+    private data class ComparisonKey(
+        val item: GoldenGridItem?,
+        val generation: Long,
+        val loadState: SnapshotLoadState,
+        val activeFileHasSnapshots: Boolean,
+    )
 
     private data class LoadedBuiltInComparison(
         val frozen: GoldenAccept.FrozenCandidate?,
@@ -1957,10 +1798,23 @@ class RedesignedScreenshotPanel internal constructor(
     )
 
     private companion object {
-        val HeaderColor = com.intellij.ui.JBColor(Color(0xF2F3F5), Color(0x2B2D30))
-        val BorderColor = com.intellij.ui.JBColor(Color(0xE1E3E8), Color(0x3A3C3F))
-        val AcceptColor = com.intellij.ui.JBColor(Color(0xE0507E), Color(0xE0507E))
         const val VFS_SUPPRESSION_MS = 2_000L
+
+        fun panelAction(text: String, icon: javax.swing.Icon? = null, action: () -> Unit): DumbAwareAction =
+            object : DumbAwareAction(text, null, icon) {
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+                override fun actionPerformed(event: AnActionEvent) = action()
+            }
+
+        fun navButton(text: String, accessibleName: String, action: () -> Unit): JButton =
+            FlatHeaderButton(text, height = 24, horizontalPadding = 6).apply {
+                font = font.deriveFont(JBUI.scaleFontSize(15f).toFloat())
+                foreground = GoldenDiffColors.dim
+                toolTipText = accessibleName
+                getAccessibleContext()?.accessibleName = accessibleName
+                addActionListener { action() }
+            }
 
         fun iconButton(
             icon: javax.swing.Icon,
@@ -2012,188 +1866,4 @@ private fun fileFamily(extension: String): String = when (extension.lowercase())
     "swift" -> "swift"
     "png" -> "png"
     else -> "other"
-}
-
-private class MediumFilesOverlayPanel(
-    private val content: JComponent,
-    private val files: JComponent,
-    onDismiss: () -> Unit,
-) : JPanel(null) {
-    private val scrim = JPanel().apply {
-        isOpaque = true
-        background = Color(0, 0, 0, 76)
-        addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseClicked(event: java.awt.event.MouseEvent) = onDismiss()
-        })
-    }
-
-    init {
-        add(content)
-        add(scrim)
-        add(files)
-        setComponentZOrder(files, 0)
-        setComponentZOrder(scrim, 1)
-        setComponentZOrder(content, 2)
-    }
-
-    override fun doLayout() {
-        content.setBounds(0, 0, width, height)
-        scrim.setBounds(0, 0, width, height)
-        files.setBounds(0, 0, minOf(JBUI.scale(220), width), height)
-    }
-
-    override fun getPreferredSize(): Dimension = content.preferredSize
-    override fun getMinimumSize(): Dimension = content.minimumSize
-}
-
-internal data class GoldenGridGeometry(
-    val columns: Int,
-    val cellWidth: Int,
-    val cardWidth: Int,
-)
-
-internal fun goldenGridGeometry(
-    viewportWidth: Int,
-    columns: Int,
-    horizontalInsets: Int = 20,
-    cellGap: Int = 8,
-    minimumCellWidth: Int = 32,
-    minimumCardWidth: Int = 24,
-): GoldenGridGeometry {
-    val contentWidth = (viewportWidth - horizontalInsets).coerceAtLeast(1)
-    val safeColumns = columns.coerceIn(1, 3)
-    val cellWidth = (contentWidth / safeColumns).coerceAtLeast(minimumCellWidth)
-    val cardWidth = (cellWidth - cellGap)
-        .coerceAtLeast(1)
-        .coerceAtLeast(minimumCardWidth.coerceAtMost(cellWidth))
-    return GoldenGridGeometry(safeColumns, cellWidth, cardWidth)
-}
-
-internal class ExtraSourceFilterChip : JToggleButton() {
-    init {
-        font = UIUtil.getLabelFont().deriveFont(JBUI.scaleFontSize(10f).toFloat())
-        iconTextGap = JBUI.scale(4)
-        margin = JBUI.emptyInsets()
-        isOpaque = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusPainted = false
-        horizontalAlignment = CENTER
-        preferredSize = Dimension(JBUI.scale(62), JBUI.scale(20))
-        minimumSize = preferredSize
-        maximumSize = Dimension(JBUI.scale(160), JBUI.scale(20))
-    }
-
-    fun configure(title: String?, sourceIcon: Icon?, selected: Boolean) {
-        isVisible = title != null
-        if (title == null) {
-            isSelected = false
-            return
-        }
-        text = title
-        icon = sourceIcon
-        isSelected = selected
-        toolTipText = "Show only $title references"
-        getAccessibleContext()?.accessibleName = "$title golden filter"
-        val contentWidth = getFontMetrics(font).stringWidth(title) +
-            (sourceIcon?.iconWidth ?: 0) +
-            (if (sourceIcon == null) 0 else iconTextGap) +
-            JBUI.scale(14)
-        preferredSize = Dimension(contentWidth, JBUI.scale(20))
-        minimumSize = preferredSize
-        revalidate()
-        repaint()
-    }
-
-    override fun paintComponent(graphics: java.awt.Graphics) {
-        val g = graphics.create() as java.awt.Graphics2D
-        try {
-            g.setRenderingHint(
-                java.awt.RenderingHints.KEY_ANTIALIASING,
-                java.awt.RenderingHints.VALUE_ANTIALIAS_ON,
-            )
-            g.color = if (isSelected) {
-                JBColor(Color(0xDCE7FC), Color(0x394B6A))
-            } else {
-                JBColor(Color(0xE8E9EC), Color(0x36383C))
-            }
-            g.fillRoundRect(0, 0, width, height, height, height)
-            if (isSelected || hasFocus()) {
-                g.color = if (hasFocus()) {
-                    JBColor(Color(0x3574F0), Color(0x548AF7))
-                } else {
-                    JBColor(Color(0x8AA9DC), Color(0x627DAA))
-                }
-                g.drawRoundRect(0, 0, width - 1, height - 1, height - 1, height - 1)
-            }
-        } finally {
-            g.dispose()
-        }
-        super.paintComponent(graphics)
-    }
-}
-
-internal class GridColumnButton(columns: Int) : JToggleButton(GridColumnsIcon(columns)) {
-    init {
-        val columnLabel = if (columns == 1) "column" else "columns"
-        toolTipText = "Show goldens in $columns $columnLabel"
-        getAccessibleContext()?.accessibleName = toolTipText
-        margin = JBUI.emptyInsets()
-        isOpaque = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusPainted = false
-        preferredSize = Dimension(JBUI.scale(24), JBUI.scale(22))
-        minimumSize = preferredSize
-        maximumSize = preferredSize
-    }
-
-    override fun paintComponent(graphics: java.awt.Graphics) {
-        if (isSelected || model.isRollover) {
-            val g = graphics.create() as java.awt.Graphics2D
-            try {
-                g.setRenderingHint(
-                    java.awt.RenderingHints.KEY_ANTIALIASING,
-                    java.awt.RenderingHints.VALUE_ANTIALIAS_ON,
-                )
-                g.color = if (isSelected) {
-                    JBColor(Color(0x3574F0), Color(0x3574F0))
-                } else {
-                    JBColor(Color(0xDFE1E5), Color(0x43454A))
-                }
-                g.fillRoundRect(0, 0, width, height, JBUI.scale(6), JBUI.scale(6))
-            } finally {
-                g.dispose()
-            }
-        }
-        super.paintComponent(graphics)
-    }
-}
-
-private class GridColumnsIcon(private val columns: Int) : Icon {
-    private val width = JBUI.scale(14)
-    private val height = JBUI.scale(12)
-
-    override fun getIconWidth(): Int = width
-    override fun getIconHeight(): Int = height
-
-    override fun paintIcon(component: Component?, graphics: java.awt.Graphics, x: Int, y: Int) {
-        val g = graphics.create() as java.awt.Graphics2D
-        try {
-            g.setRenderingHint(
-                java.awt.RenderingHints.KEY_ANTIALIASING,
-                java.awt.RenderingHints.VALUE_ANTIALIAS_ON,
-            )
-            val selected = (component as? AbstractButton)?.isSelected == true
-            g.color = if (selected) Color.WHITE else UIUtil.getContextHelpForeground()
-            val gap = JBUI.scale(1)
-            val columnWidth = ((width - gap * (columns - 1)) / columns).coerceAtLeast(1)
-            repeat(columns) { index ->
-                val left = x + index * (columnWidth + gap)
-                g.fillRoundRect(left, y, columnWidth, height, JBUI.scale(2), JBUI.scale(2))
-            }
-        } finally {
-            g.dispose()
-        }
-    }
 }

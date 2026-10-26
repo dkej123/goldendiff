@@ -203,3 +203,16 @@ save a partial rewrite. Generate/Verify entry points, including tree context act
 pass through the same selected-run/device mismatch preflight. The local `simctl`/`devicectl` catalog
 ends the visible loading state; `xcodebuild -showdestinations` remains authoritative in the background.
 Queue a choice made before it completes and persist it only after an exact command-value match.
+
+## Swing accessibility and off-screen rendering in Kotlin
+
+Inside a `JComponent` subclass, Kotlin resolves `accessibleContext` to the protected *field*, which
+stays null until `getAccessibleContext()` creates it, so `accessibleContext.accessibleName = …` in an
+`init` block throws at runtime. Always call `getAccessibleContext()?.accessibleName`. A plain
+`JComponent` subclass (not `JPanel`/`JButton`) has no accessible context at all until it overrides
+`getAccessibleContext()` — see `GoldenStripPanel.StripCanvas`.
+
+`Container.validate()` lays out children only for displayable components (those with a peer). A test
+that paints a never-shown hierarchy into a `BufferedImage` therefore renders list/tree cells without
+their text. Call `addNotify()` on the root, or lay renderer components out explicitly, before judging
+such a render.

@@ -9,8 +9,6 @@ import org.junit.Test
 import java.awt.Color
 import javax.swing.JMenuItem
 import javax.swing.JToolTip
-import com.intellij.util.ui.EmptyIcon
-import java.awt.event.KeyEvent
 
 class CompactSwingControlsTest {
     @Test
@@ -61,71 +59,76 @@ class CompactSwingControlsTest {
     }
 
     @Test
-    fun `golden column choices fill all available horizontal space`() {
-        val layouts = (1..3).map { goldenGridGeometry(500, it) }
+    fun `golden strip thumbnails keep the image aspect at a fixed height`() {
+        val landscape = GoldenStripPanel.thumbnailSize(200, 100, 104)
+        val missing = GoldenStripPanel.thumbnailSize(null, null, 104)
+        val panorama = GoldenStripPanel.thumbnailSize(1000, 100, 104)
 
-        assertEquals(listOf(1, 2, 3), layouts.map { it.columns })
-        assertTrue(layouts.all { it.cardWidth == it.cellWidth - 8 })
-        assertTrue(
-            layouts.zipWithNext().all { (first, second) ->
-                second.cardWidth < first.cardWidth
-            },
+        assertEquals(java.awt.Dimension(208, 104), landscape)
+        assertEquals(104, missing.height)
+        assertTrue("placeholder is portrait", missing.width < missing.height)
+        assertTrue("very wide images are capped", panorama.width <= (104 * 2.4).toInt())
+    }
+
+    @Test
+    fun `golden strip labels drop the segments shared by every golden`() {
+        assertEquals(
+            listOf("chargeLeague", "allego"),
+            GoldenStripPanel.stripLabels(
+                listOf(
+                    "com.example.Tests.IonityHeader.chargeLeague.Dark_en_NIGHT_PIXEL_7_PRO",
+                    "com.example.Tests.IonityHeader.allego.Dark_en_NIGHT_PIXEL_7_PRO",
+                ),
+            ),
         )
+        assertEquals(listOf("a", "a.dark"), GoldenStripPanel.stripLabels(listOf("pkg.T.a", "pkg.T.a.dark")))
+        assertEquals(listOf("Paparazzi_Test_dark"), GoldenStripPanel.stripLabels(listOf("Paparazzi_Test_dark")))
+        assertEquals(listOf("greetingCardScreen"), GoldenStripPanel.stripLabels(listOf("com.example.Tests.greetingCardScreen")))
     }
 
     @Test
-    fun `golden column choice is constrained to supported layouts`() {
-        assertEquals(1, goldenGridGeometry(500, 0).columns)
-        assertEquals(3, goldenGridGeometry(500, 4).columns)
+    fun `very wide goldens are letterboxed inside the capped thumbnail without distortion`() {
+        val box = GoldenStripPanel.thumbnailSize(1080, 200, 104)
+        val rect = GoldenStripPanel.fittedImageRect(1080, 200, box)
+
+        assertEquals(box.width, rect.width)
+        assertEquals(1080.0 / 200, rect.width.toDouble() / rect.height, 0.05)
+        assertEquals((box.height - rect.height) / 2, rect.y)
+
+        val normal = GoldenStripPanel.fittedImageRect(200, 100, GoldenStripPanel.thumbnailSize(200, 100, 104))
+        assertEquals(java.awt.Rectangle(0, 0, 208, 104), normal)
     }
 
     @Test
-    fun `grid column button can initialize before its accessible context exists`() {
-        val button = GridColumnButton(3)
-
-        assertEquals("Show goldens in 3 columns", button.toolTipText)
-    }
-
-    @Test
-    fun `extra source filter matches Files chip geometry and exposes icon selection and accessibility`() {
-        val chip = ExtraSourceFilterChip()
-        val icon = EmptyIcon.create(10, 14)
-        chip.configure("Figma", icon, selected = true)
+    fun `status chip is a compact accessible toggle`() {
+        val chip = StatusChipToggle("Failed", JBColor(Color.RED, Color.RED))
 
         assertEquals(JBUI.scale(20), chip.preferredSize.height)
-        assertEquals(icon, chip.icon)
+        assertEquals("Failed status filter", chip.accessibleContext.accessibleName)
+        chip.doClick()
         assertTrue(chip.isSelected)
-        assertTrue(chip.isVisible)
-        assertEquals("Figma golden filter", chip.getAccessibleContext()?.accessibleName)
-
-        chip.dispatchEvent(
-            KeyEvent(chip, KeyEvent.KEY_PRESSED, 0, 0, KeyEvent.VK_SPACE, ' '),
-        )
-        assertTrue(chip.isFocusable)
     }
 
     @Test
-    fun `extra source filter hides and clears selection without source data`() {
-        val chip = ExtraSourceFilterChip()
-        chip.configure("Figma", EmptyIcon.create(10), selected = true)
+    fun `status pill hides for unchanged and shows the badge label otherwise`() {
+        val pill = PillLabel()
 
-        chip.configure(null, null, selected = false)
+        pill.showStatus(GoldenDisplayStatus.UNCHANGED)
+        assertFalse(pill.isVisible)
 
-        assertFalse(chip.isVisible)
-        assertFalse(chip.isSelected)
+        pill.showStatus(GoldenDisplayStatus.ACCEPTED)
+        assertTrue(pill.isVisible)
+        assertEquals("Accepted", pill.text)
     }
 
     @Test
-    fun `extension badge stays inside the top right corner of a golden card`() {
-        val geometry = sourceBadgeGeometry(
-            cardWidth = JBUI.scale(120),
-            textWidth = JBUI.scale(26),
-            iconWidth = JBUI.scale(10),
-        )
+    fun `tabs header exposes the failed count to screen readers`() {
+        val header = ReviewTabsHeader {}
 
-        assertEquals(JBUI.scale(4), geometry.y)
-        assertEquals(JBUI.scale(18), geometry.height)
-        assertEquals(JBUI.scale(4), JBUI.scale(120) - geometry.x - geometry.width)
-        assertTrue(geometry.x >= 0)
+        header.render(ReviewTab.REVIEW, failedViews = 3)
+
+        val files = header.getComponent(0) as javax.swing.JToggleButton
+        assertEquals("Files, 3 failed", files.accessibleContext.accessibleName)
+        assertFalse(files.isSelected)
     }
 }

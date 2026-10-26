@@ -1,10 +1,11 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.intellij.ui.JBColor
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
@@ -20,6 +21,7 @@ class DiffPanel : JPanel(BorderLayout()) {
     private val canvas = Canvas()
 
     init {
+        background = GoldenDiffColors.background
         add(JBScrollPane(canvas).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
     }
 
@@ -68,11 +70,19 @@ class DiffPanel : JPanel(BorderLayout()) {
         }
 
         private fun drawLegend(g2: Graphics2D, rect: Rectangle, result: PixelDiff.Result) {
-            val percent = result.changedRatio * 100
-            val text = "%.2f%% pixels changed (highlighted)".format(percent)
+            val changed = result.changedRatio > 0.0
+            val text = if (changed) "%.2f%% pixels differ".format(result.changedRatio * 100) else "no differences"
+            g2.font = Font(Font.MONOSPACED, Font.PLAIN, JBUI.scaleFontSize(9.5f))
             val metrics = g2.fontMetrics
-            g2.color = JBColor.foreground()
-            g2.drawString(text, rect.x + JBUI.scale(8), metrics.ascent + JBUI.scale(6))
+            val padX = JBUI.scale(5)
+            val chipWidth = metrics.stringWidth(text) + padX * 2
+            val chipHeight = metrics.height + JBUI.scale(4)
+            val x = rect.x + (rect.width - chipWidth) / 2
+            val y = (titleHeight - chipHeight) / 2
+            g2.color = GoldenDiffColors.header
+            g2.fillRoundRect(x, y, chipWidth, chipHeight, JBUI.scale(6), JBUI.scale(6))
+            g2.color = if (changed) GoldenDiffColors.failed else GoldenDiffColors.faint
+            g2.drawString(text, x + padX, y + JBUI.scale(2) + metrics.ascent)
         }
     }
 }

@@ -1,6 +1,6 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.intellij.ui.JBColor
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
 import com.intellij.util.ui.JBUI
 import java.awt.Cursor
 import java.awt.Dimension
@@ -25,7 +25,7 @@ abstract class ZoomablePanel : JPanel() {
 
     init {
         isOpaque = true
-        background = JBColor.background()
+        background = GoldenDiffColors.background
         val panHandler = object : MouseAdapter() {
             override fun mousePressed(event: MouseEvent) {
                 if (

@@ -56,8 +56,8 @@ conflict because they both install `Golden Diff.app`.
 
 ## Plugin status
 
-The public plugin uses the Swing `RedesignedScreenshotPanel`, `SnapshotFilesPanel`,
-`MergedGoldenCellRenderer`, `CompareView`, four comparison panels, single-image panel, zoom controls
+The public plugin uses the Swing `RedesignedScreenshotPanel` (Files / Review tabs), `FilesListPanel`,
+`GoldenStripPanel`, `CompareView`, four comparison panels, single-image panel, zoom controls
 and the Java tool-window factory. These are thin host adapters over the same `:core` snapshot index,
 projection, merged-source and resolved-Accept contracts used by the standalone app. The Figma
 extension contract and existing project settings format remain compatible; Verify Case is an

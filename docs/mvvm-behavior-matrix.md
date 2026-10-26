@@ -85,6 +85,10 @@ legacy path.
 | EXT-01 | Built-in and extension items merge with stable source-qualified IDs; filter resets outside extension scope. | `PluginSnapshotControllerTest` | Shared contract; plugin extension adapter test. |
 | EXT-02 | A stale extension result cannot replace results for the current View. | `PluginSnapshotControllerTest` | Shared request-identity contract. |
 | SHL-01 | App updater, onboarding, native windows, and plugin editor lifecycle remain outside shared workflow state. | Architecture contract | Architecture check and host-only tests. |
+| SHL-02 | Plugin Files / Review tabs: picking a View or Case in Files (tab or overlay) opens Review and closes the overlay; switching tabs closes the overlay; the overlay opens only on Review; editor changes never switch tabs. | `ReviewShellControllerTest` | Plugin-only shell state; keep out of shared presentation. |
+| SHL-03 | Review ‹ › step one View at a time through the review queue (non-Unchanged Views in unfiltered Files order, Accepted kept), wrap, and clear Case narrowing; a View outside the queue has no position and steps to the nearest queued View; an empty queue hides navigation. | `ReviewShellControllerTest`, `ReviewNavigationTest` | Plugin-only. |
+| SHL-04 | Files list flattens folders into headers with direct failed/total View counts; collapse hides rows but not navigation order; an active query expands everything; Cases show only for expanded Views or the selected Case's View. | `FilesListPresentationTest` | Plugin-only projection over core `projectTree`. |
+| SHL-05 | Accepted is a session overlay over the real status: shown for accepted goldens unless they fail; dropped when an update fails them, a full refresh finds them unchanged or missing, or they are rewritten externally. Accept is disabled (not hidden) without an acceptable Test output. | `ReviewShellControllerTest`, `GoldenDisplayStatusTest` | Plugin-only. |
 
 ## Runtime invariants
 

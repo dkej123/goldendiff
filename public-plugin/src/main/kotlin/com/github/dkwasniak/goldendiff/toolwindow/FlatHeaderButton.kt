@@ -27,6 +27,9 @@ internal class FlatHeaderButton(
             JBUI.scaleFontSize(if (height <= 18) 9.5f else 11f).toFloat(),
         )
         margin = JBUI.insets(0, horizontalPadding)
+        // An explicit border makes the padding identical in every LaF; the default button border adds
+        // LaF-specific insets that clip text inside the fixed-size zoom and scope buttons.
+        border = JBUI.Borders.empty(0, horizontalPadding)
         isOpaque = false
         isContentAreaFilled = false
         isBorderPainted = false

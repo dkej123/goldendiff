@@ -1,6 +1,5 @@
 package com.github.dkwasniak.goldendiff.toolwindow
 
-import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.Color
@@ -23,6 +22,9 @@ internal class AcceptActionButton(
         )
         foreground = Color.WHITE
         margin = JBUI.emptyInsets()
+        // getPreferredSize() reserves exactly the handoff padding, so LaF border insets must not clip the text.
+        border = JBUI.Borders.empty()
+        horizontalAlignment = CENTER
         isOpaque = false
         isContentAreaFilled = false
         isBorderPainted = false
@@ -61,7 +63,7 @@ internal class AcceptActionButton(
     }
 
     private companion object {
-        val DisabledFill = JBColor(Color(0xC9C9C9), Color(0x626467))
+        val DisabledFill = GoldenDiffColors.disabledFill
     }
 }
 

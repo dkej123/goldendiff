@@ -39,7 +39,7 @@ accepted.
 
 ## The four comparison modes
 
-When the golden and the comparison source differ, the mode toggle appears with four options.
+When the golden and the comparison source differ, the mode row is enabled with four options.
 
 ### Side by side
 HEAD and the selected source are shown next to each other, each fit into its half and labeled.

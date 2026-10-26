@@ -1,10 +1,11 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.intellij.ui.JBColor
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
@@ -17,6 +18,7 @@ class TwoUpPanel : JPanel(BorderLayout()) {
     private val canvas = Canvas()
 
     init {
+        background = GoldenDiffColors.background
         add(JBScrollPane(canvas).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
     }
 
@@ -34,7 +36,7 @@ class TwoUpPanel : JPanel(BorderLayout()) {
         private var oldLabel = "HEAD"
         private var newLabel = "Working copy"
 
-        private val titleHeight get() = JBUI.scale(20)
+        private val titleHeight get() = JBUI.scale(22)
 
         fun setImages(old: BufferedImage?, new: BufferedImage?) {
             oldImage = old
@@ -62,8 +64,6 @@ class TwoUpPanel : JPanel(BorderLayout()) {
             val (commonWidth, commonHeight) = ImagePainting.boundingSize(oldImage, newImage)
             drawSide(g2, oldImage, Rectangle(0, 0, half, height), oldLabel, commonWidth, commonHeight)
             drawSide(g2, newImage, Rectangle(half, 0, width - half, height), newLabel, commonWidth, commonHeight)
-            g2.color = JBColor.border()
-            g2.drawLine(half, 0, half, height)
         }
 
         private fun drawSide(
@@ -74,23 +74,29 @@ class TwoUpPanel : JPanel(BorderLayout()) {
             commonWidth: Int,
             commonHeight: Int,
         ) {
-            val titleInset = JBUI.scale(6)
+            val captionFont = g2.font.deriveFont(Font.BOLD, JBUI.scaleFontSize(9.5f).toFloat())
+            g2.font = captionFont
             val metrics = g2.fontMetrics
-            val titleText = ImagePainting.ellipsize(title, metrics, area.width - titleInset * 2)
-            g2.color = foreground
+            val titleText = ImagePainting.ellipsize(title.uppercase(), metrics, area.width - JBUI.scale(12))
+            g2.color = GoldenDiffColors.faint
             if (titleText.isNotEmpty()) {
-                g2.drawString(titleText, area.x + titleInset, area.y + metrics.ascent + JBUI.scale(3))
+                g2.drawString(
+                    titleText,
+                    area.x + (area.width - metrics.stringWidth(titleText)) / 2,
+                    area.y + metrics.ascent + JBUI.scale(4),
+                )
             }
-            val inset = JBUI.scale(14)
+            val inset = JBUI.scale(10)
             val imageArea = Rectangle(
                 area.x + inset,
-                area.y + titleHeight + inset,
+                area.y + titleHeight + JBUI.scale(2),
                 area.width - inset * 2,
-                area.height - titleHeight - inset * 2,
+                area.height - titleHeight - inset - JBUI.scale(2),
             )
             if (image == null) {
-                g2.color = JBColor.GRAY
-                g2.drawString("(none)", area.x + inset, area.y + titleHeight + JBUI.scale(14))
+                g2.color = GoldenDiffColors.faint
+                val missing = "missing in $title"
+                g2.drawString(missing, area.x + (area.width - metrics.stringWidth(missing)) / 2, imageArea.y + JBUI.scale(16))
                 return
             }
             // Scale from the bounding box so both sides share one scale, then center each image.
@@ -98,6 +104,8 @@ class TwoUpPanel : JPanel(BorderLayout()) {
             val rect = ImagePainting.centeredRect(image.width, image.height, scale, imageArea)
             ImagePainting.paintCheckerboard(g2, rect)
             ImagePainting.drawImage(g2, image, rect)
+            g2.color = GoldenDiffColors.border
+            g2.drawRoundRect(rect.x - 1, rect.y - 1, rect.width + 1, rect.height + 1, JBUI.scale(6), JBUI.scale(6))
         }
     }
 }

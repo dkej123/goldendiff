@@ -1,5 +1,6 @@
 package com.github.dkwasniak.goldendiff.compare
 
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
@@ -16,6 +17,7 @@ class SingleImagePanel : JPanel(BorderLayout()) {
     private val canvas = Canvas()
 
     init {
+        background = GoldenDiffColors.background
         add(JBScrollPane(canvas).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
     }
 

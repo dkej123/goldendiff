@@ -1,11 +1,13 @@
 package com.github.dkwasniak.goldendiff.compare
 
-import com.intellij.ui.JBColor
+import com.github.dkwasniak.goldendiff.toolwindow.GoldenDiffColors
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.AlphaComposite
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
@@ -21,20 +23,38 @@ class OnionSkinPanel : JPanel(BorderLayout()) {
 
     private val canvas = Canvas()
     private val slider = JSlider(0, 100, 50).apply {
-        border = JBUI.Borders.empty(4)
+        isOpaque = false
+        getAccessibleContext()?.accessibleName = "Overlay opacity"
         addChangeListener { canvas.alpha = value / 100f }
+    }
+    private val oldEnd = sliderEnd()
+    private val newEnd = sliderEnd()
+    private val controls = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(2, 12, 6, 12)
+        add(oldEnd, BorderLayout.WEST)
+        add(slider, BorderLayout.CENTER)
+        add(newEnd, BorderLayout.EAST)
     }
 
     init {
+        background = GoldenDiffColors.background
         add(JBScrollPane(canvas).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
-        add(slider, BorderLayout.SOUTH)
+        add(controls, BorderLayout.SOUTH)
     }
 
     fun setImages(old: BufferedImage?, new: BufferedImage?) = canvas.setImages(old, new)
 
-    fun setLabels(oldLabel: String, newLabel: String) = canvas.setLabels(oldLabel, newLabel)
+    fun setLabels(oldLabel: String, newLabel: String) {
+        oldEnd.text = oldLabel.uppercase()
+        newEnd.text = newLabel.uppercase()
+        canvas.setLabels(oldLabel, newLabel)
+    }
 
     fun setZoom(zoom: Double) = canvas.setZoom(zoom)
+
+    /** Height of the slider row below the canvas, kept clear of floating controls. */
+    fun controlsHeight(): Int = controls.height.takeIf { it > 0 } ?: controls.preferredSize.height
 
     fun effectiveZoom(): Double = canvas.effectiveZoom()
 
@@ -43,7 +63,7 @@ class OnionSkinPanel : JPanel(BorderLayout()) {
         private var newImage: BufferedImage? = null
         private var oldLabel = "HEAD"
         private var newLabel = "Working copy"
-        private val titleHeight get() = JBUI.scale(28)
+        private val titleHeight get() = JBUI.scale(8)
         var alpha: Float = 0.5f
             set(value) {
                 field = value
@@ -77,7 +97,6 @@ class OnionSkinPanel : JPanel(BorderLayout()) {
                 val scale = ImagePainting.scaleForBounding(zoom, bw, bh, area.width, area.height)
                 val rect = ImagePainting.centeredRect(bw, bh, scale, area)
                 if (rect.width <= 0) return
-                drawLegend(g2, rect)
                 ImagePainting.paintCheckerboard(g2, rect)
                 oldImage?.let { ImagePainting.drawImage(g2, it, ImagePainting.centeredRect(it.width, it.height, scale, area)) }
                 newImage?.let {
@@ -88,16 +107,10 @@ class OnionSkinPanel : JPanel(BorderLayout()) {
                 g2.dispose()
             }
         }
-
-        private fun drawLegend(g2: Graphics2D, rect: Rectangle) {
-            val text = "$oldLabel base / $newLabel overlay ${(alpha * 100).toInt()}%"
-            val metrics = g2.fontMetrics
-            val x = rect.x + JBUI.scale(8)
-            val titleText = ImagePainting.ellipsize(text, metrics, rect.width - JBUI.scale(16))
-            g2.color = JBColor.foreground()
-            if (titleText.isNotEmpty()) {
-                g2.drawString(titleText, x, metrics.ascent + JBUI.scale(6))
-            }
-        }
     }
+}
+
+private fun sliderEnd(): JBLabel = JBLabel().apply {
+    font = Font(Font.MONOSPACED, Font.PLAIN, JBUI.scaleFontSize(9.5f))
+    foreground = GoldenDiffColors.faint
 }

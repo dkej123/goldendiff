@@ -31,14 +31,16 @@ Open the Kotlin file for the screen, preview, or test you are working on. Golden
 extracts the relevant names (class names, the file name, and annotated screenshot-function names), and
 lists the goldens that match.
 
-- When goldens are found, their Views appear in **Files** and the selected scope fills **Goldens**
-  with cards.
+- When goldens are found, their Views appear in **Files** and **Review** shows the selected View's
+  goldens as a thumbnail strip above the comparison.
 - If nothing matches, the empty state points to directory and matching settings — see
   [Matching goldens](matching.md) to adjust how matching works.
 
-The **Files** pane builds a project-wide Folder → View → Snapshot case tree. Search and the Failed /
-Modified / New filters narrow it without losing the active selection; use **Reveal** when the file
-selected in the editor is hidden by a filter.
+The **Files** tab lists every snapshot-related View, grouped under folder headers that stay pinned
+while you scroll and can be collapsed. Search and the Failed / Modified / New filters narrow it
+without losing the active selection; use **Reveal** when the file selected in the editor is hidden by
+a filter. Picking a file switches to **Review**; there, ‹ › step to the previous/next file and
+`Files ▾` opens the same list as an overlay.
 
 Golden Diff watches configured golden and generated-output directories. Image changes update
 automatically; structural changes use a selection-preserving rescan. Source-code edits still do not
@@ -46,12 +48,12 @@ rematch while you type.
 
 ## 4. Review your first comparison
 
-Select a golden card. The viewer loads the **committed (HEAD)** version and automatically chooses the
+Select a golden in the strip. The viewer loads the **committed (HEAD)** version and automatically chooses the
 useful local variant: differing Test output first, then Working copy, then the only available source.
 
 - If they are identical, you get a single preview labeled **“No changes vs HEAD — <file>”**.
-- If they differ, the mode toggle appears and you can switch between **Side by side**, **Swipe**,
-  **Onion skin**, and **Diff**, and change the **Zoom**.
+- If they differ, the mode row is enabled and you can switch between **Side**, **Swipe**,
+  **Onion**, and **Diff**, and change the **Zoom**.
 
 ![Reviewing a golden](images/getting-started-comparison.png)
 <!-- TODO(screenshot): a selected golden showing a side-by-side HEAD vs Working copy comparison -->
@@ -60,11 +62,12 @@ useful local variant: differing Test output first, then Working copy, then the o
 
 | Area | What it is |
 |---|---|
-| **Files** | Project-wide Folder → View → Case navigation with search and status filters. |
-| **Goldens** | Matching cards with independent Working and Test statuses; thumbnail density is adjustable. |
+| **Files** | Project-wide Folder → View → Case list with search, status filters, and collapsible sticky folders. |
+| **Review** | File stepping, the goldens strip (status bar under each thumbnail), mode row, Accept, and the comparison. |
 | **Generate / Verify** | Runs configured project-, View-, or Case-scoped commands in the IDE Run tool window. |
 | **Accept / Accept all** | Promotes the exact displayed Test output to one golden or every actionable golden in the View. |
 | **Compare** | Shows HEAD vs the automatically derived source, with comparison modes, zoom, and a detachable window. |
+| **⋮ menu** | Settings, Refresh, Accept All in File, the extension filter, and Open Comparison in Separate Window. |
 
 ## Where to go next
 
