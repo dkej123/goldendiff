@@ -4,8 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.system.measureTimeMillis
 
 /**
  * `fetchInParallel` backs the Figma reference download: the node-tree fetch (`/nodes`) and the
@@ -24,12 +25,19 @@ class ParallelFetchTest {
 
     @Test
     fun `runs the two calls concurrently rather than sequentially`() {
-        val elapsed = measureTimeMillis {
-            fetchInParallel({ Thread.sleep(200) }, { Thread.sleep(200) })
+        // Each call checks in and waits for the other. Only overlapping calls can both see the
+        // rendezvous; a sequential implementation leaves the first one waiting until the timeout.
+        // No wall-clock threshold, so a slow CI runner cannot make this fail.
+        val rendezvous = CountDownLatch(2)
+        fun meetOther(): Boolean {
+            rendezvous.countDown()
+            return rendezvous.await(5, TimeUnit.SECONDS)
         }
 
-        // Sequential would be ~400ms; overlapped stays well under that.
-        assertTrue("expected overlap but took ${elapsed}ms", elapsed < 350)
+        val (firstMet, secondMet) = fetchInParallel(::meetOther, ::meetOther)
+
+        assertTrue("first call never overlapped the second", firstMet)
+        assertTrue("second call never overlapped the first", secondMet)
     }
 
     @Test
